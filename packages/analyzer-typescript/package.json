@@ -1,0 +1,13 @@
+{
+  "name": "@bunker-code/analyzer-typescript",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ts-morph": "^26.0.0"
+  }
+}
