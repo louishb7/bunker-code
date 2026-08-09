@@ -2,6 +2,7 @@
   "name": "bunker-code",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "pnpm@11.20.0",
   "type": "module",
   "scripts": {
     "analyze": "node --import tsx apps/cli/src/main.ts",

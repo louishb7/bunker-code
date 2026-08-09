@@ -1,6 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { Project } from 'ts-morph';
+import { Project, type SourceFile } from 'ts-morph';
 import type {
   AnalysisDiagnostic,
   AnalysisResult,
@@ -20,6 +20,10 @@ function isPathInsideProject(relativePath: string): boolean {
 
 function isExternalModuleSpecifier(moduleSpecifier: string): boolean {
   return !moduleSpecifier.startsWith('.') && !moduleSpecifier.startsWith('/');
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function sortByPath<T extends { path: string }>(items: T[]): T[] {
@@ -47,6 +51,78 @@ function sortByDependency<
   );
 }
 
+function recordDependency(params: {
+  projectPath: string;
+  sourceFilePath: string;
+  moduleSpecifier: string;
+  targetSourceFile: SourceFile | undefined;
+  evidence: DependencyEvidence;
+  dependencies: ResolvedDependency[];
+  unresolvedDependencies: UnresolvedDependency[];
+  diagnostics: AnalysisDiagnostic[];
+}): void {
+  const {
+    projectPath,
+    sourceFilePath,
+    moduleSpecifier,
+    targetSourceFile,
+    evidence,
+    dependencies,
+    unresolvedDependencies,
+    diagnostics,
+  } = params;
+
+  if (targetSourceFile) {
+    const targetFileId = normalizeProjectPath(projectPath, targetSourceFile.getFilePath());
+
+    if (isPathInsideProject(targetFileId)) {
+      dependencies.push({
+        sourceFileId: sourceFilePath,
+        targetFileId,
+        moduleSpecifier,
+        kind: 'internal',
+        evidence,
+        confidence: 'exact',
+      });
+      return;
+    }
+
+    dependencies.push({
+      sourceFileId: sourceFilePath,
+      moduleSpecifier,
+      kind: 'external',
+      evidence,
+      confidence: 'inferred',
+    });
+    return;
+  }
+
+  if (isExternalModuleSpecifier(moduleSpecifier)) {
+    dependencies.push({
+      sourceFileId: sourceFilePath,
+      moduleSpecifier,
+      kind: 'external',
+      evidence,
+      confidence: 'inferred',
+    });
+    return;
+  }
+
+  unresolvedDependencies.push({
+    sourceFileId: sourceFilePath,
+    moduleSpecifier,
+    reason: 'relative-target-not-found',
+    evidence,
+    confidence: 'exact',
+  });
+  diagnostics.push({
+    code: 'unresolved-dependency',
+    severity: 'warning',
+    message: `Unable to resolve relative dependency "${moduleSpecifier}" from "${sourceFilePath}".`,
+    evidence,
+  });
+}
+
 /**
  * Analyzes a TypeScript project using its local `tsconfig.json`.
  *
@@ -67,7 +143,13 @@ export function analyzeProject(inputPath: string): AnalysisResult {
     throw new Error(`tsconfig.json not found: ${tsconfigPath}`);
   }
 
-  const project = new Project({ tsConfigFilePath: tsconfigPath });
+  let project: Project;
+
+  try {
+    project = new Project({ tsConfigFilePath: tsconfigPath });
+  } catch (error) {
+    throw new Error(`Invalid TypeScript project configuration: ${getErrorMessage(error)}`);
+  }
 
   const files: AnalyzedFile[] = sortByPath(
     project.getSourceFiles().map((sourceFile) => ({
@@ -94,56 +176,46 @@ export function analyzeProject(inputPath: string): AnalysisResult {
           column: location.column,
         },
       };
-      const targetSourceFile = importDeclaration.getModuleSpecifierSourceFile();
 
-      if (targetSourceFile) {
-        const targetFileId = normalizeProjectPath(projectPath, targetSourceFile.getFilePath());
-
-        if (isPathInsideProject(targetFileId)) {
-          dependencies.push({
-            sourceFileId: sourceFilePath,
-            targetFileId,
-            moduleSpecifier,
-            kind: 'internal',
-            evidence,
-            confidence: 'exact',
-          });
-          continue;
-        }
-
-        dependencies.push({
-          sourceFileId: sourceFilePath,
-          moduleSpecifier,
-          kind: 'external',
-          evidence,
-          confidence: 'inferred',
-        });
-        continue;
-      }
-
-      if (isExternalModuleSpecifier(moduleSpecifier)) {
-        dependencies.push({
-          sourceFileId: sourceFilePath,
-          moduleSpecifier,
-          kind: 'external',
-          evidence,
-          confidence: 'inferred',
-        });
-        continue;
-      }
-
-      unresolvedDependencies.push({
-        sourceFileId: sourceFilePath,
+      recordDependency({
+        projectPath,
+        sourceFilePath,
         moduleSpecifier,
-        reason: 'relative-target-not-found',
+        targetSourceFile: importDeclaration.getModuleSpecifierSourceFile(),
         evidence,
-        confidence: 'exact',
+        dependencies,
+        unresolvedDependencies,
+        diagnostics,
       });
-      diagnostics.push({
-        code: 'unresolved-dependency',
-        severity: 'warning',
-        message: `Unable to resolve relative dependency "${moduleSpecifier}" from "${sourceFilePath}".`,
+    }
+
+    for (const exportDeclaration of sourceFile.getExportDeclarations()) {
+      const moduleSpecifier = exportDeclaration.getModuleSpecifierValue();
+      const moduleSpecifierNode = exportDeclaration.getModuleSpecifier();
+
+      if (!moduleSpecifier || !moduleSpecifierNode) {
+        continue;
+      }
+
+      const position = moduleSpecifierNode.getStart();
+      const location = sourceFile.getLineAndColumnAtPos(position);
+      const evidence: DependencyEvidence = {
+        location: {
+          filePath: sourceFilePath,
+          line: location.line,
+          column: location.column,
+        },
+      };
+
+      recordDependency({
+        projectPath,
+        sourceFilePath,
+        moduleSpecifier,
+        targetSourceFile: exportDeclaration.getModuleSpecifierSourceFile(),
         evidence,
+        dependencies,
+        unresolvedDependencies,
+        diagnostics,
       });
     }
   }
