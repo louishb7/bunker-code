@@ -1,14 +1,10 @@
 {
-  "name": "@bunker-code/analyzer-typescript",
+  "name": "@bunker-code/contracts",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@bunker-code/contracts": "workspace:*",
-    "ts-morph": "^26.0.0"
   }
 }

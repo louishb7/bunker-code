@@ -26,9 +26,20 @@ importers:
 
   packages/analyzer-typescript:
     dependencies:
+      '@bunker-code/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       ts-morph:
         specifier: ^26.0.0
         version: 26.0.0
+
+  packages/contracts: {}
+
+  packages/graph-engine:
+    dependencies:
+      '@bunker-code/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
 packages:
 
