@@ -1,8 +1,13 @@
 export { analyzeProject } from './analyze-project.js';
 export type {
+  AnalysisDiagnostic,
   AnalysisResult,
   AnalyzedFile,
-  ImportLocation,
-  ResolvedImport,
-  UnresolvedImport,
+  Confidence,
+  DependencyEvidence,
+  DependencyKind,
+  ResolvedDependency,
+  SourceLocation,
+  UnresolvedDependency,
+  UnresolvedDependencyReason,
 } from './analysis-result.js';
