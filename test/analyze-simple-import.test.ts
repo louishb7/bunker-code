@@ -11,6 +11,8 @@ test('analyze simple-import deterministically', () => {
   const [importEntry] = first.imports;
 
   assert.deepEqual(first, second);
+  assert.equal(first.projectPath, '.');
+  assert.equal(first.tsconfigPath, 'tsconfig.json');
   assert.equal(first.files.length, 2);
   assert.deepEqual(first.files, [{ path: 'src/main.ts' }, { path: 'src/service.ts' }]);
   assert.equal(first.imports.length, 1);

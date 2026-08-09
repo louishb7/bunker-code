@@ -81,8 +81,8 @@ export function analyzeProject(inputPath: string): AnalysisResult {
   }
 
   return {
-    projectPath,
-    tsconfigPath,
+    projectPath: '.',
+    tsconfigPath: normalizeProjectPath(projectPath, tsconfigPath),
     files,
     imports: sortByImport(imports),
     unresolvedImports: sortByImport(unresolvedImports),

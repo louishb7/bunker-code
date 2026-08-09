@@ -5,3 +5,7 @@ coverage/
 .env
 .env.*
 *.log
+
+# Local AI agent instructions and planning
+/AGENTS.md
+/AI_PROJECT_CHECKLIST.md
