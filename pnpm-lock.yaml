@@ -29,6 +29,9 @@ importers:
       '@bunker-code/analyzer-typescript':
         specifier: workspace:*
         version: link:../../packages/analyzer-typescript
+      '@bunker-code/graph-engine':
+        specifier: workspace:*
+        version: link:../../packages/graph-engine
 
   packages/analyzer-typescript:
     dependencies:

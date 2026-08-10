@@ -5,6 +5,7 @@ export {
   getDependencies,
   getIsolatedFileNodes,
 } from './project-graph.js';
+export { createProjectDiagnostics } from './project-diagnostics.js';
 export type {
   ExternalGraphNode,
   FileGraphNode,
@@ -14,3 +15,14 @@ export type {
   ProjectGraphNode,
   UnresolvedGraphDependency,
 } from './project-graph.js';
+export type {
+  ProjectDiagnostic,
+  ProjectDiagnosticBasis,
+  ProjectDiagnosticEvidence,
+  ProjectDiagnosticKind,
+  ProjectDiagnosticsOptions,
+  ProjectDiagnosticsReport,
+  ProjectDiagnosticsThresholds,
+  ProjectDiagnosticSeverity,
+  ProjectDiagnosticThreshold,
+} from './project-diagnostics.js';

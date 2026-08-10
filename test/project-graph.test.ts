@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import type { AnalysisResult } from '@bunker-code/contracts';
 import {
   buildProjectGraph,
+  createProjectDiagnostics,
   detectCycles,
   getDependencies,
   getDependents,
@@ -139,5 +140,67 @@ test('queries dependencies, dependents, isolated files and cycles', () => {
   ]);
   assert.deepEqual(detectCycles(graph), [
     { nodeIds: ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/a.ts'] },
+  ]);
+});
+
+test('creates evidence-backed project diagnostics from graph queries', () => {
+  const graph = buildProjectGraph(analysis);
+  const report = createProjectDiagnostics(graph, {
+    thresholds: {
+      manyDependents: 1,
+      manyDependencies: 2,
+    },
+  });
+
+  assert.deepEqual(report.thresholds, {
+    manyDependents: 1,
+    manyDependencies: 2,
+  });
+
+  const circularDependency = report.diagnostics.find((diagnostic) => diagnostic.kind === 'circular-dependency');
+  const unresolvedDependency = report.diagnostics.find((diagnostic) => diagnostic.kind === 'unresolved-dependency');
+  const manyDependents = report.diagnostics.find((diagnostic) => diagnostic.id === 'many-dependents:src/a.ts');
+  const manyDependencies = report.diagnostics.find((diagnostic) => diagnostic.kind === 'many-dependencies');
+  const isolatedFile = report.diagnostics.find((diagnostic) => diagnostic.kind === 'isolated-file');
+  const fanOut = report.diagnostics.find((diagnostic) => diagnostic.id === 'fan-out:src/a.ts');
+
+  assert.ok(circularDependency);
+  assert.equal(circularDependency.basis, 'fact');
+  assert.equal(circularDependency.confidence, 'exact');
+  assert.deepEqual(circularDependency.subject.nodeIds, ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/a.ts']);
+  assert.deepEqual(circularDependency.evidence.map((evidence) => evidence.kind), ['edge', 'edge', 'edge']);
+
+  assert.ok(unresolvedDependency);
+  assert.equal(unresolvedDependency.basis, 'fact');
+  assert.equal(unresolvedDependency.confidence, 'exact');
+  assert.equal(unresolvedDependency.evidence[0]?.kind, 'unresolved-dependency');
+
+  assert.ok(fanOut);
+  assert.equal(fanOut.basis, 'fact');
+  assert.equal(fanOut.confidence, 'inferred');
+  assert.equal(fanOut.evidence.length, 2);
+
+  assert.ok(manyDependents);
+  assert.equal(manyDependents.basis, 'heuristic');
+  assert.equal(manyDependents.confidence, 'exact');
+  assert.deepEqual(manyDependents.threshold, {
+    name: 'manyDependents',
+    actual: 1,
+    minimum: 1,
+  });
+
+  assert.ok(manyDependencies);
+  assert.equal(manyDependencies.basis, 'heuristic');
+  assert.equal(manyDependencies.confidence, 'inferred');
+  assert.deepEqual(manyDependencies.threshold, {
+    name: 'manyDependencies',
+    actual: 2,
+    minimum: 2,
+  });
+
+  assert.ok(isolatedFile);
+  assert.equal(isolatedFile.confidence, 'exact');
+  assert.deepEqual(isolatedFile.evidence, [
+    { kind: 'file-node', node: { id: 'src/isolated.ts', kind: 'file', path: 'src/isolated.ts' } },
   ]);
 });
