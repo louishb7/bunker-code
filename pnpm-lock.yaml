@@ -8,6 +8,12 @@ importers:
 
   .:
     devDependencies:
+      '@bunker-code/contracts':
+        specifier: workspace:*
+        version: link:packages/contracts
+      '@bunker-code/graph-engine':
+        specifier: workspace:*
+        version: link:packages/graph-engine
       '@types/node':
         specifier: ^24.1.0
         version: 24.13.3

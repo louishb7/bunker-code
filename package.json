@@ -10,6 +10,8 @@
     "test": "node --import tsx --test test/analyze-simple-import.test.ts test/project-graph.test.ts"
   },
   "devDependencies": {
+    "@bunker-code/contracts": "workspace:*",
+    "@bunker-code/graph-engine": "workspace:*",
     "@types/node": "^24.1.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
