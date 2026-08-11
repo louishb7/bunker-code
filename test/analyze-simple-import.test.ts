@@ -43,6 +43,11 @@ test('analyze simple-import deterministically', () => {
   const [importEntry] = first.dependencies;
 
   assert.deepEqual(first, second);
+  assert.equal(first.schemaVersion, 1);
+  assert.deepEqual(first.analyzer, {
+    name: '@bunker-code/analyzer-typescript',
+    language: 'typescript',
+  });
   assert.equal(first.projectPath, '.');
   assert.equal(first.tsconfigPath, 'tsconfig.json');
   assert.equal(first.files.length, 2);
@@ -143,6 +148,8 @@ test('resolves realistic TypeScript module patterns deterministically', (context
         moduleResolution: 'Bundler',
         baseUrl: 'src',
         paths: {
+          '@exact': ['exact.ts'],
+          '@broken-exact': ['missing-exact.ts'],
           '@core/*': ['core/*'],
         },
         strict: true,
@@ -158,19 +165,23 @@ test('resolves realistic TypeScript module patterns deterministically', (context
       "import { helper } from './utils/helper';",
       "import { nested } from './nested/nested';",
       "import { core } from '@core/core';",
+      "import { exact } from '@exact';",
       "import { feature } from 'feature/index';",
       "import { barrel } from './barrel';",
       "import type { TypeOnly } from './types';",
       "import 'external-package';",
       "import './missing';",
+      "import '@broken-exact';",
+      "import '@core/missing';",
       '',
-      'export const value: TypeOnly = `${helper()}${nested()}${core()}${feature()}${barrel}`;',
+      'export const value: TypeOnly = `${helper()}${nested()}${core()}${exact()}${feature()}${barrel}`;',
       '',
     ].join('\n'),
   );
   writeProjectFile(projectPath, 'src/utils/helper.ts', "export function helper(): string { return 'helper'; }\n");
   writeProjectFile(projectPath, 'src/nested/nested.ts', "export function nested(): string { return 'nested'; }\n");
   writeProjectFile(projectPath, 'src/core/core.ts', "export function core(): string { return 'core'; }\n");
+  writeProjectFile(projectPath, 'src/exact.ts', "export function exact(): string { return 'exact'; }\n");
   writeProjectFile(projectPath, 'src/feature/index.ts', "export { feature } from './feature-service';\n");
   writeProjectFile(projectPath, 'src/feature/feature-service.ts', "export function feature(): string { return 'feature'; }\n");
   writeProjectFile(projectPath, 'src/barrel/index.ts', "export * from './target';\n");
@@ -189,6 +200,7 @@ test('resolves realistic TypeScript module patterns deterministically', (context
       'src/barrel/index.ts',
       'src/barrel/target.ts',
       'src/core/core.ts',
+      'src/exact.ts',
       'src/feature/feature-service.ts',
       'src/feature/index.ts',
       'src/main.ts',
@@ -250,6 +262,13 @@ test('resolves realistic TypeScript module patterns deterministically', (context
     },
     {
       sourceFileId: 'src/main.ts',
+      targetFileId: 'src/exact.ts',
+      moduleSpecifier: '@exact',
+      kind: 'internal',
+      confidence: 'exact',
+    },
+    {
+      sourceFileId: 'src/main.ts',
       moduleSpecifier: 'external-package',
       kind: 'external',
       confidence: 'inferred',
@@ -281,8 +300,20 @@ test('resolves realistic TypeScript module patterns deterministically', (context
       reason: 'relative-target-not-found',
       confidence: 'exact',
     },
+    {
+      sourceFileId: 'src/main.ts',
+      moduleSpecifier: '@broken-exact',
+      reason: 'configured-internal-target-not-found',
+      confidence: 'exact',
+    },
+    {
+      sourceFileId: 'src/main.ts',
+      moduleSpecifier: '@core/missing',
+      reason: 'configured-internal-target-not-found',
+      confidence: 'exact',
+    },
   ]);
-  assert.equal(first.diagnostics.length, 1);
+  assert.equal(first.diagnostics.length, 3);
   assert.equal(first.diagnostics[0]?.code, 'unresolved-dependency');
   assert.equal(first.dependencies.every((dependency) => dependency.evidence.location.filePath.includes('\\') === false), true);
   assert.equal(first.unresolvedDependencies.every((dependency) => dependency.evidence.location.filePath.includes('\\') === false), true);

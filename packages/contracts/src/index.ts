@@ -1,4 +1,10 @@
+export const ANALYSIS_SCHEMA_VERSION = 1;
+
+export type AnalysisSchemaVersion = typeof ANALYSIS_SCHEMA_VERSION;
+
 export interface AnalysisResult {
+  schemaVersion: AnalysisSchemaVersion;
+  analyzer: AnalysisAnalyzerMetadata;
   /** Path of the analyzed project root, relative to itself. */
   projectPath: string;
   /** Path of the tsconfig used for analysis, relative to the analyzed project. */
@@ -8,6 +14,11 @@ export interface AnalysisResult {
   unresolvedDependencies: UnresolvedDependency[];
   /** Non-fatal issues found while producing a partial but usable result. */
   diagnostics: AnalysisDiagnostic[];
+}
+
+export interface AnalysisAnalyzerMetadata {
+  name: string;
+  language: string;
 }
 
 export interface AnalyzedFile {
@@ -23,7 +34,7 @@ export type DependencyKind = 'internal' | 'external';
 
 export type DiagnosticSeverity = 'warning' | 'error';
 
-export type UnresolvedDependencyReason = 'relative-target-not-found';
+export type UnresolvedDependencyReason = 'relative-target-not-found' | 'configured-internal-target-not-found';
 
 export interface SourceLocation {
   /** Normalized path relative to the analyzed project, using `/` separators. */

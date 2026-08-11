@@ -1,7 +1,10 @@
 export { analyzeProject } from './analyze-project.js';
+export { ANALYSIS_SCHEMA_VERSION } from './analysis-result.js';
 export type {
   AnalysisDiagnostic,
+  AnalysisAnalyzerMetadata,
   AnalysisResult,
+  AnalysisSchemaVersion,
   AnalyzedFile,
   Confidence,
   DependencyEvidence,

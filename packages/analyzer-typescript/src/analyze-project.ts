@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { Project, type SourceFile } from 'ts-morph';
+import { ANALYSIS_SCHEMA_VERSION } from './analysis-result.js';
 import type {
   AnalysisDiagnostic,
   AnalysisResult,
@@ -20,6 +21,13 @@ function isPathInsideProject(relativePath: string): boolean {
 
 function isExternalModuleSpecifier(moduleSpecifier: string): boolean {
   return !moduleSpecifier.startsWith('.') && !moduleSpecifier.startsWith('/');
+}
+
+interface PathAliasPattern {
+  pattern: string;
+  prefix: string;
+  suffix: string;
+  hasWildcard: boolean;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -51,10 +59,51 @@ function sortByDependency<
   );
 }
 
+function pathAliasPatterns(project: Project): PathAliasPattern[] {
+  const paths = project.getCompilerOptions().paths ?? {};
+
+  return Object.keys(paths)
+    .sort()
+    .map((pattern) => {
+      const wildcardIndex = pattern.indexOf('*');
+
+      if (wildcardIndex === -1) {
+        return {
+          pattern,
+          prefix: pattern,
+          suffix: '',
+          hasWildcard: false,
+        };
+      }
+
+      return {
+        pattern,
+        prefix: pattern.slice(0, wildcardIndex),
+        suffix: pattern.slice(wildcardIndex + 1),
+        hasWildcard: true,
+      };
+    });
+}
+
+function matchesConfiguredPathAlias(moduleSpecifier: string, patterns: readonly PathAliasPattern[]): boolean {
+  return patterns.some((pattern) => {
+    if (!pattern.hasWildcard) {
+      return moduleSpecifier === pattern.pattern;
+    }
+
+    return (
+      moduleSpecifier.length >= pattern.prefix.length + pattern.suffix.length &&
+      moduleSpecifier.startsWith(pattern.prefix) &&
+      moduleSpecifier.endsWith(pattern.suffix)
+    );
+  });
+}
+
 function recordDependency(params: {
   projectPath: string;
   sourceFilePath: string;
   moduleSpecifier: string;
+  matchesConfiguredPathAlias: boolean;
   targetSourceFile: SourceFile | undefined;
   evidence: DependencyEvidence;
   dependencies: ResolvedDependency[];
@@ -65,6 +114,7 @@ function recordDependency(params: {
     projectPath,
     sourceFilePath,
     moduleSpecifier,
+    matchesConfiguredPathAlias,
     targetSourceFile,
     evidence,
     dependencies,
@@ -93,6 +143,23 @@ function recordDependency(params: {
       kind: 'external',
       evidence,
       confidence: 'inferred',
+    });
+    return;
+  }
+
+  if (matchesConfiguredPathAlias) {
+    unresolvedDependencies.push({
+      sourceFileId: sourceFilePath,
+      moduleSpecifier,
+      reason: 'configured-internal-target-not-found',
+      evidence,
+      confidence: 'exact',
+    });
+    diagnostics.push({
+      code: 'unresolved-dependency',
+      severity: 'warning',
+      message: `Unable to resolve configured internal dependency "${moduleSpecifier}" from "${sourceFilePath}".`,
+      evidence,
     });
     return;
   }
@@ -161,6 +228,7 @@ export function analyzeProject(inputPath: string): AnalysisResult {
   const dependencies: ResolvedDependency[] = [];
   const unresolvedDependencies: UnresolvedDependency[] = [];
   const diagnostics: AnalysisDiagnostic[] = [];
+  const configuredPathAliasPatterns = pathAliasPatterns(project);
 
   for (const sourceFile of project.getSourceFiles()) {
     const sourceFilePath = normalizeProjectPath(projectPath, sourceFile.getFilePath());
@@ -181,6 +249,7 @@ export function analyzeProject(inputPath: string): AnalysisResult {
         projectPath,
         sourceFilePath,
         moduleSpecifier,
+        matchesConfiguredPathAlias: matchesConfiguredPathAlias(moduleSpecifier, configuredPathAliasPatterns),
         targetSourceFile: importDeclaration.getModuleSpecifierSourceFile(),
         evidence,
         dependencies,
@@ -211,6 +280,7 @@ export function analyzeProject(inputPath: string): AnalysisResult {
         projectPath,
         sourceFilePath,
         moduleSpecifier,
+        matchesConfiguredPathAlias: matchesConfiguredPathAlias(moduleSpecifier, configuredPathAliasPatterns),
         targetSourceFile: exportDeclaration.getModuleSpecifierSourceFile(),
         evidence,
         dependencies,
@@ -221,6 +291,11 @@ export function analyzeProject(inputPath: string): AnalysisResult {
   }
 
   return {
+    schemaVersion: ANALYSIS_SCHEMA_VERSION,
+    analyzer: {
+      name: '@bunker-code/analyzer-typescript',
+      language: 'typescript',
+    },
     projectPath: '.',
     tsconfigPath: normalizeProjectPath(projectPath, tsconfigPath),
     files,

@@ -37,6 +37,11 @@ test('prints deterministic investigation JSON for a controlled project', () => {
 
   const output = JSON.parse(first.stdout) as CliOutput;
 
+  assert.equal(output.analysis.schemaVersion, 1);
+  assert.deepEqual(output.analysis.analyzer, {
+    name: '@bunker-code/analyzer-typescript',
+    language: 'typescript',
+  });
   assert.deepEqual(output.analysis.files.map((file) => file.path), [
     'src/main.ts',
     'src/service.ts',

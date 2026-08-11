@@ -9,8 +9,14 @@ import {
   getDependents,
   getIsolatedFileNodes,
 } from '../packages/graph-engine/src/index.js';
+import type { ProjectGraph, ProjectGraphEdge } from '../packages/graph-engine/src/index.js';
 
 const analysis: AnalysisResult = {
+  schemaVersion: 1,
+  analyzer: {
+    name: '@bunker-code/analyzer-typescript',
+    language: 'typescript',
+  },
   projectPath: '.',
   tsconfigPath: 'tsconfig.json',
   files: [
@@ -126,7 +132,12 @@ test('builds a deterministic project graph from analysis result', () => {
 
 test('queries dependencies, dependents, isolated files and cycles', () => {
   const graph = buildProjectGraph(analysis);
+  const serializedBeforeQueries = JSON.stringify(graph);
 
+  assert.deepEqual(
+    getDependencies(graph, 'src/a.ts').map((edge) => edge.targetNodeId),
+    ['src/b.ts', 'external:external-package'],
+  );
   assert.deepEqual(
     getDependencies(graph, 'src/a.ts').map((edge) => edge.targetNodeId),
     ['src/b.ts', 'external:external-package'],
@@ -135,11 +146,19 @@ test('queries dependencies, dependents, isolated files and cycles', () => {
     getDependents(graph, 'src/a.ts').map((edge) => edge.sourceNodeId),
     ['src/c.ts'],
   );
+  assert.deepEqual(getDependencies(graph, 'src/isolated.ts'), []);
+  assert.deepEqual(getDependents(graph, 'src/isolated.ts'), []);
   assert.deepEqual(getIsolatedFileNodes(graph), [
     { id: 'src/isolated.ts', kind: 'file', path: 'src/isolated.ts' },
   ]);
   assert.deepEqual(detectCycles(graph), [
     { nodeIds: ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/a.ts'] },
+  ]);
+  assert.equal(JSON.stringify(graph), serializedBeforeQueries);
+  assert.deepEqual(Object.keys(JSON.parse(JSON.stringify(graph))), [
+    'nodes',
+    'edges',
+    'unresolvedDependencies',
   ]);
 });
 
@@ -204,3 +223,68 @@ test('creates evidence-backed project diagnostics from graph queries', () => {
     { kind: 'file-node', node: { id: 'src/isolated.ts', kind: 'file', path: 'src/isolated.ts' } },
   ]);
 });
+
+test('detects circular components without enumerating every simple cycle', () => {
+  assert.deepEqual(detectCycles(graphFromEdges(['src/a.ts', 'src/b.ts', 'src/c.ts'], [
+    ['src/a.ts', 'src/b.ts'],
+    ['src/b.ts', 'src/c.ts'],
+  ])), []);
+  assert.deepEqual(detectCycles(graphFromEdges(['src/a.ts', 'src/b.ts', 'src/c.ts'], [
+    ['src/a.ts', 'src/b.ts'],
+    ['src/b.ts', 'src/c.ts'],
+    ['src/c.ts', 'src/a.ts'],
+  ])), [
+    { nodeIds: ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/a.ts'] },
+  ]);
+  assert.deepEqual(detectCycles(graphFromEdges(['src/a.ts'], [
+    ['src/a.ts', 'src/a.ts'],
+  ])), [
+    { nodeIds: ['src/a.ts', 'src/a.ts'] },
+  ]);
+  assert.deepEqual(detectCycles(graphFromEdges(['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts'], [
+    ['src/a.ts', 'src/b.ts'],
+    ['src/b.ts', 'src/a.ts'],
+    ['src/c.ts', 'src/d.ts'],
+    ['src/d.ts', 'src/c.ts'],
+  ])), [
+    { nodeIds: ['src/a.ts', 'src/b.ts', 'src/a.ts'] },
+    { nodeIds: ['src/c.ts', 'src/d.ts', 'src/c.ts'] },
+  ]);
+  assert.deepEqual(detectCycles(graphFromEdges(['src/a.ts', 'src/b.ts', 'src/c.ts'], [
+    ['src/a.ts', 'src/b.ts'],
+    ['src/a.ts', 'src/c.ts'],
+    ['src/b.ts', 'src/a.ts'],
+    ['src/b.ts', 'src/c.ts'],
+    ['src/c.ts', 'src/a.ts'],
+    ['src/c.ts', 'src/b.ts'],
+  ])), [
+    { nodeIds: ['src/a.ts', 'src/b.ts', 'src/a.ts'] },
+  ]);
+});
+
+function graphFromEdges(fileNodeIds: string[], edgeNodeIds: Array<[string, string]>): ProjectGraph {
+  return {
+    nodes: fileNodeIds.map((id) => ({ id, kind: 'file', path: id })),
+    edges: edgeNodeIds.map(([sourceNodeId, targetNodeId], index) => graphEdge(sourceNodeId, targetNodeId, index + 1)),
+    unresolvedDependencies: [],
+  };
+}
+
+function graphEdge(sourceNodeId: string, targetNodeId: string, line: number): ProjectGraphEdge {
+  return {
+    id: `${sourceNodeId} -> ${targetNodeId} -> ./target -> ${line}:1`,
+    sourceNodeId,
+    targetNodeId,
+    kind: 'dependency',
+    dependencyKind: 'internal',
+    moduleSpecifier: './target',
+    evidence: {
+      location: {
+        filePath: sourceNodeId,
+        line,
+        column: 1,
+      },
+    },
+    confidence: 'exact',
+  };
+}
