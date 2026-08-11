@@ -3,11 +3,13 @@ import { test } from 'node:test';
 import type { AnalysisResult } from '@bunker-code/contracts';
 import {
   buildProjectGraph,
+  createImpactReport,
   createProjectDiagnostics,
   detectCycles,
   getDependencies,
   getDependents,
   getIsolatedFileNodes,
+  getTransitiveDependents,
 } from '../packages/graph-engine/src/index.js';
 import type { ProjectGraph, ProjectGraphEdge } from '../packages/graph-engine/src/index.js';
 
@@ -260,6 +262,107 @@ test('detects circular components without enumerating every simple cycle', () =>
   ])), [
     { nodeIds: ['src/a.ts', 'src/b.ts', 'src/a.ts'] },
   ]);
+});
+
+test('finds deterministic transitive dependents with depth and shortest paths', () => {
+  const graph = graphFromEdges(
+    ['src/target.ts', 'src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/isolated.ts'],
+    [
+      ['src/a.ts', 'src/target.ts'],
+      ['src/b.ts', 'src/target.ts'],
+      ['src/c.ts', 'src/a.ts'],
+      ['src/c.ts', 'src/b.ts'],
+      ['src/d.ts', 'src/c.ts'],
+    ],
+  );
+
+  const first = getTransitiveDependents(graph, 'src/target.ts');
+  const second = getTransitiveDependents(graph, 'src/target.ts');
+
+  assert.deepEqual(first, second);
+  assert.deepEqual(first, [
+    {
+      node: { id: 'src/a.ts', kind: 'file', path: 'src/a.ts' },
+      depth: 1,
+      path: ['src/target.ts', 'src/a.ts'],
+    },
+    {
+      node: { id: 'src/b.ts', kind: 'file', path: 'src/b.ts' },
+      depth: 1,
+      path: ['src/target.ts', 'src/b.ts'],
+    },
+    {
+      node: { id: 'src/c.ts', kind: 'file', path: 'src/c.ts' },
+      depth: 2,
+      path: ['src/target.ts', 'src/a.ts', 'src/c.ts'],
+    },
+    {
+      node: { id: 'src/d.ts', kind: 'file', path: 'src/d.ts' },
+      depth: 3,
+      path: ['src/target.ts', 'src/a.ts', 'src/c.ts', 'src/d.ts'],
+    },
+  ]);
+  assert.deepEqual(getTransitiveDependents(graph, 'src/isolated.ts'), []);
+});
+
+test('creates an impact report separated from diagnostics with factual circularity evidence', () => {
+  const graph = graphFromEdges(
+    ['src/target.ts', 'src/a.ts', 'src/b.ts', 'src/c.ts', 'src/outside.ts'],
+    [
+      ['src/a.ts', 'src/target.ts'],
+      ['src/b.ts', 'src/a.ts'],
+      ['src/target.ts', 'src/b.ts'],
+      ['src/c.ts', 'src/a.ts'],
+    ],
+  );
+
+  const report = createImpactReport(graph, 'src/target.ts');
+
+  assert.deepEqual(report.target, { id: 'src/target.ts', kind: 'file', path: 'src/target.ts' });
+  assert.deepEqual(report.directDependents, [
+    { id: 'src/a.ts', kind: 'file', path: 'src/a.ts' },
+  ]);
+  assert.deepEqual(report.affectedDependents.map((dependent) => ({
+    nodeId: dependent.node.id,
+    depth: dependent.depth,
+    path: dependent.path,
+  })), [
+    {
+      nodeId: 'src/a.ts',
+      depth: 1,
+      path: ['src/target.ts', 'src/a.ts'],
+    },
+    {
+      nodeId: 'src/b.ts',
+      depth: 2,
+      path: ['src/target.ts', 'src/a.ts', 'src/b.ts'],
+    },
+    {
+      nodeId: 'src/c.ts',
+      depth: 2,
+      path: ['src/target.ts', 'src/a.ts', 'src/c.ts'],
+    },
+  ]);
+  assert.equal(report.totalAffected, 3);
+  assert.equal(report.maxDepth, 2);
+  assert.equal(report.circularity.participatesInCycle, true);
+  assert.deepEqual(report.circularity.cycle, {
+    nodeIds: ['src/a.ts', 'src/target.ts', 'src/b.ts', 'src/a.ts'],
+  });
+  assert.equal(report.affectedDependents.some((dependent) => dependent.node.id === 'src/target.ts'), false);
+});
+
+test('rejects impact analysis for a missing target file node', () => {
+  const graph = graphFromEdges(['src/target.ts'], []);
+
+  assert.throws(
+    () => getTransitiveDependents(graph, 'src/missing.ts'),
+    /Impact target file not found in project graph: src\/missing\.ts/,
+  );
+  assert.throws(
+    () => createImpactReport(graph, 'src/missing.ts'),
+    /Impact target file not found in project graph: src\/missing\.ts/,
+  );
 });
 
 function graphFromEdges(fileNodeIds: string[], edgeNodeIds: Array<[string, string]>): ProjectGraph {

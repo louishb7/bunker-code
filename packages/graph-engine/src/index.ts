@@ -5,6 +5,7 @@ export {
   getDependencies,
   getIsolatedFileNodes,
 } from './project-graph.js';
+export { createImpactReport, getTransitiveDependents } from './project-impact.js';
 export { createProjectDiagnostics } from './project-diagnostics.js';
 export type {
   ExternalGraphNode,
@@ -15,6 +16,11 @@ export type {
   ProjectGraphNode,
   UnresolvedGraphDependency,
 } from './project-graph.js';
+export type {
+  ImpactCircularity,
+  ImpactedFile,
+  ImpactReport,
+} from './project-impact.js';
 export type {
   ProjectDiagnostic,
   ProjectDiagnosticBasis,
