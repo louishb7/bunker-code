@@ -16,6 +16,7 @@
     "@bunker-code/graph-engine": "workspace:*",
     "@types/node": "^24.1.0",
     "esbuild": "0.28.1",
+    "puppeteer-core": "^25.8.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }

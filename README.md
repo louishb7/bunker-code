@@ -46,9 +46,11 @@ pnpm typecheck
 pnpm test
 ```
 
-Run the real browser frontier check when local Firefox/WebDriver BiDi access is
-available:
+Run the real browser frontier check when local Firefox access is available:
 
 ```bash
 pnpm test:browser
 ```
+
+The browser check uses `puppeteer-core` with the system Firefox executable at
+`/usr/bin/firefox`. Override it with `BUNKERCODE_BROWSER_EXECUTABLE` when needed.
