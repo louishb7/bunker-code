@@ -54,3 +54,22 @@ pnpm test:browser
 
 The browser check uses `puppeteer-core` with the system Firefox executable at
 `/usr/bin/firefox`. Override it with `BUNKERCODE_BROWSER_EXECUTABLE` when needed.
+
+## Explorer spike
+
+The Phase 2A Explorer renders the real, disposable `AnalysisResult` derived from
+`packages/analyzer-typescript`. Generate its snapshot and start the local app:
+
+```bash
+pnpm --filter @bunker-code/explorer-web dev
+```
+
+Build the Web application with:
+
+```bash
+pnpm --filter @bunker-code/explorer-web build
+```
+
+The generated snapshot at `apps/explorer-web/src/generated/` is ignored by Git.
+Source code remains the source of truth; regenerate the snapshot after analyzer
+changes rather than treating it as persisted Explorer data.

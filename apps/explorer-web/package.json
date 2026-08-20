@@ -1,0 +1,25 @@
+{
+  "name": "@bunker-code/explorer-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate:snapshot": "node --import tsx scripts/generate-snapshot.ts",
+    "dev": "pnpm generate:snapshot && vite",
+    "build": "pnpm generate:snapshot && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bunker-code/analyzer-typescript": "workspace:*",
+    "@bunker-code/graph-engine": "workspace:*",
+    "@xyflow/react": "^12.11.3",
+    "elkjs": "^0.12.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "vite": "^8.2.1"
+  }
+}
