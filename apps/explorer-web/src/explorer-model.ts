@@ -2,11 +2,14 @@ import type { Edge, Node } from '@xyflow/react';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ProjectGraphEdge } from '@bunker-code/graph-engine';
 import type { ExplorerProjection } from './explorer-projection.js';
+import { fileNameFromPath } from './explorer-search.js';
 
 export interface ExplorerNodeData extends Record<string, unknown> {
   label: string;
+  subtitle: string;
   kind: 'file' | 'external';
   path?: string;
+  contextLabel?: string;
 }
 
 export interface ExplorerEdgeData extends Record<string, unknown> {
@@ -21,8 +24,8 @@ export interface ExplorerElements {
   edges: ExplorerEdge[];
 }
 
-const nodeWidth = 220;
-const nodeHeight = 52;
+const nodeWidth = 250;
+const nodeHeight = 86;
 const elk = new ELK();
 
 /** Adapts the Web projection into renderer-owned React Flow elements. */
@@ -31,8 +34,8 @@ export function createExplorerElements(projection: ExplorerProjection): Explorer
     id: node.id,
     position: { x: 0, y: 0 },
     data: node.kind === 'file'
-      ? { label: node.path, path: node.path, kind: node.kind }
-      : { label: node.moduleSpecifier, kind: node.kind },
+      ? { label: fileNameFromPath(node.path), subtitle: node.path, path: node.path, kind: node.kind }
+      : { label: node.moduleSpecifier, subtitle: 'External module', kind: node.kind },
   }));
   const edges = projection.edges
     .map((edge) => ({

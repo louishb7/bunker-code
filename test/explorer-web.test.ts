@@ -5,12 +5,72 @@ import { analyzeProject } from '../packages/analyzer-typescript/src/index.js';
 import { buildProjectGraph } from '../packages/graph-engine/src/index.js';
 import { createExplorerElements, layoutExplorerElements } from '../apps/explorer-web/src/explorer-model.js';
 import { createExplorerProjection } from '../apps/explorer-web/src/explorer-projection.js';
+import { createExplorerRuntime } from '../apps/explorer-web/src/explorer-runtime.js';
+import { searchExplorerFiles } from '../apps/explorer-web/src/explorer-search.js';
 
 const datasetPath = path.resolve('packages/analyzer-typescript');
 
 function createGraph() {
   return buildProjectGraph(analyzeProject(datasetPath));
 }
+
+test('search finds internal files by file name and path without changing the projection', () => {
+  const graph = createGraph();
+  const before = structuredClone(graph);
+  const projection = createExplorerProjection(graph, {
+    selectedNodeId: null,
+    focusedNodeId: 'src/analysis-result.ts',
+    expandedNodeIds: new Set(),
+  });
+
+  assert.deepEqual(searchExplorerFiles(graph, 'analysis-result.ts'), [
+    {
+      nodeId: 'src/analysis-result.ts',
+      fileName: 'analysis-result.ts',
+      path: 'src/analysis-result.ts',
+    },
+  ]);
+  assert.deepEqual(searchExplorerFiles(graph, 'src/analyze'), [
+    {
+      nodeId: 'src/analyze-project.ts',
+      fileName: 'analyze-project.ts',
+      path: 'src/analyze-project.ts',
+    },
+  ]);
+  assert.deepEqual(graph, before);
+  assert.deepEqual(createExplorerProjection(graph, {
+    selectedNodeId: null,
+    focusedNodeId: 'src/analysis-result.ts',
+    expandedNodeIds: new Set(),
+  }), projection);
+});
+
+test('empty and unmatched searches return no results', () => {
+  const graph = createGraph();
+
+  assert.deepEqual(searchExplorerFiles(graph, ''), []);
+  assert.deepEqual(searchExplorerFiles(graph, 'missing-file.ts'), []);
+});
+
+test('runtime reports invalid and empty snapshots without mutating their inputs', () => {
+  const invalidSnapshot = { schemaVersion: 1, files: [] };
+  const before = structuredClone(invalidSnapshot);
+  const invalidRuntime = createExplorerRuntime(invalidSnapshot);
+  const emptyRuntime = createExplorerRuntime({
+    schemaVersion: 1,
+    analyzer: { name: 'test', language: 'typescript' },
+    projectPath: '.',
+    tsconfigPath: 'tsconfig.json',
+    files: [],
+    dependencies: [],
+    unresolvedDependencies: [],
+    diagnostics: [],
+  });
+
+  assert.equal(invalidRuntime.kind, 'invalid-snapshot');
+  assert.equal(emptyRuntime.kind, 'empty-graph');
+  assert.deepEqual(invalidSnapshot, before);
+});
 
 test('overview projects only internal files', () => {
   const projection = createExplorerProjection(createGraph(), {

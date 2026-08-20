@@ -69,8 +69,19 @@ test('Explorer focuses and expands a generated Snapshot V1 in a real browser', {
     assert.equal((await page.$$('.react-flow__node')).length, 4);
     assert.equal((await page.$$('.graph-node-external')).length, 0);
 
-    await page.click('.react-flow__node[data-id="src/analysis-result.ts"]');
+    await page.click('[aria-label="Find file"]');
+    await page.keyboard.type('missing-file.ts');
+    await page.waitForFunction(() => document.body.textContent?.includes('No internal files match this search.') ?? false, { timeout: 5000 });
+    await page.keyboard.down('Control');
+    await page.keyboard.press('A');
+    await page.keyboard.up('Control');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('analysis-result.ts');
+    await page.waitForSelector('[data-search-result="src/analysis-result.ts"]', { timeout: 5000 });
+    await page.click('[data-search-result="src/analysis-result.ts"]');
     await page.waitForFunction(() => document.body.textContent?.includes('Selected file') ?? false, { timeout: 5000 });
+    await clickButton(page, 'Center selected');
+    await clickButton(page, 'Fit graph');
     await clickButton(page, 'Focus file');
     await page.waitForFunction(() => document.body.textContent?.includes('Overview') ?? false, { timeout: 5000 });
     assert.equal((await page.$$('.react-flow__node')).length, 4);

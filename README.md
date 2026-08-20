@@ -73,3 +73,7 @@ pnpm --filter @bunker-code/explorer-web build
 The generated snapshot at `apps/explorer-web/src/generated/` is ignored by Git.
 Source code remains the source of truth; regenerate the snapshot after analyzer
 changes rather than treating it as persisted Explorer data.
+
+The Explorer can find internal files by path or file name. Selecting a search
+result centers it; selecting a result outside the current focus context returns
+to overview so the file is visible before it is selected.
