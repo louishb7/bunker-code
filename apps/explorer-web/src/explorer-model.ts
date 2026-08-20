@@ -1,10 +1,12 @@
 import type { Edge, Node } from '@xyflow/react';
 import ELK from 'elkjs/lib/elk.bundled.js';
-import { getDependencies, getDependents } from '@bunker-code/graph-engine';
-import type { FileGraphNode, ProjectGraph, ProjectGraphEdge } from '@bunker-code/graph-engine';
+import type { ProjectGraphEdge } from '@bunker-code/graph-engine';
+import type { ExplorerProjection } from './explorer-projection.js';
 
 export interface ExplorerNodeData extends Record<string, unknown> {
-  path: string;
+  label: string;
+  kind: 'file' | 'external';
+  path?: string;
 }
 
 export interface ExplorerEdgeData extends Record<string, unknown> {
@@ -19,30 +21,20 @@ export interface ExplorerElements {
   edges: ExplorerEdge[];
 }
 
-export interface SelectedNeighborhood {
-  targetNodeId: string | null;
-  dependencyNodeIds: ReadonlySet<string>;
-  dependentNodeIds: ReadonlySet<string>;
-}
-
 const nodeWidth = 220;
 const nodeHeight = 52;
 const elk = new ELK();
 
-function fileNodes(graph: ProjectGraph): FileGraphNode[] {
-  return graph.nodes.filter((node): node is FileGraphNode => node.kind === 'file');
-}
-
-/** Projects analytical file facts into renderer-owned React Flow elements. */
-export function createExplorerElements(graph: ProjectGraph): ExplorerElements {
-  const nodes = fileNodes(graph).map((node) => ({
+/** Adapts the Web projection into renderer-owned React Flow elements. */
+export function createExplorerElements(projection: ExplorerProjection): ExplorerElements {
+  const nodes = projection.nodes.map((node) => ({
     id: node.id,
     position: { x: 0, y: 0 },
-    data: { path: node.path },
+    data: node.kind === 'file'
+      ? { label: node.path, path: node.path, kind: node.kind }
+      : { label: node.moduleSpecifier, kind: node.kind },
   }));
-  const visibleNodeIds = new Set(nodes.map((node) => node.id));
-  const edges = graph.edges
-    .filter((edge) => visibleNodeIds.has(edge.sourceNodeId) && visibleNodeIds.has(edge.targetNodeId))
+  const edges = projection.edges
     .map((edge) => ({
       id: edge.id,
       source: edge.sourceNodeId,
@@ -76,26 +68,5 @@ export async function layoutExplorerElements(elements: ExplorerElements): Promis
       ...node,
       position: positions.get(node.id) ?? node.position,
     })),
-  };
-}
-
-export function selectedNeighborhood(graph: ProjectGraph, targetNodeId: string | null): SelectedNeighborhood {
-  if (!targetNodeId) {
-    return { targetNodeId: null, dependencyNodeIds: new Set(), dependentNodeIds: new Set() };
-  }
-
-  const fileNodeIds = new Set(fileNodes(graph).map((node) => node.id));
-  return {
-    targetNodeId,
-    dependencyNodeIds: new Set(
-      getDependencies(graph, targetNodeId)
-        .map((edge) => edge.targetNodeId)
-        .filter((nodeId) => fileNodeIds.has(nodeId)),
-    ),
-    dependentNodeIds: new Set(
-      getDependents(graph, targetNodeId)
-        .map((edge) => edge.sourceNodeId)
-        .filter((nodeId) => fileNodeIds.has(nodeId)),
-    ),
   };
 }

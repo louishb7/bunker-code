@@ -10,7 +10,7 @@ const repoRoot = path.resolve('.');
 const appRoot = path.join(repoRoot, 'apps', 'explorer-web');
 const firefoxExecutablePath = process.env.BUNKERCODE_BROWSER_EXECUTABLE ?? '/usr/bin/firefox';
 
-test('Explorer renders the generated Snapshot V1 in a real browser', { timeout: 90000 }, async (t) => {
+test('Explorer focuses and expands a generated Snapshot V1 in a real browser', { timeout: 90000 }, async (t) => {
   if (process.env.BUNKERCODE_BROWSER_TEST !== '1') {
     t.skip('Set BUNKERCODE_BROWSER_TEST=1 to run the Firefox Explorer smoke test.');
     return;
@@ -66,15 +66,44 @@ test('Explorer renders the generated Snapshot V1 in a real browser', { timeout: 
     await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('.react-flow__node', { timeout: 15000 });
     assert.ok((await page.screenshot()).byteLength > 1000);
-    await page.click('.react-flow__node');
+    assert.equal((await page.$$('.react-flow__node')).length, 4);
+    assert.equal((await page.$$('.graph-node-external')).length, 0);
+
+    await page.click('.react-flow__node[data-id="src/analysis-result.ts"]');
     await page.waitForFunction(() => document.body.textContent?.includes('Selected file') ?? false, { timeout: 5000 });
+    await clickButton(page, 'Focus file');
+    await page.waitForFunction(() => document.body.textContent?.includes('Overview') ?? false, { timeout: 5000 });
+    assert.equal((await page.$$('.react-flow__node')).length, 4);
     assert.equal((await page.$$('.graph-node-target')).length, 1);
+    assert.equal((await page.$$('.graph-node-external')).length, 1);
+
+    await page.click('.react-flow__node[data-id="src/analyze-project.ts"]');
+    await page.waitForFunction(() => document.body.textContent?.includes('src/analyze-project.ts') ?? false, { timeout: 5000 });
     assert.ok(await page.$eval('.details-panel', (element) => element.textContent?.includes('Dependencies') ?? false));
+    await clickButton(page, 'Expand context');
+    await page.waitForFunction(() => document.querySelectorAll('.react-flow__node').length === 7, { timeout: 5000 });
+    assert.equal((await page.$$('.graph-node-external')).length, 4);
+
+    await clickButton(page, 'Overview');
+    await page.waitForFunction(() => document.querySelectorAll('.react-flow__node').length === 4, { timeout: 5000 });
+    assert.equal((await page.$$('.graph-node-external')).length, 0);
   } finally {
     await browser.close();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
+
+async function clickButton(page: import('puppeteer-core').Page, label: string): Promise<void> {
+  await page.evaluate((buttonLabel) => {
+    const button = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent === buttonLabel);
+
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error(`Button not found: ${buttonLabel}`);
+    }
+
+    button.click();
+  }, label);
+}
 
 function contentType(filePath: string): string {
   if (filePath.endsWith('.js')) return 'text/javascript';
