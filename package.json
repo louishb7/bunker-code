@@ -8,12 +8,14 @@
     "analyze": "node --import tsx apps/cli/src/main.ts analyze",
     "impact": "node --import tsx apps/cli/src/main.ts impact",
     "typecheck": "./node_modules/.bin/tsc -p packages/contracts/tsconfig.json --noEmit && ./node_modules/.bin/tsc -p packages/analyzer-typescript/tsconfig.json --noEmit && ./node_modules/.bin/tsc -p packages/graph-engine/tsconfig.json --noEmit && ./node_modules/.bin/tsc -p apps/cli/tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/analyze-simple-import.test.ts test/project-graph.test.ts test/investigate-cli.test.ts"
+    "test": "node --import tsx --test test/analyze-simple-import.test.ts test/project-graph.test.ts test/investigate-cli.test.ts test/browser-graph-engine.test.ts",
+    "test:browser": "BUNKERCODE_BROWSER_TEST=1 node --import tsx --test test/browser-graph-engine.test.ts"
   },
   "devDependencies": {
     "@bunker-code/contracts": "workspace:*",
     "@bunker-code/graph-engine": "workspace:*",
     "@types/node": "^24.1.0",
+    "esbuild": "0.28.1",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }
