@@ -1,0 +1,5 @@
+{
+  "name": "@fixture/isolated",
+  "private": true,
+  "type": "module"
+}

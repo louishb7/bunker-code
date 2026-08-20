@@ -85,6 +85,7 @@ test('overview projects only internal files', () => {
     'src/analysis-result.ts',
     'src/analyze-project.ts',
     'src/index.ts',
+    'src/pnpm-workspace.ts',
   ]);
   assert.equal(projection.nodes.every((node) => node.kind === 'file'), true);
   assert.equal(projection.edges.every((edge) => edge.dependencyKind === 'internal'), true);
@@ -104,6 +105,7 @@ test('focus projects the target, direct context, and contextual external nodes',
     'src/analysis-result.ts',
     'src/analyze-project.ts',
     'src/index.ts',
+    'src/pnpm-workspace.ts',
   ]);
   assert.equal(projection.edges.every((edge) => (
     projection.visibleNodeIds.has(edge.sourceNodeId) && projection.visibleNodeIds.has(edge.targetNodeId)
@@ -129,6 +131,7 @@ test('expansion adds direct context without mutating ProjectGraph', () => {
     'src/analysis-result.ts',
     'src/analyze-project.ts',
     'src/index.ts',
+    'src/pnpm-workspace.ts',
   ]);
   assert.equal(projection.nodes.filter((node) => node.kind === 'external').length, 4);
 });
@@ -155,6 +158,7 @@ test('multiple explicit expansions produce a deterministic union', () => {
     'src/analysis-result.ts',
     'src/analyze-project.ts',
     'src/index.ts',
+    'src/pnpm-workspace.ts',
   ]);
 });
 

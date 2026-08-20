@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { Project, type SourceFile } from 'ts-morph';
 import { ANALYSIS_SCHEMA_VERSION } from './analysis-result.js';
+import { detectPnpmWorkspace, type DetectedPnpmWorkspace } from './pnpm-workspace.js';
 import type {
   AnalysisDiagnostic,
   AnalysisResult,
@@ -190,59 +191,49 @@ function recordDependency(params: {
   });
 }
 
-/**
- * Analyzes a TypeScript project using its local `tsconfig.json`.
- *
- * The returned contract is JSON-serializable and uses paths relative to the
- * analyzed project. Fatal input errors are thrown when the project directory or
- * its `tsconfig.json` cannot be found.
- */
-export function analyzeProject(inputPath: string): AnalysisResult {
-  const projectPath = path.resolve(inputPath);
+function createAnalysisResult(
+  projectPath: string,
+  tsconfigPaths: readonly string[],
+  includeSourceFile: (sourceFilePath: string) => boolean,
+): AnalysisResult {
+  const projects = tsconfigPaths.map((tsconfigPath) => {
+    try {
+      return new Project({ tsConfigFilePath: tsconfigPath });
+    } catch (error) {
+      throw new Error(`Invalid TypeScript project configuration: ${getErrorMessage(error)}`);
+    }
+  });
+  const sourceFiles = new Map<string, SourceFile>();
 
-  if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
-    throw new Error(`Project directory not found: ${projectPath}`);
-  }
+  for (const project of projects) {
+    for (const sourceFile of project.getSourceFiles()) {
+      const sourceFilePath = normalizeProjectPath(projectPath, sourceFile.getFilePath());
 
-  const tsconfigPath = path.join(projectPath, 'tsconfig.json');
-
-  if (!existsSync(tsconfigPath)) {
-    throw new Error(`tsconfig.json not found: ${tsconfigPath}`);
-  }
-
-  let project: Project;
-
-  try {
-    project = new Project({ tsConfigFilePath: tsconfigPath });
-  } catch (error) {
-    throw new Error(`Invalid TypeScript project configuration: ${getErrorMessage(error)}`);
+      if (includeSourceFile(sourceFilePath)) {
+        sourceFiles.set(sourceFilePath, sourceFile);
+      }
+    }
   }
 
   const files: AnalyzedFile[] = sortByPath(
-    project.getSourceFiles().map((sourceFile) => ({
-      id: normalizeProjectPath(projectPath, sourceFile.getFilePath()),
-      path: normalizeProjectPath(projectPath, sourceFile.getFilePath()),
+    [...sourceFiles.entries()].map(([sourceFilePath]) => ({
+      id: sourceFilePath,
+      path: sourceFilePath,
     })),
   );
-
   const dependencies: ResolvedDependency[] = [];
   const unresolvedDependencies: UnresolvedDependency[] = [];
   const diagnostics: AnalysisDiagnostic[] = [];
-  const configuredPathAliasPatterns = pathAliasPatterns(project);
 
-  for (const sourceFile of project.getSourceFiles()) {
-    const sourceFilePath = normalizeProjectPath(projectPath, sourceFile.getFilePath());
+  for (const [sourceFilePath, sourceFile] of [...sourceFiles.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    const configuredPathAliasPatterns = pathAliasPatterns(sourceFile.getProject());
 
     for (const importDeclaration of sourceFile.getImportDeclarations()) {
       const moduleSpecifier = importDeclaration.getModuleSpecifierValue();
       const position = importDeclaration.getModuleSpecifier().getStart();
       const location = sourceFile.getLineAndColumnAtPos(position);
       const evidence: DependencyEvidence = {
-        location: {
-          filePath: sourceFilePath,
-          line: location.line,
-          column: location.column,
-        },
+        location: { filePath: sourceFilePath, line: location.line, column: location.column },
       };
 
       recordDependency({
@@ -269,11 +260,7 @@ export function analyzeProject(inputPath: string): AnalysisResult {
       const position = moduleSpecifierNode.getStart();
       const location = sourceFile.getLineAndColumnAtPos(position);
       const evidence: DependencyEvidence = {
-        location: {
-          filePath: sourceFilePath,
-          line: location.line,
-          column: location.column,
-        },
+        location: { filePath: sourceFilePath, line: location.line, column: location.column },
       };
 
       recordDependency({
@@ -292,12 +279,11 @@ export function analyzeProject(inputPath: string): AnalysisResult {
 
   return {
     schemaVersion: ANALYSIS_SCHEMA_VERSION,
-    analyzer: {
-      name: '@bunker-code/analyzer-typescript',
-      language: 'typescript',
-    },
+    analyzer: { name: '@bunker-code/analyzer-typescript', language: 'typescript' },
     projectPath: '.',
-    tsconfigPath: normalizeProjectPath(projectPath, tsconfigPath),
+    tsconfigPath: tsconfigPaths.length === 1
+      ? normalizeProjectPath(projectPath, tsconfigPaths[0] ?? '')
+      : 'pnpm-workspace.yaml',
     files,
     dependencies: sortByDependency(dependencies),
     unresolvedDependencies: sortByDependency(unresolvedDependencies),
@@ -309,4 +295,62 @@ export function analyzeProject(inputPath: string): AnalysisResult {
       (left.evidence?.location.column ?? 0) - (right.evidence?.location.column ?? 0),
     ),
   };
+}
+
+function analyzePnpmWorkspace(workspace: DetectedPnpmWorkspace): AnalysisResult {
+  const tsconfigPaths = workspace.packages
+    .map((workspacePackage) => path.join(workspace.rootPath, workspacePackage.rootPath, 'tsconfig.json'))
+    .filter((tsconfigPath) => existsSync(tsconfigPath))
+    .sort();
+  const analysis = createAnalysisResult(workspace.rootPath, tsconfigPaths, isPathInsideProject);
+  const packageByFileId = new Map<string, string>();
+
+  for (const file of analysis.files) {
+    const workspacePackage = workspace.packages
+      .filter((candidate) => file.path === candidate.rootPath || file.path.startsWith(`${candidate.rootPath}/`))
+      .sort((left, right) => right.rootPath.length - left.rootPath.length || left.id.localeCompare(right.id))[0];
+
+    if (workspacePackage) {
+      packageByFileId.set(file.id, workspacePackage.id);
+    }
+  }
+
+  return {
+    ...analysis,
+    structure: {
+      packages: workspace.packages,
+      fileMemberships: [...packageByFileId.entries()]
+        .map(([fileId, workspacePackageId]) => ({ fileId, workspacePackageId }))
+        .sort((left, right) => left.fileId.localeCompare(right.fileId)),
+    },
+  };
+}
+
+/**
+ * Analyzes a TypeScript project using its local `tsconfig.json`.
+ *
+ * The returned contract is JSON-serializable and uses paths relative to the
+ * analyzed project. Fatal input errors are thrown when the project directory or
+ * its `tsconfig.json` cannot be found.
+ */
+export function analyzeProject(inputPath: string): AnalysisResult {
+  const projectPath = path.resolve(inputPath);
+
+  if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
+    throw new Error(`Project directory not found: ${projectPath}`);
+  }
+
+  const tsconfigPath = path.join(projectPath, 'tsconfig.json');
+
+  if (!existsSync(tsconfigPath)) {
+    const workspace = detectPnpmWorkspace(projectPath);
+
+    if (workspace && workspace.rootPath === projectPath) {
+      return analyzePnpmWorkspace(workspace);
+    }
+
+    throw new Error(`tsconfig.json not found: ${tsconfigPath}`);
+  }
+
+  return createAnalysisResult(projectPath, [tsconfigPath], () => true);
 }

@@ -31,9 +31,17 @@ The command writes deterministic JSON to `stdout` with the target file, direct
 and transitive dependents, propagation depth, shortest impact paths, and
 factual circularity evidence for the target when applicable.
 
-For this workspace, the root folder itself is not a valid demo target because
-it does not contain a root `tsconfig.json`. Use a package root such as
-`packages/analyzer-typescript` or `apps/cli` for self-analysis.
+When the target is a PNPM workspace root, the analyzer detects packages declared
+by `pnpm-workspace.yaml`, builds a file-level graph across their TypeScript
+projects, and includes structural containment plus package dependency aggregation
+in the `analyze` JSON. This repository itself can therefore be analyzed with:
+
+```bash
+pnpm --silent analyze .
+```
+
+Package roots without their own `tsconfig.json` remain structurally visible but
+do not contribute TypeScript files to that workspace analysis.
 
 Argument and analysis errors are written to `stderr` and return a non-zero exit code.
 

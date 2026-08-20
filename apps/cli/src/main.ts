@@ -1,7 +1,13 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { analyzeProject } from '@bunker-code/analyzer-typescript';
-import { buildProjectGraph, createImpactReport, createProjectDiagnostics } from '@bunker-code/graph-engine';
+import {
+  aggregatePackageDependencies,
+  buildProjectGraph,
+  buildProjectStructure,
+  createImpactReport,
+  createProjectDiagnostics,
+} from '@bunker-code/graph-engine';
 
 export interface CliStreams {
   writeStdout(output: string): void;
@@ -53,8 +59,10 @@ function runAnalyze(argv: readonly string[], streams: CliStreams): number {
     const analysis = analyzeProject(projectPath);
     const graph = buildProjectGraph(analysis);
     const diagnostics = createProjectDiagnostics(graph);
+    const structure = buildProjectStructure(analysis);
+    const packageDependencies = aggregatePackageDependencies(graph, structure);
 
-    streams.writeStdout(`${JSON.stringify({ analysis, graph, diagnostics }, null, 2)}\n`);
+    streams.writeStdout(`${JSON.stringify({ analysis, graph, diagnostics, structure, packageDependencies }, null, 2)}\n`);
     return 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

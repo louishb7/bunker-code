@@ -2,6 +2,7 @@ export { ANALYSIS_SCHEMA_VERSION } from '@bunker-code/contracts';
 export type {
   AnalysisDiagnostic,
   AnalysisAnalyzerMetadata,
+  AnalysisProjectStructure,
   AnalysisResult,
   AnalysisSchemaVersion,
   AnalyzedFile,
@@ -13,4 +14,7 @@ export type {
   SourceLocation,
   UnresolvedDependency,
   UnresolvedDependencyReason,
+  FileWorkspacePackageMembership,
+  WorkspacePackage,
+  WorkspacePackageEvidence,
 } from '@bunker-code/contracts';

@@ -14,6 +14,8 @@ export interface AnalysisResult {
   unresolvedDependencies: UnresolvedDependency[];
   /** Non-fatal issues found while producing a partial but usable result. */
   diagnostics: AnalysisDiagnostic[];
+  /** Present when the analyzed input is a PNPM workspace root. */
+  structure?: AnalysisProjectStructure;
 }
 
 export interface AnalysisAnalyzerMetadata {
@@ -71,4 +73,32 @@ export interface AnalysisDiagnostic {
   severity: DiagnosticSeverity;
   message: string;
   evidence?: DependencyEvidence;
+}
+
+/** Serializable containment facts discovered from an explicitly declared workspace. */
+export interface AnalysisProjectStructure {
+  packages: WorkspacePackage[];
+  fileMemberships: FileWorkspacePackageMembership[];
+}
+
+export interface WorkspacePackage {
+  /** Stable identity derived from the workspace-relative root path. */
+  id: string;
+  kind: 'workspace-package';
+  origin: 'detected';
+  /** Normalized path relative to the workspace root, using `/` separators. */
+  rootPath: string;
+  /** The optional logical identity declared by package.json. */
+  name?: string;
+  evidence: WorkspacePackageEvidence[];
+}
+
+export type WorkspacePackageEvidence =
+  | { kind: 'workspace-configuration'; path: string }
+  | { kind: 'workspace-pattern'; pattern: string }
+  | { kind: 'package-manifest'; path: string };
+
+export interface FileWorkspacePackageMembership {
+  fileId: string;
+  workspacePackageId: string;
 }

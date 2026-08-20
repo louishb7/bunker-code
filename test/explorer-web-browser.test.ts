@@ -66,7 +66,7 @@ test('Explorer focuses and expands a generated Snapshot V1 in a real browser', {
     await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('.react-flow__node', { timeout: 15000 });
     assert.ok((await page.screenshot()).byteLength > 1000);
-    assert.equal((await page.$$('.react-flow__node')).length, 4);
+    assert.equal((await page.$$('.react-flow__node')).length, 5);
     assert.equal((await page.$$('.graph-node-external')).length, 0);
 
     await page.click('[aria-label="Find file"]');
@@ -84,7 +84,7 @@ test('Explorer focuses and expands a generated Snapshot V1 in a real browser', {
     await clickButton(page, 'Fit graph');
     await clickButton(page, 'Focus file');
     await page.waitForFunction(() => document.body.textContent?.includes('Overview') ?? false, { timeout: 5000 });
-    assert.equal((await page.$$('.react-flow__node')).length, 4);
+    assert.equal((await page.$$('.react-flow__node')).length, 5);
     assert.equal((await page.$$('.graph-node-target')).length, 1);
     assert.equal((await page.$$('.graph-node-external')).length, 1);
 
@@ -92,11 +92,11 @@ test('Explorer focuses and expands a generated Snapshot V1 in a real browser', {
     await page.waitForFunction(() => document.body.textContent?.includes('src/analyze-project.ts') ?? false, { timeout: 5000 });
     assert.ok(await page.$eval('.details-panel', (element) => element.textContent?.includes('Dependencies') ?? false));
     await clickButton(page, 'Expand context');
-    await page.waitForFunction(() => document.querySelectorAll('.react-flow__node').length === 7, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelectorAll('.react-flow__node').length === 8, { timeout: 5000 });
     assert.equal((await page.$$('.graph-node-external')).length, 4);
 
     await clickButton(page, 'Overview');
-    await page.waitForFunction(() => document.querySelectorAll('.react-flow__node').length === 4, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelectorAll('.react-flow__node').length === 5, { timeout: 5000 });
     assert.equal((await page.$$('.graph-node-external')).length, 0);
   } finally {
     await browser.close();

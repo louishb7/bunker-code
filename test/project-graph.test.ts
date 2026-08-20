@@ -1,16 +1,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { AnalysisResult } from '@bunker-code/contracts';
+import { analyzeProject } from '../packages/analyzer-typescript/src/index.js';
 import {
+  aggregatePackageDependencies,
   buildProjectGraph,
+  buildProjectStructure,
   createImpactReport,
   createProjectDiagnostics,
   detectCycles,
   getDependencies,
   getDependents,
+  getFilesInWorkspacePackage,
   getIsolatedFileNodes,
+  getWorkspacePackageForFile,
   getTransitiveDependents,
 } from '../packages/graph-engine/src/index.js';
+import path from 'node:path';
 import type { ProjectGraph, ProjectGraphEdge } from '../packages/graph-engine/src/index.js';
 
 const analysis: AnalysisResult = {
@@ -129,6 +135,64 @@ test('builds a deterministic project graph from analysis result', () => {
       evidence: { location: { filePath: 'src/b.ts', line: 2, column: 20 } },
       confidence: 'exact',
     },
+  ]);
+});
+
+test('detects PNPM workspace containment and aggregates evidence-backed package dependencies', () => {
+  const workspacePath = path.resolve('fixtures/pnpm-workspace-structure');
+  const first = analyzeProject(workspacePath);
+  const second = analyzeProject(workspacePath);
+  const graph = buildProjectGraph(first);
+  const structure = buildProjectStructure(first);
+  const applicationPackageId = 'workspace-package:apps/application';
+  const libraryPackageId = 'workspace-package:packages/library';
+
+  assert.deepEqual(first, second);
+  assert.equal(first.tsconfigPath, 'pnpm-workspace.yaml');
+  assert.deepEqual(structure.packages.map(({ id, rootPath, name }) => ({ id, rootPath, name })), [
+    { id: applicationPackageId, rootPath: 'apps/application', name: '@fixture/application' },
+    { id: 'workspace-package:packages/isolated', rootPath: 'packages/isolated', name: '@fixture/isolated' },
+    { id: libraryPackageId, rootPath: 'packages/library', name: undefined },
+  ]);
+  assert.deepEqual(structure.packages[0]?.evidence, [
+    { kind: 'workspace-configuration', path: 'pnpm-workspace.yaml' },
+    { kind: 'workspace-pattern', pattern: 'apps/*' },
+    { kind: 'package-manifest', path: 'apps/application/package.json' },
+  ]);
+  assert.equal(structure.packages.some((workspacePackage) => workspacePackage.rootPath === 'packages/excluded-package'), false);
+  assert.equal(structure.packages.some((workspacePackage) => workspacePackage.rootPath === 'packages/no-manifest'), false);
+  assert.equal(getWorkspacePackageForFile(structure, 'apps/application/src/main.ts')?.id, applicationPackageId);
+  assert.equal(getWorkspacePackageForFile(structure, 'orphan.ts'), undefined);
+  assert.deepEqual(getFilesInWorkspacePackage(structure, libraryPackageId), [
+    'packages/library/src/first.ts',
+    'packages/library/src/second.ts',
+  ]);
+  assert.deepEqual(structure.unassignedFileIds, ['orphan.ts']);
+  assert.deepEqual(aggregatePackageDependencies(graph, structure).map((dependency) => ({
+    sourcePackageId: dependency.sourcePackageId,
+    targetPackageId: dependency.targetPackageId,
+    fileDependencyIds: dependency.fileDependencies.map((edge) => edge.id),
+  })), [{
+    sourcePackageId: applicationPackageId,
+    targetPackageId: libraryPackageId,
+    fileDependencyIds: [
+      'apps/application/src/main.ts -> packages/library/src/first.ts -> ../../../packages/library/src/first.js -> 1:23',
+      'apps/application/src/main.ts -> packages/library/src/second.ts -> ../../../packages/library/src/second.js -> 2:24',
+    ],
+  }]);
+  assert.equal(aggregatePackageDependencies(graph, structure).some((dependency) => dependency.targetPackageId.includes('external')), false);
+});
+
+test('represents projects without a PNPM workspace as structure with unassigned files', () => {
+  const structure = buildProjectStructure(analysis);
+
+  assert.deepEqual(structure.packages, []);
+  assert.deepEqual(structure.fileMemberships, []);
+  assert.deepEqual(structure.unassignedFileIds, [
+    'src/a.ts',
+    'src/b.ts',
+    'src/c.ts',
+    'src/isolated.ts',
   ]);
 });
 

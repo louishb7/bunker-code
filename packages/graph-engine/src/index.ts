@@ -7,6 +7,14 @@ export {
 } from './project-graph.js';
 export { createImpactReport, getTransitiveDependents } from './project-impact.js';
 export { createProjectDiagnostics } from './project-diagnostics.js';
+export {
+  buildProjectStructure,
+  getFilesInWorkspacePackage,
+  getWorkspacePackage,
+  getWorkspacePackageForFile,
+  getWorkspacePackages,
+} from './project-structure.js';
+export { aggregatePackageDependencies } from './package-dependencies.js';
 export type {
   ExternalGraphNode,
   FileGraphNode,
@@ -32,3 +40,5 @@ export type {
   ProjectDiagnosticSeverity,
   ProjectDiagnosticThreshold,
 } from './project-diagnostics.js';
+export type { ProjectStructure } from './project-structure.js';
+export type { PackageDependency } from './package-dependencies.js';
