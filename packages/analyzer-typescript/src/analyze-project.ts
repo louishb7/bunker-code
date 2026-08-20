@@ -195,6 +195,7 @@ function createAnalysisResult(
   projectPath: string,
   tsconfigPaths: readonly string[],
   includeSourceFile: (sourceFilePath: string) => boolean,
+  configuration: { tsconfigPath?: string; workspaceConfigurationPath?: string },
 ): AnalysisResult {
   const projects = tsconfigPaths.map((tsconfigPath) => {
     try {
@@ -281,9 +282,7 @@ function createAnalysisResult(
     schemaVersion: ANALYSIS_SCHEMA_VERSION,
     analyzer: { name: '@bunker-code/analyzer-typescript', language: 'typescript' },
     projectPath: '.',
-    tsconfigPath: tsconfigPaths.length === 1
-      ? normalizeProjectPath(projectPath, tsconfigPaths[0] ?? '')
-      : 'pnpm-workspace.yaml',
+    ...configuration,
     files,
     dependencies: sortByDependency(dependencies),
     unresolvedDependencies: sortByDependency(unresolvedDependencies),
@@ -302,7 +301,9 @@ function analyzePnpmWorkspace(workspace: DetectedPnpmWorkspace): AnalysisResult 
     .map((workspacePackage) => path.join(workspace.rootPath, workspacePackage.rootPath, 'tsconfig.json'))
     .filter((tsconfigPath) => existsSync(tsconfigPath))
     .sort();
-  const analysis = createAnalysisResult(workspace.rootPath, tsconfigPaths, isPathInsideProject);
+  const analysis = createAnalysisResult(workspace.rootPath, tsconfigPaths, isPathInsideProject, {
+    workspaceConfigurationPath: normalizeProjectPath(workspace.rootPath, workspace.configurationPath),
+  });
   const packageByFileId = new Map<string, string>();
 
   for (const file of analysis.files) {
@@ -327,11 +328,13 @@ function analyzePnpmWorkspace(workspace: DetectedPnpmWorkspace): AnalysisResult 
 }
 
 /**
- * Analyzes a TypeScript project using its local `tsconfig.json`.
+ * Analyzes either a TypeScript project root with `tsconfig.json` or a PNPM
+ * workspace root declared by `pnpm-workspace.yaml`.
  *
  * The returned contract is JSON-serializable and uses paths relative to the
- * analyzed project. Fatal input errors are thrown when the project directory or
- * its `tsconfig.json` cannot be found.
+ * analyzed target. A project target has `tsconfigPath`; a workspace target has
+ * `workspaceConfigurationPath`. Fatal input errors are thrown when the target
+ * directory or its required configuration cannot be found.
  */
 export function analyzeProject(inputPath: string): AnalysisResult {
   const projectPath = path.resolve(inputPath);
@@ -352,5 +355,7 @@ export function analyzeProject(inputPath: string): AnalysisResult {
     throw new Error(`tsconfig.json not found: ${tsconfigPath}`);
   }
 
-  return createAnalysisResult(projectPath, [tsconfigPath], () => true);
+  return createAnalysisResult(projectPath, [tsconfigPath], () => true, {
+    tsconfigPath: normalizeProjectPath(projectPath, tsconfigPath),
+  });
 }

@@ -148,7 +148,8 @@ test('detects PNPM workspace containment and aggregates evidence-backed package 
   const libraryPackageId = 'workspace-package:packages/library';
 
   assert.deepEqual(first, second);
-  assert.equal(first.tsconfigPath, 'pnpm-workspace.yaml');
+  assert.equal(first.tsconfigPath, undefined);
+  assert.equal(first.workspaceConfigurationPath, 'pnpm-workspace.yaml');
   assert.deepEqual(structure.packages.map(({ id, rootPath, name }) => ({ id, rootPath, name })), [
     { id: applicationPackageId, rootPath: 'apps/application', name: '@fixture/application' },
     { id: 'workspace-package:packages/isolated', rootPath: 'packages/isolated', name: '@fixture/isolated' },
@@ -194,6 +195,32 @@ test('represents projects without a PNPM workspace as structure with unassigned 
     'src/c.ts',
     'src/isolated.ts',
   ]);
+});
+
+test('keeps containment queries tolerant of inconsistent structural snapshot memberships', () => {
+  const structure = buildProjectStructure({
+    ...analysis,
+    structure: {
+      packages: [{
+        id: 'workspace-package:packages/example',
+        kind: 'workspace-package',
+        origin: 'detected',
+        rootPath: 'packages/example',
+        evidence: [],
+      }],
+      fileMemberships: [
+        { fileId: 'src/a.ts', workspacePackageId: 'workspace-package:packages/example' },
+        { fileId: 'src/missing.ts', workspacePackageId: 'workspace-package:packages/example' },
+        { fileId: 'src/b.ts', workspacePackageId: 'workspace-package:packages/missing' },
+      ],
+    },
+  });
+
+  assert.deepEqual(structure.fileMemberships, [
+    { fileId: 'src/a.ts', workspacePackageId: 'workspace-package:packages/example' },
+  ]);
+  assert.equal(getWorkspacePackageForFile(structure, 'src/a.ts')?.id, 'workspace-package:packages/example');
+  assert.equal(getWorkspacePackageForFile(structure, 'src/b.ts'), undefined);
 });
 
 test('queries dependencies, dependents, isolated files and cycles', () => {

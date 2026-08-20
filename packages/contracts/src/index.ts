@@ -5,10 +5,19 @@ export type AnalysisSchemaVersion = typeof ANALYSIS_SCHEMA_VERSION;
 export interface AnalysisResult {
   schemaVersion: AnalysisSchemaVersion;
   analyzer: AnalysisAnalyzerMetadata;
-  /** Path of the analyzed project root, relative to itself. */
+  /** Path of the analyzed TypeScript project or PNPM workspace root, relative to itself. */
   projectPath: string;
-  /** Path of the tsconfig used for analysis, relative to the analyzed project. */
-  tsconfigPath: string;
+  /**
+   * Path of the tsconfig used for a single TypeScript project target, relative
+   * to that target. Absent when the target is a PNPM workspace with multiple
+   * TypeScript projects.
+   */
+  tsconfigPath?: string;
+  /**
+   * Path of the PNPM workspace configuration, relative to the workspace root.
+   * Present only when the target is a PNPM workspace root.
+   */
+  workspaceConfigurationPath?: string;
   files: AnalyzedFile[];
   dependencies: ResolvedDependency[];
   unresolvedDependencies: UnresolvedDependency[];

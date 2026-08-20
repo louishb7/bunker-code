@@ -17,6 +17,8 @@ The command writes deterministic JSON to `stdout` with:
 - `analysis`: the TypeScript analyzer contract;
 - `graph`: the language-independent project graph;
 - `diagnostics`: evidence-backed architectural diagnostics.
+- `structure`: detected workspace containment and unassigned files;
+- `packageDependencies`: cross-package dependencies aggregated from file-level graph edges.
 
 The `analysis` payload is deterministic, serializable, and serves as Snapshot V1
 for the browser frontier.
@@ -42,6 +44,10 @@ pnpm --silent analyze .
 
 Package roots without their own `tsconfig.json` remain structurally visible but
 do not contribute TypeScript files to that workspace analysis.
+
+`analysis.tsconfigPath` is present only for a single TypeScript project target.
+For a PNPM workspace target, `analysis.workspaceConfigurationPath` identifies
+`pnpm-workspace.yaml`; it is never represented as a TypeScript configuration.
 
 Argument and analysis errors are written to `stderr` and return a non-zero exit code.
 

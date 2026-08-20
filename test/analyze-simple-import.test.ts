@@ -50,6 +50,7 @@ test('analyze simple-import deterministically', () => {
   });
   assert.equal(first.projectPath, '.');
   assert.equal(first.tsconfigPath, 'tsconfig.json');
+  assert.equal(first.workspaceConfigurationPath, undefined);
   assert.equal(first.files.length, 2);
   assert.deepEqual(first.files, [
     { id: 'src/main.ts', path: 'src/main.ts' },

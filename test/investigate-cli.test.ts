@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { AnalysisResult } from '@bunker-code/contracts';
-import type { ImpactReport, ProjectDiagnosticsReport, ProjectGraph } from '@bunker-code/graph-engine';
+import type {
+  ImpactReport,
+  PackageDependency,
+  ProjectDiagnosticsReport,
+  ProjectGraph,
+  ProjectStructure,
+} from '@bunker-code/graph-engine';
 import { run } from '../apps/cli/src/main.js';
 
 interface CliOutput {
   analysis: AnalysisResult;
   graph: ProjectGraph;
   diagnostics: ProjectDiagnosticsReport;
+  structure: ProjectStructure;
+  packageDependencies: PackageDependency[];
 }
 
 function runCli(args: string[]) {
@@ -63,6 +71,12 @@ test('prints deterministic investigation JSON for a controlled project', () => {
     manyDependents: 2,
     manyDependencies: 3,
   });
+  assert.deepEqual(output.structure, {
+    packages: [],
+    fileMemberships: [],
+    unassignedFileIds: ['src/main.ts', 'src/service.ts'],
+  });
+  assert.deepEqual(output.packageDependencies, []);
   assert.deepEqual(
     output.diagnostics.diagnostics.map(({ id, kind, basis, confidence }) => ({
       id,
@@ -77,6 +91,28 @@ test('prints deterministic investigation JSON for a controlled project', () => {
       { id: 'fan-out:src/service.ts', kind: 'fan-out', basis: 'fact', confidence: 'exact' },
     ],
   );
+});
+
+test('includes structural facts in the enriched analyze result for a PNPM workspace', () => {
+  const result = runCli(['analyze', 'fixtures/pnpm-workspace-structure']);
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stderr, '');
+
+  const output = JSON.parse(result.stdout) as CliOutput;
+
+  assert.equal(output.analysis.tsconfigPath, undefined);
+  assert.equal(output.analysis.workspaceConfigurationPath, 'pnpm-workspace.yaml');
+  assert.equal(output.structure.packages.length, 3);
+  assert.deepEqual(output.packageDependencies.map((dependency) => ({
+    sourcePackageId: dependency.sourcePackageId,
+    targetPackageId: dependency.targetPackageId,
+    fileDependencyCount: dependency.fileDependencies.length,
+  })), [{
+    sourcePackageId: 'workspace-package:apps/application',
+    targetPackageId: 'workspace-package:packages/library',
+    fileDependencyCount: 2,
+  }]);
 });
 
 test('prints deterministic impact JSON for a controlled project', () => {
