@@ -5,13 +5,20 @@ import type { PackageDependency, ProjectGraph, ProjectStructure } from '@bunker-
 export interface ExplorerSnapshot {
   analysis: AnalysisResult;
   packageDependencies: PackageDependency[];
+  projectLabel?: string;
 }
 
 export type ExplorerRuntimeState =
   | { kind: 'loading' }
   | { kind: 'invalid-snapshot'; message: string }
   | { kind: 'empty-graph'; graph: ProjectGraph }
-  | { kind: 'ready'; graph: ProjectGraph; structure: ProjectStructure; packageDependencies: PackageDependency[] };
+  | {
+    kind: 'ready';
+    graph: ProjectGraph;
+    structure: ProjectStructure;
+    packageDependencies: PackageDependency[];
+    projectLabel: string;
+  };
 
 export function createExplorerRuntime(snapshot: unknown): ExplorerRuntimeState {
   const explorerSnapshot = readExplorerSnapshot(snapshot);
@@ -36,6 +43,7 @@ export function createExplorerRuntime(snapshot: unknown): ExplorerRuntimeState {
       graph,
       structure,
       packageDependencies: explorerSnapshot.packageDependencies,
+      projectLabel: readProjectLabel(explorerSnapshot),
     };
   } catch (error) {
     return {
@@ -61,7 +69,23 @@ function isExplorerSnapshot(value: unknown): value is ExplorerSnapshot {
   return isRecord(value)
     && isAnalysisResult(value.analysis)
     && Array.isArray(value.packageDependencies)
-    && value.packageDependencies.every(isPackageDependency);
+    && value.packageDependencies.every(isPackageDependency)
+    && (value.projectLabel === undefined || typeof value.projectLabel === 'string');
+}
+
+function readProjectLabel(snapshot: ExplorerSnapshot): string {
+  const explicitLabel = snapshot.projectLabel?.trim();
+
+  if (explicitLabel) {
+    return explicitLabel;
+  }
+
+  if (snapshot.analysis.projectPath === '.') {
+    return 'Analyzed project';
+  }
+
+  const pathSegments = snapshot.analysis.projectPath.split('/').filter(Boolean);
+  return pathSegments.at(-1) ?? 'Analyzed project';
 }
 
 function isPackageDependency(value: unknown): value is PackageDependency {

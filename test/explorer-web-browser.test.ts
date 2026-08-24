@@ -65,7 +65,12 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await page.setViewport({ width: 1440, height: 900 });
     await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('.graph-node-package', { timeout: 15000 });
+    await page.waitForSelector('[data-explorer-scale="system-map"]', { timeout: 5000 });
     assert.ok((await page.screenshot()).byteLength > 1000);
+    assert.equal(await page.$eval('h1', (element) => element.textContent), 'bunker-code');
+    assert.equal(await page.$eval('[data-explorer-scale]', (element) => element.textContent?.includes('System map')), true);
+    assert.equal(await page.$('[class="back-action"]'), null);
+    assert.equal(await page.$eval('[aria-label="Explorer location"] [aria-current="page"]', (element) => element.textContent), 'bunker-code');
     assert.equal((await page.$$('.react-flow__node')).length, 5);
     assert.equal((await page.$$('.graph-node-package')).length, 5);
     assert.equal((await page.$$('.graph-node-external')).length, 0);
@@ -75,15 +80,25 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await page.waitForFunction(() => !document.body.textContent?.includes('Arranging visible graph...'), { timeout: 5000 });
     await clickFlowNode(page, 'workspace-package:packages/analyzer-typescript');
     await page.waitForFunction(() => document.body.textContent?.includes('Selected workspace package') ?? false, { timeout: 5000 });
+    assert.ok(await page.$('[data-explorer-scale="system-map"]'));
     assert.ok(await page.$eval('.details-panel', (element) => (
       element.textContent?.includes('Detected workspace package')
       && element.textContent.includes('Workspace configuration: pnpm-workspace.yaml')
       && element.textContent.includes('Package manifest: packages/analyzer-typescript/package.json')
       && element.textContent.includes('file dependencies')
     )));
-    await clickButton(page, 'Open package');
-    await page.waitForSelector('[aria-label="Explorer breadcrumb"]', { timeout: 5000 });
+    await clickButton(page, 'Open files');
+    await page.waitForSelector('[data-explorer-scale="part-files"]', { timeout: 5000 });
+    await page.waitForSelector('[aria-label="Back to system map"]', { timeout: 5000 });
+    await page.waitForSelector('[aria-label="Explorer location"]', { timeout: 5000 });
     await page.waitForSelector('[aria-label="Find file"]', { timeout: 5000 });
+    assert.deepEqual(await page.$$eval('[aria-label="Explorer location"] li', (items) => items.map((item) => item.textContent?.replace(/^\//, '').trim())), [
+      'bunker-code',
+      '@bunker-code/analyzer-typescript',
+    ]);
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Back to system map');
+    assert.notEqual(await page.$eval('[aria-label="Back to system map"]', (element) => getComputedStyle(element).outlineStyle), 'none');
     assert.ok(await page.$('.react-flow__node[data-id="packages/contracts/src/index.ts"]'));
     assert.equal((await page.$$('.graph-node-package')).length, 0);
 
@@ -98,21 +113,68 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await page.waitForSelector('[data-search-result="packages/analyzer-typescript/src/analyze-project.ts"]', { timeout: 5000 });
     await page.click('[data-search-result="packages/analyzer-typescript/src/analyze-project.ts"]');
     await page.waitForFunction(() => document.body.textContent?.includes('Selected file') ?? false, { timeout: 5000 });
+    assert.ok(await page.$('[data-explorer-scale="part-files"]'));
     assert.ok(await page.$eval('.details-panel', (element) => element.textContent?.includes('Dependencies') ?? false));
-    await clickButton(page, 'Focus file');
-    await page.waitForFunction(() => document.body.textContent?.includes('File overview') ?? false, { timeout: 5000 });
+    await clickButton(page, 'Show direct connections');
+    await page.waitForSelector('[data-explorer-scale="file-connections"]', { timeout: 5000 });
+    await page.waitForSelector('[aria-label="Back to analyzer-typescript files"]', { timeout: 5000 });
+    assert.equal(await page.$eval('[aria-label="Explorer location"] [aria-current="page"]', (element) => element.textContent), 'analyze-project.ts');
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-target'));
 
     await clickFlowNode(page, 'packages/analyzer-typescript/src/analysis-result.ts');
-    await clickButton(page, 'Expand context');
+    await clickButton(page, 'Show one more step');
     await page.waitForFunction(() => document.querySelectorAll('.graph-node-external').length > 0, { timeout: 5000 });
+    await page.waitForFunction(() => !document.body.textContent?.includes('Arranging visible graph...'), { timeout: 5000 });
+    assert.ok(await page.$('[data-explorer-scale="file-connections"]'));
 
-    await page.click('[aria-label="Explorer breadcrumb"] button');
+    const externalNodeId = await page.$eval('.react-flow__node.graph-node-external', (element) => element.getAttribute('data-id'));
+    assert.ok(externalNodeId);
+    await clickFlowNode(page, externalNodeId);
+    await page.waitForFunction(() => document.body.textContent?.includes('Selected external module') ?? false, { timeout: 5000 });
+    assert.equal(await page.$eval('.details-panel', (element) => (
+      [...element.querySelectorAll('button')].some((button) => (
+        button.textContent === 'Show direct connections' || button.textContent === 'Show one more step'
+      ))
+    )), false);
+
+    await page.click('[aria-label="Back to analyzer-typescript files"]');
+    await page.waitForSelector('[data-explorer-scale="part-files"]', { timeout: 5000 });
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-selected'));
+    assert.ok(await page.$('[aria-label="Back to system map"]'));
+
+    await clickFlowNode(page, 'packages/contracts/src/index.ts');
+    assert.ok(await page.$('[data-explorer-scale="part-files"]'));
+    assert.equal(await page.$eval('.details-panel', (element) => (
+      [...element.querySelectorAll('button')].some((button) => button.textContent === 'Show direct connections')
+    )), false);
+    await page.evaluate(() => {
+      document.querySelector('.react-flow__pane')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await page.waitForFunction(() => document.querySelector('.details-panel')?.textContent?.includes('Part files') ?? false, { timeout: 5000 });
+    assert.ok(await page.$('[data-explorer-scale="part-files"]'));
+
+    await page.click('[aria-label="Back to system map"]');
     await page.waitForFunction(() => document.querySelectorAll('.react-flow__node').length === 5, { timeout: 5000 });
+    await page.waitForSelector('[data-explorer-scale="system-map"]', { timeout: 5000 });
     assert.equal((await page.$$('.graph-node-package')).length, 5);
     assert.equal((await page.$$('.graph-node-external')).length, 0);
+    assert.ok(await page.$('.react-flow__node[data-id="workspace-package:packages/analyzer-typescript"].graph-node-selected'));
+    assert.ok(await page.$eval('.details-panel', (element) => element.textContent?.includes('Selected workspace package') ?? false));
+
+    await clickButton(page, 'Open files');
+    await page.waitForSelector('[data-explorer-scale="part-files"]', { timeout: 5000 });
+    await clickFlowNode(page, 'packages/analyzer-typescript/src/analyze-project.ts');
+    await clickButton(page, 'Show direct connections');
+    await page.waitForSelector('[aria-label="Back to analyzer-typescript files"]', { timeout: 5000 });
 
     await page.setViewport({ width: 640, height: 900 });
     await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
+    assert.equal(await page.$eval('[aria-label="Back to analyzer-typescript files"]', (element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.left >= 0 && rect.right <= window.innerWidth;
+    }), true);
+    assert.ok(await page.$('[data-explorer-scale="file-connections"]'));
+    assert.equal(await page.$eval('[aria-label="Explorer location"] [aria-current="page"]', (element) => element.textContent), 'analyze-project.ts');
     assert.ok((await page.screenshot()).byteLength > 1000);
   } finally {
     await browser.close();

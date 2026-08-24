@@ -23,13 +23,22 @@ import {
   type ExplorerNode,
   type ExplorerNodeData,
 } from './explorer-model.js';
+import {
+  createExplorerOrientation,
+  type ExplorerNavigationTarget,
+  type ExplorerOrientation,
+} from './explorer-orientation.js';
 import { createExplorerProjection, type ExplorerSource } from './explorer-projection.js';
 import { createExplorerRuntime, type ExplorerRuntimeState } from './explorer-runtime.js';
 import {
   createInitialExplorerState,
+  expandFileNode,
+  focusFileNode,
   openSelectedWorkspacePackage,
+  returnToFileOverview as returnToFileOverviewState,
   returnToSystem,
   selectFileNode,
+  selectSearchResultFile,
   selectWorkspacePackage,
   type ExplorerState,
   type WorkspacePackageExplorerState,
@@ -58,17 +67,26 @@ function App() {
     return <StatusScreen title="No files to explore" message="The loaded snapshot does not contain internal files." />;
   }
 
-  return <Explorer graph={runtime.graph} structure={runtime.structure} packageDependencies={runtime.packageDependencies} />;
+  return (
+    <Explorer
+      graph={runtime.graph}
+      structure={runtime.structure}
+      packageDependencies={runtime.packageDependencies}
+      projectLabel={runtime.projectLabel}
+    />
+  );
 }
 
 function Explorer({
   graph,
   structure,
   packageDependencies,
+  projectLabel,
 }: {
   graph: ProjectGraph;
   structure: ProjectStructure;
   packageDependencies: PackageDependency[];
+  projectLabel: string;
 }) {
   const source: ExplorerSource = useMemo(() => ({ graph, structure, packageDependencies }), [graph, structure, packageDependencies]);
   const [state, setState] = useState<ExplorerState>(() => createInitialExplorerState(structure));
@@ -76,6 +94,10 @@ function Explorer({
   const [pendingCenterNodeId, setPendingCenterNodeId] = useState<string | null>(null);
   const [reactFlow, setReactFlow] = useState<ReactFlowInstance | null>(null);
   const [layoutState, setLayoutState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const orientation = useMemo(
+    () => createExplorerOrientation(state, projectLabel, graph, structure),
+    [state, projectLabel, graph, structure],
+  );
   const projection = useMemo(() => createExplorerProjection(source, state), [source, state]);
   const projectedElements = useMemo(() => createExplorerElements(projection), [projection]);
   const [elements, setElements] = useState<ExplorerElements>(projectedElements);
@@ -177,11 +199,7 @@ function Explorer({
       return;
     }
 
-    setState({
-      ...fileScope,
-      focusedNodeId: selectedNode.id,
-      expandedNodeIds: new Set(),
-    });
+    setState(focusFileNode(fileScope, selectedNode.id));
     setPendingCenterNodeId(selectedNode.id);
   }
 
@@ -190,7 +208,7 @@ function Explorer({
       return;
     }
 
-    setState({ ...fileScope, expandedNodeIds: new Set([...fileScope.expandedNodeIds, selectedNode.id]) });
+    setState(expandFileNode(fileScope, selectedNode.id));
   }
 
   function returnToFileOverview(): void {
@@ -198,7 +216,7 @@ function Explorer({
       return;
     }
 
-    setState({ ...fileScope, focusedNodeId: null, expandedNodeIds: new Set() });
+    setState(returnToFileOverviewState(fileScope));
   }
 
   function returnToSystemOverview(): void {
@@ -215,10 +233,7 @@ function Explorer({
       return;
     }
 
-    const nextState = projection.visibleNodeIds.has(nodeId)
-      ? fileScope
-      : { ...fileScope, focusedNodeId: null, expandedNodeIds: new Set<string>() };
-    setState(selectFileNode(nextState, nodeId));
+    setState(selectSearchResultFile(fileScope, nodeId, projection.visibleNodeIds.has(nodeId)));
     setPendingCenterNodeId(nodeId);
     setSearchQuery('');
   }
@@ -245,20 +260,19 @@ function Explorer({
     }
   }
 
+  function navigateTo(target: ExplorerNavigationTarget): void {
+    if (target === 'system') {
+      returnToSystemOverview();
+      return;
+    }
+
+    returnToFileOverview();
+  }
+
   return (
     <main className="explorer-shell">
       <header className="explorer-header">
-        <div>
-          <p className="eyebrow">BunkerCode</p>
-          <h1>Structural Explorer</h1>
-          {state.scope === 'workspace-package' ? (
-            <nav className="breadcrumb" aria-label="Explorer breadcrumb">
-              <button type="button" onClick={returnToSystemOverview}>System</button>
-              <span aria-hidden="true">/</span>
-              <span>{packageLabel(getWorkspacePackage(structure, state.packageId))}</span>
-            </nav>
-          ) : null}
-        </div>
+        <OrientationHeader orientation={orientation} onNavigate={navigateTo} />
         <div className="explorer-header-actions">
           {fileScope ? (
             <label className="search-control">
@@ -276,7 +290,6 @@ function Explorer({
           {selectedNode && projection.visibleNodeIds.has(selectedNode.id) ? (
             <button type="button" onClick={centerSelectedNode}>Center selected</button>
           ) : null}
-          {projection.mode === 'focus' ? <button type="button" onClick={returnToFileOverview}>File overview</button> : null}
         </div>
       </header>
       <section className="explorer-main" aria-label="Project graph explorer">
@@ -331,16 +344,74 @@ function Explorer({
             />
           ) : (
             <div className="empty-details">
-              <p className="eyebrow">{projection.mode === 'system' ? 'System overview' : projection.mode === 'focus' ? 'Focus context' : 'File overview'}</p>
-              <h2>{projection.nodes.length} visible nodes</h2>
-              <p>{projection.mode === 'system'
-                ? 'Select a detected workspace package to inspect its evidence, then open it to investigate files.'
-                : 'Find a file, select it, then focus or expand its direct structural context.'}</p>
+              <p className="eyebrow">{orientation.scaleLabel}</p>
+              <h2>{orientation.focusedFileLabel
+                ? `Direct connections for ${orientation.focusedFileLabel}`
+                : `${projection.nodes.length} visible nodes`}</h2>
+              <p>{orientation.scale === 'system-map'
+                ? 'Select a detected workspace package to inspect its evidence, then open its files.'
+                : orientation.scale === 'file-connections'
+                  ? 'Select any visible item to inspect it. Use Back to return to the files in this part.'
+                  : 'Find a file, select it, then show its direct structural connections.'}</p>
             </div>
           )}
         </aside>
       </section>
     </main>
+  );
+}
+
+function OrientationHeader({
+  orientation,
+  onNavigate,
+}: {
+  orientation: ExplorerOrientation;
+  onNavigate(target: ExplorerNavigationTarget): void;
+}) {
+  const backAction = orientation.backAction;
+
+  return (
+    <div className="explorer-orientation">
+      <p className="eyebrow">BunkerCode</p>
+      <div className="orientation-heading">
+        <h1>{orientation.projectLabel}</h1>
+        <p
+          className="scale-indicator"
+          aria-label={`Current view: ${orientation.scaleLabel}`}
+          data-explorer-scale={orientation.scale}
+        >
+          <span>Current view</span>
+          <strong>{orientation.scaleLabel}</strong>
+        </p>
+      </div>
+      {backAction ? (
+        <button
+          type="button"
+          className="back-action"
+          aria-label={backAction.label}
+          onClick={() => onNavigate(backAction.target)}
+        >
+          <span aria-hidden="true">←</span>
+          {backAction.label}
+        </button>
+      ) : null}
+      <nav className="breadcrumb" aria-label="Explorer location">
+        <ol>
+          {orientation.trail.map((item, index) => (
+            <li key={item.id}>
+              {index > 0 ? <span className="breadcrumb-separator" aria-hidden="true">/</span> : null}
+              {item.target ? (
+                <button type="button" onClick={() => {
+                  if (item.target) onNavigate(item.target);
+                }}>{item.label}</button>
+              ) : (
+                <span aria-current="page">{item.label}</span>
+              )}
+            </li>
+          ))}
+        </ol>
+      </nav>
+    </div>
   );
 }
 
@@ -382,7 +453,7 @@ function WorkspacePackageDetails({
         <div><dt>Depends on</dt><dd>{outgoing.length}</dd></div>
         <div><dt>Used by</dt><dd>{incoming.length}</dd></div>
       </dl>
-      <div className="details-actions"><button type="button" onClick={onOpen}>Open package</button></div>
+      <div className="details-actions"><button type="button" onClick={onOpen}>Open files</button></div>
       <EvidenceList evidence={workspacePackage.evidence} />
       <PackageRelationList title="Depends on" dependencies={outgoing} structure={structure} source="target" />
       <PackageRelationList title="Used by" dependencies={incoming} structure={structure} source="source" />
@@ -418,8 +489,8 @@ function FileDetails({
         <div><dt>Dependents</dt><dd>{dependents.length}</dd></div>
       </dl>
       <div className="details-actions">
-        {canFocus ? <button type="button" onClick={onFocus}>Focus file</button> : null}
-        {canExpand ? <button type="button" onClick={onExpand}>Expand context</button> : null}
+        {canFocus ? <button type="button" onClick={onFocus}>Show direct connections</button> : null}
+        {canExpand ? <button type="button" onClick={onExpand}>Show one more step</button> : null}
       </div>
       <RelationList title="Dependencies" edges={dependencies} />
       <RelationList title="Dependents" edges={dependents} />

@@ -9,13 +9,19 @@ import {
   getFilesInWorkspacePackage,
 } from '../packages/graph-engine/src/index.js';
 import { createExplorerElements, layoutExplorerElements } from '../apps/explorer-web/src/explorer-model.js';
+import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
 import { createExplorerProjection, type ExplorerSource } from '../apps/explorer-web/src/explorer-projection.js';
 import { createExplorerRuntime } from '../apps/explorer-web/src/explorer-runtime.js';
 import {
   createFileOverviewExplorerState,
   createInitialExplorerState,
+  expandFileNode,
+  focusFileNode,
   openSelectedWorkspacePackage,
+  returnToFileOverview,
   returnToSystem,
+  selectFileNode,
+  selectSearchResultFile,
   selectWorkspacePackage,
 } from '../apps/explorer-web/src/explorer-state.js';
 import { searchExplorerFiles } from '../apps/explorer-web/src/explorer-search.js';
@@ -134,6 +140,73 @@ test('package selection remains in system scope and opening it creates an isolat
   assert.equal(openSelectedWorkspacePackage({ scope: 'system', selectedPackageId: null }), null);
 });
 
+test('orientation distinguishes inspection, drill-down, focused connections, expansion, and semantic back', () => {
+  const source = createWorkspaceSource();
+  const focusedFileId = 'packages/analyzer-typescript/src/analyze-project.ts';
+  const inspectedContextId = 'packages/contracts/src/index.ts';
+  const initial = createInitialExplorerState(source.structure);
+
+  assert.equal(initial.scope, 'system');
+  if (initial.scope !== 'system') return;
+
+  const initialOrientation = createExplorerOrientation(initial, 'bunker-code', source.graph, source.structure);
+  const selectedPackage = selectWorkspacePackage(initial, workspacePackageId);
+  const selectedOrientation = createExplorerOrientation(selectedPackage, 'bunker-code', source.graph, source.structure);
+  const openedPackage = openSelectedWorkspacePackage(selectedPackage);
+
+  assert.equal(initialOrientation.scale, 'system-map');
+  assert.equal(initialOrientation.backAction, undefined);
+  assert.equal(selectedOrientation.scale, 'system-map');
+  assert.equal(openedPackage?.scope, 'workspace-package');
+  if (!openedPackage) return;
+
+  const partOrientation = createExplorerOrientation(openedPackage, 'bunker-code', source.graph, source.structure);
+  const selectedFile = selectFileNode(openedPackage, focusedFileId);
+  const selectedFileOrientation = createExplorerOrientation(selectedFile, 'bunker-code', source.graph, source.structure);
+  const focused = focusFileNode(selectedFile, focusedFileId);
+  const focusOrientation = createExplorerOrientation(focused, 'bunker-code', source.graph, source.structure);
+
+  assert.equal(partOrientation.scale, 'part-files');
+  assert.deepEqual(partOrientation.backAction, { label: 'Back to system map', target: 'system' });
+  assert.deepEqual(partOrientation.trail.map((item) => item.label), ['bunker-code', '@bunker-code/analyzer-typescript']);
+  assert.deepEqual(partOrientation.trail.map((item) => item.target), ['system', undefined]);
+  assert.equal(selectedFileOrientation.scale, 'part-files');
+  assert.equal(focusOrientation.scale, 'file-connections');
+  assert.equal(focusOrientation.focusedFileLabel, 'analyze-project.ts');
+  assert.deepEqual(focusOrientation.trail.map((item) => item.label), [
+    'bunker-code',
+    '@bunker-code/analyzer-typescript',
+    'analyze-project.ts',
+  ]);
+  assert.deepEqual(focusOrientation.trail.map((item) => item.target), ['system', 'files', undefined]);
+  assert.deepEqual(focusOrientation.backAction, {
+    label: 'Back to analyzer-typescript files',
+    target: 'files',
+  });
+
+  const clearedSelection = selectFileNode(focused, null);
+  const expanded = expandFileNode(clearedSelection, focusedFileId);
+  const inspectedContext = selectFileNode(expanded, inspectedContextId);
+  const returnedToFiles = returnToFileOverview(inspectedContext);
+  const returnedOrientation = createExplorerOrientation(returnedToFiles, 'bunker-code', source.graph, source.structure);
+
+  assert.equal(createExplorerOrientation(clearedSelection, 'bunker-code', source.graph, source.structure).scale, 'file-connections');
+  assert.equal(createExplorerOrientation(expanded, 'bunker-code', source.graph, source.structure).scale, 'file-connections');
+  assert.equal(expanded.expandedNodeIds.has(focusedFileId), true);
+  assert.equal(returnedOrientation.scale, 'part-files');
+  assert.equal(returnedToFiles.selectedNodeId, focusedFileId);
+  assert.equal(returnedToFiles.focusedNodeId, null);
+  assert.deepEqual(returnedToFiles.expandedNodeIds, new Set());
+  assert.deepEqual(returnToSystem(returnedToFiles), { scope: 'system', selectedPackageId: workspacePackageId });
+
+  const visibleSearchSelection = selectSearchResultFile(focused, 'packages/analyzer-typescript/src/index.ts', true);
+  const hiddenSearchSelection = selectSearchResultFile(focused, 'packages/analyzer-typescript/src/pnpm-workspace.ts', false);
+  assert.equal(createExplorerOrientation(visibleSearchSelection, 'bunker-code', source.graph, source.structure).scale, 'file-connections');
+  assert.equal(createExplorerOrientation(hiddenSearchSelection, 'bunker-code', source.graph, source.structure).scale, 'part-files');
+  assert.equal(hiddenSearchSelection.selectedNodeId, 'packages/analyzer-typescript/src/pnpm-workspace.ts');
+  assert.equal(hiddenSearchSelection.focusedNodeId, null);
+});
+
 test('package scope keeps owned files internal and cross-package files contextual', () => {
   const source = createWorkspaceSource();
   const projection = createExplorerProjection(source, {
@@ -203,11 +276,22 @@ test('snapshots without workspace structure preserve the file-level overview fal
   const runtime = createExplorerRuntime(analyzeProject(fileDatasetPath));
   const initial = createInitialExplorerState(source.structure);
   const projection = createExplorerProjection(source, initial);
+  const orientation = createExplorerOrientation(initial, 'analyzer-typescript', source.graph, source.structure);
 
   assert.equal(runtime.kind, 'ready');
+  if (runtime.kind !== 'ready') return;
+  assert.equal(runtime.projectLabel, 'Analyzed project');
   assert.equal(initial.scope, 'file-overview');
+  assert.equal(orientation.scale, 'project-files');
+  assert.equal(orientation.backAction, undefined);
   assert.equal(projection.mode, 'overview');
   assert.equal(projection.nodes.every((node) => node.kind === 'file'), true);
+
+  const focused = focusFileNode(initial, 'src/analysis-result.ts');
+  const focusOrientation = createExplorerOrientation(focused, 'analyzer-typescript', source.graph, source.structure);
+  assert.equal(focusOrientation.scale, 'file-connections');
+  assert.deepEqual(focusOrientation.backAction, { label: 'Back to project files', target: 'files' });
+  assert.equal(returnToFileOverview(focused).selectedNodeId, 'src/analysis-result.ts');
 });
 
 test('workspace runtime consumes supplied package dependencies without rebuilding them in the Web layer', () => {
@@ -215,11 +299,12 @@ test('workspace runtime consumes supplied package dependencies without rebuildin
   const graph = buildProjectGraph(analysis);
   const structure = buildProjectStructure(analysis);
   const packageDependencies = aggregatePackageDependencies(graph, structure);
-  const runtime = createExplorerRuntime({ analysis, packageDependencies });
+  const runtime = createExplorerRuntime({ analysis, packageDependencies, projectLabel: 'workspace-fixture' });
 
   assert.equal(runtime.kind, 'ready');
   if (runtime.kind !== 'ready') return;
   assert.deepEqual(runtime.packageDependencies, packageDependencies);
+  assert.equal(runtime.projectLabel, 'workspace-fixture');
 });
 
 test('an invalid package scope fails explicitly instead of producing a corrupt file projection', () => {

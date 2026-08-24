@@ -70,3 +70,44 @@ export function selectFileNode<TState extends FileOverviewExplorerState | Worksp
 ): TState {
   return { ...state, selectedNodeId: nodeId };
 }
+
+export function focusFileNode<TState extends FileOverviewExplorerState | WorkspacePackageExplorerState>(
+  state: TState,
+  nodeId: string,
+): TState {
+  return {
+    ...state,
+    selectedNodeId: nodeId,
+    focusedNodeId: nodeId,
+    expandedNodeIds: new Set(),
+  };
+}
+
+export function expandFileNode<TState extends FileOverviewExplorerState | WorkspacePackageExplorerState>(
+  state: TState,
+  nodeId: string,
+): TState {
+  return { ...state, expandedNodeIds: new Set([...state.expandedNodeIds, nodeId]) };
+}
+
+export function returnToFileOverview<TState extends FileOverviewExplorerState | WorkspacePackageExplorerState>(
+  state: TState,
+): TState {
+  return {
+    ...state,
+    selectedNodeId: state.focusedNodeId ?? state.selectedNodeId,
+    focusedNodeId: null,
+    expandedNodeIds: new Set(),
+  };
+}
+
+export function selectSearchResultFile<
+  TState extends FileOverviewExplorerState | WorkspacePackageExplorerState,
+>(
+  state: TState,
+  nodeId: string,
+  isVisible: boolean,
+): TState {
+  const visibleState = isVisible ? state : returnToFileOverview(state);
+  return selectFileNode(visibleState, nodeId);
+}

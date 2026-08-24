@@ -74,8 +74,12 @@ The browser check uses `puppeteer-core` with the system Firefox executable at
 The Explorer generates a disposable snapshot by analyzing the local BunkerCode
 PNPM workspace. When workspace structure is present, it opens with a System
 Overview of detected workspace packages and their evidence-backed aggregated
-dependencies. Selecting a package shows its provenance; **Open package** drills
-down to the existing file-level Explorer, and the breadcrumb returns to System.
+dependencies. The header persistently identifies the analyzed project and the
+current scale: **System map**, **Part files**, or **File connections**. Selecting
+a part only inspects it; **Open files** drills down. Selecting an internal file
+only inspects it; **Show direct connections** enters its focused relationship
+view. Explicit Back actions return one semantic level while the breadcrumb
+shows the complete location and permits ancestor jumps.
 
 Generate the snapshot and start the local app:
 
@@ -101,3 +105,7 @@ name. Selecting a search result centers it; selecting a result outside the
 current focus context returns to that package's file overview so the file is
 visible before it is selected. Files from another workspace package appear only
 as contextual file nodes when a cross-package dependency requires that context.
+Returning from File connections preserves its anchor as the selected file;
+returning from Part files preserves the previously opened part on the System
+map. The no-workspace snapshot fallback remains a project-file overview and
+does not invent a system part.
