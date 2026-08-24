@@ -80,6 +80,7 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     })), { count: expectedAnalyzedFileCount, label: expectedAnalyzedFileLabel });
     assert.equal((await page.$$('.react-flow__node')).length, 5);
     assert.equal((await page.$$('.graph-node-package')).length, 5);
+    assert.equal((await page.$$('.graph-node-attention-baseline')).length, 5);
     assert.equal((await page.$$('.graph-node-external')).length, 0);
     assert.equal(await page.$$eval('.graph-node-package', (items) => items.every((item) => item.getAttribute('tabindex') === '0')), true);
     assert.deepEqual(await page.$$eval('.graph-node-package .part-node-name', (items) => items.map((item) => item.textContent)), [
@@ -151,6 +152,14 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.ok(await page.$('.react-flow__edge[aria-label="analyzer-typescript uses contracts"]'));
     await clickFlowNode(page, 'workspace-package:packages/analyzer-typescript');
     await page.waitForFunction(() => document.body.textContent?.includes('Selected for inspection') ?? false, { timeout: 5000 });
+    assert.ok(await page.$('.react-flow__node[data-id="workspace-package:packages/analyzer-typescript"].graph-node-attention-selected.graph-node-selected'));
+    assert.ok(await page.$('.react-flow__node[data-id="workspace-package:packages/contracts"].graph-node-attention-direct.graph-node-dependency'));
+    assert.ok(await page.$('.react-flow__node[data-id="workspace-package:apps/cli"].graph-node-attention-direct.graph-node-dependent'));
+    assert.ok(await page.$('.react-flow__node[data-id="workspace-package:apps/explorer-web"].graph-node-attention-direct.graph-node-dependent'));
+    assert.ok(await page.$('.react-flow__node[data-id="workspace-package:packages/graph-engine"].graph-node-attention-subdued'));
+    assert.equal((await page.$$('.graph-edge-attention-direct')).length, 3);
+    assert.equal((await page.$$('.graph-edge-attention-subdued')).length, 4);
+    assert.equal(await page.$eval('.react-flow__viewport', (element) => (element as HTMLElement).style.transform), stateBeforeSystemHelp.viewportTransform);
     assert.ok(await page.$('[data-explorer-scale="system-map"]'));
     assert.deepEqual(await page.$$eval('.part-exploration > *', (items) => items.map((item) => (
       item instanceof HTMLDetailsElement ? item.dataset.disclosure : item.className
@@ -201,6 +210,16 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.ok(await page.$('.details-panel li[aria-label="analyzer-typescript uses contracts"]'));
     assert.ok(await page.$('.details-panel li[aria-label="cli uses analyzer-typescript"]'));
     assert.ok(await page.$('.details-panel li[aria-label="explorer-web uses analyzer-typescript"]'));
+
+    await page.evaluate(() => {
+      document.querySelector('.react-flow__pane')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await page.waitForFunction(() => document.querySelectorAll('.graph-node-selected').length === 0, { timeout: 5000 });
+    assert.equal((await page.$$('.graph-node-attention-baseline')).length, 5);
+    assert.equal((await page.$$('.graph-edge-attention-baseline')).length, 7);
+    assert.equal(await page.$eval('.react-flow__viewport', (element) => (element as HTMLElement).style.transform), stateBeforeSystemHelp.viewportTransform);
+    await clickFlowNode(page, 'workspace-package:packages/analyzer-typescript');
+    await page.waitForFunction(() => document.body.textContent?.includes('Selected for inspection') ?? false, { timeout: 5000 });
 
     const stateBeforeDisclosures = await page.evaluate(() => ({
       scale: document.querySelector('[data-explorer-scale]')?.getAttribute('data-explorer-scale'),
@@ -280,8 +299,10 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.ok(await page.$('.react-flow__node[data-id="packages/contracts/src/index.ts"].graph-node-contextual'));
     assert.equal(await page.$eval('.react-flow__node[data-id="packages/contracts/src/index.ts"]', (element) => (
       element.textContent?.includes('From contracts')
-      && element.textContent.includes('Connected from another part')
+      && !element.textContent.includes('Connected from another part')
+      && !element.textContent.includes('packages/contracts/src/index.ts')
     )), true);
+    assert.equal((await page.$$('.graph-node-attention-baseline')).length, 7);
     assert.equal((await page.$$('.graph-node-package')).length, 0);
 
     await page.click('[aria-label="Find file"]');
@@ -295,6 +316,12 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await page.waitForSelector('[data-search-result="packages/analyzer-typescript/src/analyze-project.ts"]', { timeout: 5000 });
     await page.click('[data-search-result="packages/analyzer-typescript/src/analyze-project.ts"]');
     await page.waitForFunction(() => document.querySelector('.file-identity .eyebrow')?.textContent === 'Selected item', { timeout: 5000 });
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-attention-selected.graph-node-selected'));
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analysis-result.ts"].graph-node-attention-direct.graph-node-dependency'));
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/index.ts"].graph-node-attention-direct.graph-node-dependent'));
+    assert.ok(await page.$('.react-flow__node[data-id="apps/cli/src/main.ts"].graph-node-attention-subdued'));
+    assert.ok(await page.$('.react-flow__node[data-id="packages/contracts/src/index.ts"].graph-node-attention-subdued.graph-node-contextual'));
+    assert.equal((await page.$$('.graph-edge-attention-direct')).length, 3);
     assert.ok(await page.$('[data-explorer-scale="part-files"]'));
     assert.deepEqual(await page.$$eval('.file-exploration > *', (items) => items.map((item) => (
       item instanceof HTMLDetailsElement ? item.dataset.disclosure : item.className
@@ -352,11 +379,23 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       element instanceof HTMLDetailsElement && !element.open
     )), true);
     await page.click('[data-disclosure="file-evidence"] summary');
+    const selectedOverviewTransform = await page.$eval('.react-flow__viewport', (element) => (element as HTMLElement).style.transform);
+    await page.evaluate(() => {
+      document.querySelector('.react-flow__pane')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await page.waitForFunction(() => document.querySelectorAll('.graph-node-selected').length === 0, { timeout: 5000 });
+    assert.equal((await page.$$('.graph-node-attention-baseline')).length, 7);
+    assert.equal(await page.$eval('.react-flow__viewport', (element) => (element as HTMLElement).style.transform), selectedOverviewTransform);
+    await clickFlowNode(page, 'packages/analyzer-typescript/src/analyze-project.ts');
     await clickButton(page, 'Show direct connections');
     await page.waitForSelector('[data-explorer-scale="file-connections"]', { timeout: 5000 });
     await page.waitForSelector('[aria-label="Back to analyzer-typescript files"]', { timeout: 5000 });
     assert.equal(await page.$eval('[aria-label="Explorer location"] [aria-current="page"]', (element) => element.textContent), 'analyze-project.ts');
-    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-target'));
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-target.graph-node-attention-anchor'));
+    assert.equal(await page.$$eval('.react-flow__node:not([data-id="packages/analyzer-typescript/src/analyze-project.ts"])', (nodes) => (
+      nodes.every((node) => node.classList.contains('graph-node-attention-direct'))
+    )), true);
+    assert.equal((await page.$$('.graph-edge-attention-direct')).length > 0, true);
     assert.equal(await page.$$eval('.react-flow__edge-path', (edges) => (
       edges.length > 0 && edges.every((edge) => edge.getAttribute('marker-end')?.includes('arrowclosed'))
     )), true);
@@ -384,8 +423,8 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await page.click('.file-anchor-context [data-vocabulary-help="file-connections"] summary');
 
     await clickFlowNode(page, 'packages/analyzer-typescript/src/analysis-result.ts');
-    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-target'));
-    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analysis-result.ts"].graph-node-selected'));
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-target.graph-node-attention-anchor:not(.graph-node-selected):not(.graph-node-dependency):not(.graph-node-dependent)'));
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analysis-result.ts"].graph-node-attention-direct.graph-node-selected'));
     assert.equal(await page.$eval('.file-identity .eyebrow', (element) => element.textContent), 'Selected item');
     assert.equal(await page.$eval('.file-anchor-context', (element) => (
       element.textContent?.includes('analyze-project.ts')
@@ -396,6 +435,12 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await page.waitForFunction(() => document.querySelectorAll('.graph-node-external').length > 0, { timeout: 5000 });
     await page.waitForFunction(() => !document.body.textContent?.includes('Arranging visible graph...'), { timeout: 5000 });
     assert.ok(await page.$('[data-explorer-scale="file-connections"]'));
+    assert.equal((await page.$$('.graph-node-attention-additional-context')).length > 0, true);
+    assert.equal(await page.$$eval('.graph-node-attention-additional-context', (nodes) => nodes.every((node) => (
+      node.textContent?.includes('Additional context')
+      && !node.classList.contains('graph-node-dependency')
+      && !node.classList.contains('graph-node-dependent')
+    ))), true);
     assert.equal(await page.$$eval('.graph-node-external', (nodes) => nodes.every((node) => (
       node.textContent?.includes('Outside this analyzed system')
       && node.textContent.includes('External module')
@@ -425,17 +470,30 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
         button.textContent === 'Show direct connections' || button.textContent === 'Show one more step'
       ))
     )), false);
+    assert.ok(await page.$(`.react-flow__node[data-id="${externalNodeId}"].graph-node-attention-direct.graph-node-selected`));
     await page.evaluate(() => {
       document.querySelector('.react-flow__pane')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     await page.waitForFunction(() => document.querySelector('.details-panel')?.textContent?.includes('Direct connections for analyze-project.ts') ?? false, { timeout: 5000 });
     assert.ok(await page.$('[data-explorer-scale="file-connections"]'));
     assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-target'));
+    assert.equal((await page.$$('.graph-node-selected')).length, 0);
+    assert.equal((await page.$$('.graph-edge-attention-direct')).length > 0, true);
 
     await page.click('[aria-label="Back to analyzer-typescript files"]');
     await page.waitForSelector('[data-explorer-scale="part-files"]', { timeout: 5000 });
     assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-selected'));
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-attention-selected'));
+    assert.equal((await page.$$('.graph-node-attention-anchor')).length, 0);
     assert.ok(await page.$('[aria-label="Back to system map"]'));
+
+    const subduedNodeId = await focusSubduedFlowNodeWithKeyboard(page);
+    const subduedNodeSelector = `.react-flow__node[data-id="${subduedNodeId}"].graph-node-attention-subdued`;
+    assert.deepEqual(await page.$eval(subduedNodeSelector, (element) => ({
+      active: document.activeElement === element,
+      opacity: getComputedStyle(element).opacity,
+      outline: getComputedStyle(element).outlineStyle,
+    })), { active: true, opacity: '1', outline: 'solid' });
 
     await clickFlowNode(page, 'packages/contracts/src/index.ts');
     assert.ok(await page.$('[data-explorer-scale="part-files"]'));
@@ -597,6 +655,20 @@ async function clickFlowNode(page: import('puppeteer-core').Page, nodeId: string
 
     node.click();
   }, nodeId);
+}
+
+async function focusSubduedFlowNodeWithKeyboard(page: import('puppeteer-core').Page): Promise<string> {
+  await page.focus('[aria-label="Back to system map"]');
+
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await page.keyboard.press('Tab');
+    const activeNodeId = await page.evaluate(() => document.activeElement?.classList.contains('graph-node-attention-subdued')
+      ? document.activeElement.getAttribute('data-id')
+      : null);
+    if (activeNodeId) return activeNodeId;
+  }
+
+  throw new Error('No subdued graph node was reachable by keyboard.');
 }
 
 async function readExplorerUiState(page: import('puppeteer-core').Page): Promise<{

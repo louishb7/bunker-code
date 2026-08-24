@@ -12,7 +12,7 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { getDependencies, getDependents, getFilesInWorkspacePackage } from '@bunker-code/graph-engine';
+import { getFilesInWorkspacePackage } from '@bunker-code/graph-engine';
 import type { PackageDependency, ProjectGraph, ProjectGraphEdge, ProjectStructure } from '@bunker-code/graph-engine';
 import type { WorkspacePackage } from '@bunker-code/contracts';
 import snapshot from './generated/analyzer-typescript.snapshot.json';
@@ -47,14 +47,12 @@ import {
   selectSearchResultFile,
   selectWorkspacePackage,
   type ExplorerState,
-  type WorkspacePackageExplorerState,
 } from './explorer-state.js';
 import { searchExplorerFiles } from './explorer-search.js';
 import {
   describeRelationship,
   relationshipDirectionHelp,
   relationshipDirectionKey,
-  relationshipRole,
 } from './relationship-language.js';
 import {
   createPackageExploration,
@@ -67,6 +65,12 @@ import {
 } from './file-exploration.js';
 import { systemMapVocabularyPlacement } from './explorer-vocabulary.js';
 import { VocabularyHelp } from './vocabulary-help.js';
+import {
+  createExplorerAttention,
+  explorerAttentionEdgeKey,
+  type ExplorerEdgeAttention,
+  type ExplorerNodeAttention,
+} from './explorer-attention.js';
 import './styles.css';
 
 const nodeTypes = { explorer: ExplorerNodeView };
@@ -121,10 +125,16 @@ function Explorer({
     () => createExplorerOrientation(state, projectLabel, graph, structure),
     [state, projectLabel, graph, structure],
   );
-  const projection = useMemo(() => createExplorerProjection(source, state), [source, state]);
+  const fileScope = state.scope === 'system' ? null : state;
+  const projection = useMemo(() => createExplorerProjection(source, state), [
+    source,
+    state.scope,
+    state.scope === 'workspace-package' ? state.packageId : null,
+    fileScope?.focusedNodeId,
+    fileScope?.expandedNodeIds,
+  ]);
   const projectedElements = useMemo(() => createExplorerElements(projection), [projection]);
   const [elements, setElements] = useState<ExplorerElements>(projectedElements);
-  const fileScope = state.scope === 'system' ? null : state;
   const searchableFileIds = useMemo(() => fileScope?.scope === 'workspace-package'
     ? new Set(getFilesInWorkspacePackage(structure, fileScope.packageId))
     : undefined, [fileScope, structure]);
@@ -144,7 +154,7 @@ function Explorer({
 
       setElements(nextElements);
       setLayoutState('ready');
-      window.requestAnimationFrame(() => reactFlow?.fitView({ padding: 0.2, duration: 150 }));
+      window.requestAnimationFrame(() => reactFlow?.fitView(fitViewOptions(projectedElements.mode)));
     }).catch(() => {
       if (active) {
         setLayoutState('error');
@@ -168,7 +178,6 @@ function Explorer({
   }, [elements.nodes, pendingCenterNodeId, reactFlow]);
 
   const selectedNodeId = fileScope?.selectedNodeId ?? null;
-  const focusedNodeId = fileScope?.focusedNodeId ?? null;
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId);
   const systemParts = useMemo(() => projection.nodes.filter(
     (node): node is ExplorerWorkspacePackageProjectionNode => node.kind === 'workspace-package',
@@ -176,44 +185,16 @@ function Explorer({
   const selectedPart = state.scope === 'system' && state.selectedPackageId
     ? systemParts.find((node) => node.id === state.selectedPackageId)
     : undefined;
-  const focusedDependencies = useMemo(
-    () => focusedNodeId ? new Set(getDependencies(graph, focusedNodeId).map((edge) => edge.targetNodeId)) : new Set<string>(),
-    [graph, focusedNodeId],
-  );
-  const focusedDependents = useMemo(
-    () => focusedNodeId ? new Set(getDependents(graph, focusedNodeId).map((edge) => edge.sourceNodeId)) : new Set<string>(),
-    [graph, focusedNodeId],
-  );
-  const inspectedNodeId = state.scope === 'system' ? state.selectedPackageId : selectedNodeId;
-  const inspectedUses = useMemo(() => new Set(
-    elements.edges.filter((edge) => edge.source === inspectedNodeId).map((edge) => edge.target),
-  ), [elements.edges, inspectedNodeId]);
-  const inspectedUsedBy = useMemo(() => new Set(
-    elements.edges.filter((edge) => edge.target === inspectedNodeId).map((edge) => edge.source),
-  ), [elements.edges, inspectedNodeId]);
+  const attention = useMemo(() => createExplorerAttention(projection, state), [projection, state]);
   const flowNodes: Node<ExplorerNodeData>[] = useMemo(
-    () => elements.nodes.map((node) => ({
-      ...node,
-      type: 'explorer',
-      data: {
-        ...node.data,
-        contextLabel: nodeContextLabel(
-          node,
-          state.scope === 'system' ? state.selectedPackageId : selectedNodeId,
-          focusedNodeId,
-          focusedDependencies,
-          focusedDependents,
-          inspectedUses,
-          inspectedUsedBy,
-        ),
-      },
-      className: nodeClassName(node, state, selectedNodeId, focusedNodeId, focusedDependencies, focusedDependents),
-    })),
-    [elements.nodes, state, selectedNodeId, focusedNodeId, focusedDependencies, focusedDependents, inspectedUses, inspectedUsedBy],
+    () => elements.nodes.map((node) => attentionFlowNode(node, attention.nodes.get(node.id))),
+    [elements.nodes, attention.nodes],
   );
   const flowEdges: Edge[] = useMemo(
-    () => elements.edges.map((edge) => relationshipFlowEdge(edge, inspectedNodeId)),
-    [elements.edges, inspectedNodeId],
+    () => elements.edges.map((edge) => relationshipFlowEdge(edge, edge.data
+      ? attention.edges.get(explorerAttentionEdgeKey(edge.data.kind, edge.source, edge.target))
+      : undefined)),
+    [elements.edges, attention.edges],
   );
   const fileExploration = useMemo(() => selectedNode && fileScope
     ? createFileExploration(selectedNode, graph, structure, fileScope, projection.visibleNodeIds)
@@ -276,7 +257,7 @@ function Explorer({
   }
 
   function fitCurrentGraph(): void {
-    reactFlow?.fitView({ padding: 0.2, duration: 150 });
+    reactFlow?.fitView(fitViewOptions(elements.mode));
   }
 
   function centerSelectedNode(): void {
@@ -325,7 +306,8 @@ function Explorer({
             edges={flowEdges}
             nodeTypes={nodeTypes}
             fitView
-            minZoom={0.25}
+            fitViewOptions={fitViewOptions(elements.mode)}
+            minZoom={0.35}
             onInit={setReactFlow}
             onNodeClick={(_, node) => {
               if (state.scope === 'system') {
@@ -500,7 +482,9 @@ function ExplorerNodeView({ data }: NodeProps<ExplorerNode>) {
               : `Uses ${usesCount} · Used by ${usedByCount}`}
           </span>
         </div>
-        {data.contextLabel ? <span className="graph-node-context">{data.contextLabel}</span> : null}
+        {data.attentionLabel ? (
+          <span className="graph-node-cues"><span className="graph-node-attention">{data.attentionLabel}</span></span>
+        ) : null}
         <Handle type="source" position={Position.Bottom} />
       </>
     );
@@ -510,8 +494,15 @@ function ExplorerNodeView({ data }: NodeProps<ExplorerNode>) {
     <>
       <Handle type="target" position={Position.Left} />
       <strong className="graph-node-label" title={data.label}>{data.label}</strong>
-      <span className="graph-node-subtitle" title={data.subtitle}>{data.subtitle}</span>
-      {data.contextLabel ? <span className="graph-node-context">{data.contextLabel}</span> : null}
+      {data.kind === 'external' || data.scopeRole === 'contextual' ? (
+        <span className="graph-node-subtitle" title={data.subtitle}>{data.subtitle}</span>
+      ) : null}
+      {data.contextLabel || data.attentionLabel ? (
+        <span className="graph-node-cues">
+          {data.contextLabel ? <span className="graph-node-context">{data.contextLabel}</span> : null}
+          {data.attentionLabel ? <span className="graph-node-attention">{data.attentionLabel}</span> : null}
+        </span>
+      ) : null}
       <Handle type="source" position={Position.Right} />
     </>
   );
@@ -800,49 +791,58 @@ function StatusScreen({ title, message }: { title: string; message: string }) {
   );
 }
 
-function nodeClassName(
+function attentionFlowNode(
   node: Node<ExplorerNodeData>,
-  state: ExplorerState,
-  selectedNodeId: string | null,
-  focusedNodeId: string | null,
-  focusedDependencies: ReadonlySet<string>,
-  focusedDependents: ReadonlySet<string>,
-): string {
+  attention: ExplorerNodeAttention | undefined,
+): Node<ExplorerNodeData> {
+  const resolvedAttention = attention ?? {
+    role: 'baseline',
+    selected: false,
+    anchorRelationshipRole: 'unrelated',
+    selectedRelationshipRole: 'unrelated',
+  } satisfies ExplorerNodeAttention;
   const classes = ['graph-node'];
 
   if (node.data.kind === 'workspace-package') classes.push('graph-node-package');
   if (node.data.kind === 'external') classes.push('graph-node-external');
   if (node.data.scopeRole === 'contextual') classes.push('graph-node-contextual');
-  if (node.id === focusedNodeId) classes.push('graph-node-target');
-  else if (focusedDependencies.has(node.id)) classes.push('graph-node-dependency');
-  else if (focusedDependents.has(node.id)) classes.push('graph-node-dependent');
-  if ((state.scope === 'system' && node.id === state.selectedPackageId) || node.id === selectedNodeId) {
-    classes.push('graph-node-selected');
-  }
+  classes.push(`graph-node-attention-${resolvedAttention.role}`);
+  const visibleRelationshipRole = resolvedAttention.anchorRelationshipRole === 'unrelated'
+    ? resolvedAttention.selectedRelationshipRole
+    : resolvedAttention.anchorRelationshipRole;
+  if (resolvedAttention.role === 'direct' && visibleRelationshipRole === 'uses') classes.push('graph-node-dependency');
+  if (resolvedAttention.role === 'direct' && visibleRelationshipRole === 'used-by') classes.push('graph-node-dependent');
+  if (resolvedAttention.role === 'anchor') classes.push('graph-node-target');
+  if (resolvedAttention.selected) classes.push('graph-node-selected');
 
-  return classes.join(' ');
+  return {
+    ...node,
+    type: 'explorer',
+    className: classes.join(' '),
+    data: {
+      ...node.data,
+      attentionRole: resolvedAttention.role,
+      selectedForInspection: resolvedAttention.selected,
+      attentionLabel: nodeAttentionLabel(node, resolvedAttention),
+    },
+  };
 }
 
-function nodeContextLabel(
+function nodeAttentionLabel(
   node: Node<ExplorerNodeData>,
-  selectedNodeId: string | null,
-  focusedNodeId: string | null,
-  focusedDependencies: ReadonlySet<string>,
-  focusedDependents: ReadonlySet<string>,
-  inspectedUses: ReadonlySet<string>,
-  inspectedUsedBy: ReadonlySet<string>,
+  attention: ExplorerNodeAttention,
 ): string | undefined {
-  const labels = node.data.contextLabel ? [node.data.contextLabel] : [];
+  const labels: string[] = [];
 
-  if (node.id === focusedNodeId) labels.push('Connection anchor');
-  else if (focusedDependencies.has(node.id)) labels.push('Anchor uses this');
-  else if (focusedDependents.has(node.id)) labels.push('Uses the anchor');
-  if (selectedNodeId !== focusedNodeId) {
-    if (inspectedUses.has(node.id)) labels.push('Selected item uses this');
-    else if (inspectedUsedBy.has(node.id)) labels.push('Uses selected item');
+  if (attention.role === 'anchor') labels.push('Connection anchor');
+  else if (attention.anchorRelationshipRole === 'uses') labels.push('Anchor uses this');
+  else if (attention.anchorRelationshipRole === 'used-by') labels.push('Uses the anchor');
+  else if (attention.role === 'additional-context') labels.push('Additional context');
+  if (!attention.selected && attention.role === 'direct' && attention.anchorRelationshipRole === 'unrelated') {
+    if (attention.selectedRelationshipRole === 'uses') labels.push('Selected item uses this');
+    else if (attention.selectedRelationshipRole === 'used-by') labels.push('Uses selected item');
   }
-  if (node.data.kind === 'external' && !labels.includes('External module')) labels.push('External module');
-  if (node.id === selectedNodeId) labels.push(node.data.kind === 'workspace-package' ? 'Selected for inspection' : 'Selected');
+  if (attention.selected) labels.push(node.data.kind === 'workspace-package' ? 'Selected for inspection' : 'Selected');
 
   return labels.length > 0 ? labels.join(' · ') : undefined;
 }
@@ -940,30 +940,41 @@ function FileEvidenceGroup({ title, relations }: { title: string; relations: Fil
   );
 }
 
-function relationshipFlowEdge(edge: ExplorerEdge, inspectedNodeId: string | null): ExplorerEdge {
-  const role = relationshipRole(inspectedNodeId, {
-    sourceNodeId: edge.source,
-    targetNodeId: edge.target,
-  });
-  const active = role !== 'unrelated';
+function relationshipFlowEdge(edge: ExplorerEdge, attention: ExplorerEdgeAttention | undefined): ExplorerEdge {
+  const role = attention?.relationshipRole ?? 'unrelated';
+  const attentionRole = attention?.role ?? 'baseline';
+  const labelled = attentionRole === 'direct' || attentionRole === 'selected-context';
   const occurrenceSuffix = edge.data && edge.data.occurrenceCount > 1
     ? ` · ${edge.data.occurrenceCount} relationships`
     : '';
 
   return {
     ...edge,
-    className: active ? `graph-edge graph-edge-active graph-edge-${role}` : 'graph-edge',
-    label: role === 'uses' ? `Uses${occurrenceSuffix}` : role === 'used-by' ? `Used by${occurrenceSuffix}` : undefined,
-    labelStyle: active ? { fill: '#edf5f7', fontSize: 11, fontWeight: 700 } : undefined,
-    labelBgStyle: active ? { fill: '#17232e', fillOpacity: 0.96, stroke: '#78909c', strokeWidth: 1 } : undefined,
-    labelBgPadding: active ? [6, 4] : undefined,
-    labelBgBorderRadius: active ? 4 : undefined,
+    className: `graph-edge graph-edge-attention-${attentionRole}${role !== 'unrelated' ? ` graph-edge-${role}` : ''}`,
+    label: labelled && role === 'uses' ? `Uses${occurrenceSuffix}` : labelled && role === 'used-by' ? `Used by${occurrenceSuffix}` : undefined,
+    labelStyle: labelled ? { fill: '#edf5f7', fontSize: 11, fontWeight: 700 } : undefined,
+    labelBgStyle: labelled ? { fill: '#17232e', fillOpacity: 0.96, stroke: '#78909c', strokeWidth: 1 } : undefined,
+    labelBgPadding: labelled ? [6, 4] : undefined,
+    labelBgBorderRadius: labelled ? 4 : undefined,
     markerEnd: {
       type: 'arrowclosed',
-      width: active ? 25 : 22,
-      height: active ? 25 : 22,
-      color: active ? '#f2c14e' : '#8fa2b1',
+      width: attentionRole === 'direct' ? 25 : 22,
+      height: attentionRole === 'direct' ? 25 : 22,
+      color: attentionRole === 'direct'
+        ? '#f2c14e'
+        : attentionRole === 'subdued' || attentionRole === 'additional-context'
+          ? '#60717e'
+          : '#8fa2b1',
     },
+  };
+}
+
+function fitViewOptions(mode: ExplorerElements['mode']) {
+  return {
+    padding: mode === 'system' ? 0.2 : 0.14,
+    duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 150,
+    minZoom: mode === 'system' ? 0.55 : 0.68,
+    maxZoom: 1.15,
   };
 }
 

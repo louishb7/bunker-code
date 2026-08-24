@@ -136,3 +136,10 @@ as PNPM workspace, workspace package, dependency, dependent, external module,
 connection anchor, evidence, module specifier, and confidence. They remain
 closed by default, work with keyboard and touch, and do not change selection,
 navigation, graph projection, or analytical facts.
+
+The canvas applies a deterministic attention hierarchy without hiding graph
+facts. Selection emphasizes its direct Uses / Used by neighborhood and quiets
+unrelated visible context. File connections keeps its anchor as the structural
+center even while another item is selected, and one-more-step nodes are marked
+as additional context. File maps keep a readable fit floor and allow panning to
+remaining context instead of forcing every label into a microscopic overview.

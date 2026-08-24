@@ -15,6 +15,9 @@ export interface ExplorerNodeData extends Record<string, unknown> {
   fileCount?: number;
   usesCount?: number;
   usedByCount?: number;
+  attentionLabel?: string;
+  attentionRole?: string;
+  selectedForInspection?: boolean;
 }
 
 export interface ExplorerEdgeData extends Record<string, unknown> {
@@ -36,7 +39,7 @@ export interface ExplorerElements {
   edges: ExplorerEdge[];
 }
 
-const fileNodeDimensions = { width: 250, height: 86 };
+const fileNodeDimensions = { width: 218, height: 72 };
 const systemPartNodeDimensions = { width: 280, height: 150 };
 const elk = new ELK();
 
@@ -137,9 +140,7 @@ function createExplorerNode(node: ExplorerProjectionNode): ExplorerNode {
           : node.scopeRole === 'owned'
             ? 'File in this part'
             : 'Analyzed file',
-        contextLabel: node.contextualWorkspacePackage
-          ? 'Connected from another part'
-          : undefined,
+        contextLabel: undefined,
       },
     };
   }
@@ -164,8 +165,8 @@ export async function layoutExplorerElements(elements: ExplorerElements): Promis
     layoutOptions: {
       'elk.algorithm': 'layered',
       'elk.direction': isSystemMap ? 'DOWN' : 'RIGHT',
-      'elk.layered.spacing.nodeNodeBetweenLayers': isSystemMap ? '82' : '72',
-      'elk.spacing.nodeNode': isSystemMap ? '40' : '32',
+      'elk.layered.spacing.nodeNodeBetweenLayers': isSystemMap ? '82' : elements.mode === 'overview' ? '54' : '64',
+      'elk.spacing.nodeNode': isSystemMap ? '40' : elements.mode === 'overview' ? '24' : '30',
     },
     children: elements.nodes.map((node) => {
       const dimensions = node.data.kind === 'workspace-package' ? systemPartNodeDimensions : fileNodeDimensions;

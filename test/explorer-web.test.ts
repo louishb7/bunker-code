@@ -39,24 +39,34 @@ import {
   vocabularyConceptIds,
   vocabularyForPlacement,
 } from '../apps/explorer-web/src/explorer-vocabulary.js';
+import {
+  createExplorerAttention,
+  explorerAttentionEdgeKey,
+} from '../apps/explorer-web/src/explorer-attention.js';
 
 const fileDatasetPath = path.resolve('packages/analyzer-typescript');
 const workspaceDatasetPath = path.resolve('.');
 const workspacePackageId = 'workspace-package:packages/analyzer-typescript';
 const contractsPackageId = 'workspace-package:packages/contracts';
+let fileSource: ExplorerSource | undefined;
+let workspaceSource: ExplorerSource | undefined;
 
 function createFileSource(): ExplorerSource {
+  if (fileSource) return fileSource;
   const analysis = analyzeProject(fileDatasetPath);
   const graph = buildProjectGraph(analysis);
   const structure = buildProjectStructure(analysis);
-  return { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
+  fileSource = { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
+  return fileSource;
 }
 
 function createWorkspaceSource(): ExplorerSource {
+  if (workspaceSource) return workspaceSource;
   const analysis = analyzeProject(workspaceDatasetPath);
   const graph = buildProjectGraph(analysis);
   const structure = buildProjectStructure(analysis);
-  return { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
+  workspaceSource = { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
+  return workspaceSource;
 }
 
 test('system projection renders every detected workspace package and uses only aggregated package dependencies', () => {
@@ -671,6 +681,178 @@ test('relationship presentation names source and target without reversing analyt
   assert.equal(relationshipRole(workspacePackageId, relationship), 'uses');
   assert.equal(relationshipRole(contractsPackageId, relationship), 'used-by');
   assert.equal(relationshipRole('workspace-package:packages/isolated', relationship), 'unrelated');
+});
+
+test('system attention keeps the neutral map equal and forms a selected directed neighborhood without hiding isolation', () => {
+  const source = createWorkspaceSource();
+  const neutralState = { scope: 'system' as const, selectedPackageId: null };
+  const neutralProjection = createExplorerProjection(source, neutralState);
+  const neutral = createExplorerAttention(neutralProjection, neutralState);
+
+  assert.equal([...neutral.nodes.values()].every((node) => node.role === 'baseline' && !node.selected), true);
+  assert.equal([...neutral.edges.values()].every((edge) => edge.role === 'baseline'), true);
+
+  const selectedState = selectWorkspacePackage(neutralState, workspacePackageId);
+  const selectedProjection = createExplorerProjection(source, selectedState);
+  const selected = createExplorerAttention(selectedProjection, selectedState);
+
+  assert.deepEqual(selected.nodes.get(workspacePackageId), {
+    role: 'selected',
+    selected: true,
+    anchorRelationshipRole: 'unrelated',
+    selectedRelationshipRole: 'unrelated',
+  });
+  assert.equal(selected.nodes.get(contractsPackageId)?.role, 'direct');
+  assert.equal(selected.nodes.get(contractsPackageId)?.selectedRelationshipRole, 'uses');
+  assert.equal(selected.nodes.get('workspace-package:apps/cli')?.role, 'direct');
+  assert.equal(selected.nodes.get('workspace-package:apps/cli')?.selectedRelationshipRole, 'used-by');
+  assert.equal(selected.nodes.get('workspace-package:apps/explorer-web')?.role, 'direct');
+  assert.equal(selected.nodes.get('workspace-package:packages/graph-engine')?.role, 'subdued');
+  assert.equal(selectedProjection.nodes.some((node) => node.id === 'workspace-package:packages/graph-engine'), true);
+  assert.equal(selected.edges.get(explorerAttentionEdgeKey(
+    'package-dependency',
+    workspacePackageId,
+    contractsPackageId,
+  ))?.role, 'direct');
+  assert.deepEqual(selectedProjection.edges.map((edge) => [edge.sourceNodeId, edge.targetNodeId]),
+    neutralProjection.edges.map((edge) => [edge.sourceNodeId, edge.targetNodeId]));
+
+  const cleared = createExplorerAttention(neutralProjection, selectWorkspacePackage(selectedState, null));
+  assert.equal([...cleared.nodes.values()].every((node) => node.role === 'baseline'), true);
+  assert.equal([...cleared.edges.values()].every((edge) => edge.role === 'baseline'), true);
+
+  const fixtureAnalysis = analyzeProject(path.resolve('fixtures/pnpm-workspace-structure'));
+  const fixtureGraph = buildProjectGraph(fixtureAnalysis);
+  const fixtureStructure = buildProjectStructure(fixtureAnalysis);
+  const fixtureSource = {
+    graph: fixtureGraph,
+    structure: fixtureStructure,
+    packageDependencies: aggregatePackageDependencies(fixtureGraph, fixtureStructure),
+  };
+  const fixtureState = { scope: 'system' as const, selectedPackageId: 'workspace-package:packages/library' };
+  const fixtureProjection = createExplorerProjection(fixtureSource, fixtureState);
+  const fixtureAttention = createExplorerAttention(fixtureProjection, fixtureState);
+  assert.equal(fixtureProjection.nodes.some((node) => node.id === 'workspace-package:packages/isolated'), true);
+  assert.equal(fixtureAttention.nodes.get('workspace-package:packages/isolated')?.role, 'subdued');
+});
+
+test('file-overview attention prioritizes selection and direct owned, contextual, and external relationships', () => {
+  const source = createWorkspaceSource();
+  const selectedFileId = 'packages/analyzer-typescript/src/analysis-result.ts';
+  const contextualFileId = 'packages/contracts/src/index.ts';
+  const neutralState = {
+    scope: 'workspace-package' as const,
+    packageId: workspacePackageId,
+    selectedNodeId: null,
+    focusedNodeId: null,
+    expandedNodeIds: new Set<string>(),
+  };
+  const neutralProjection = createExplorerProjection(source, neutralState);
+  const neutral = createExplorerAttention(neutralProjection, neutralState);
+  assert.equal([...neutral.nodes.values()].every((node) => node.role === 'baseline'), true);
+
+  const selectedState = selectFileNode(neutralState, selectedFileId);
+  const selectedProjection = createExplorerProjection(source, selectedState);
+  const selected = createExplorerAttention(selectedProjection, selectedState);
+  const contextualNode = selectedProjection.nodes.find((node) => node.id === contextualFileId);
+
+  assert.equal(selected.nodes.get(selectedFileId)?.role, 'selected');
+  assert.equal(selected.nodes.get(selectedFileId)?.selected, true);
+  assert.equal(selected.nodes.get('packages/analyzer-typescript/src/analyze-project.ts')?.role, 'direct');
+  assert.equal(selected.nodes.get('apps/cli/src/main.ts')?.role, 'subdued');
+  assert.equal(contextualNode?.kind === 'file' ? contextualNode.scopeRole : undefined, 'contextual');
+  assert.equal(selected.nodes.get(contextualFileId)?.role, 'direct');
+  assert.equal(selected.nodes.get(contextualFileId)?.selectedRelationshipRole, 'uses');
+
+  const searchedState = selectSearchResultFile(neutralState, selectedFileId, true);
+  assert.equal(createExplorerAttention(selectedProjection, searchedState).nodes.get(selectedFileId)?.role, 'selected');
+
+  const focusAnchorId = 'packages/analyzer-typescript/src/analyze-project.ts';
+  const focusedState = focusFileNode(selectFileNode(neutralState, focusAnchorId), focusAnchorId);
+  const focusedProjection = createExplorerProjection(source, focusedState);
+  const focused = createExplorerAttention(focusedProjection, focusedState);
+  assert.equal(focused.nodes.get('external:node:fs')?.role, 'direct');
+  assert.equal(focused.nodes.get('external:node:fs')?.anchorRelationshipRole, 'uses');
+
+  const selectedExternalState = selectFileNode(focusedState, 'external:node:fs');
+  const selectedExternal = createExplorerAttention(focusedProjection, selectedExternalState);
+  assert.equal(selectedExternal.nodes.get('external:node:fs')?.role, 'direct');
+  assert.equal(selectedExternal.nodes.get('external:node:fs')?.selected, true);
+
+  const fallbackSource = createFileSource();
+  const fallbackState = createFileOverviewExplorerState();
+  const fallbackProjection = createExplorerProjection(fallbackSource, fallbackState);
+  assert.equal([...createExplorerAttention(fallbackProjection, fallbackState).nodes.values()].every((node) => node.role === 'baseline'), true);
+  const fallbackSelected = selectFileNode(fallbackState, 'src/analysis-result.ts');
+  assert.equal(createExplorerAttention(fallbackProjection, fallbackSelected).nodes.get('src/analysis-result.ts')?.role, 'selected');
+
+  const isolatedNode = { id: 'src/isolated.ts', kind: 'file' as const, path: 'src/isolated.ts' };
+  const isolatedSource: ExplorerSource = {
+    graph: { nodes: [isolatedNode], edges: [], unresolvedDependencies: [] },
+    structure: { packages: [], fileMemberships: [], unassignedFileIds: [isolatedNode.id] },
+    packageDependencies: [],
+  };
+  const isolatedProjection = createExplorerProjection(isolatedSource, fallbackState);
+  assert.equal(isolatedProjection.nodes.some((node) => node.id === isolatedNode.id), true);
+  assert.equal(createExplorerAttention(isolatedProjection, fallbackState).nodes.get(isolatedNode.id)?.role, 'baseline');
+});
+
+test('file-connections attention keeps anchor priority above inspection and marks one-more-step context explicitly', () => {
+  const source = createWorkspaceSource();
+  const anchorId = 'packages/analyzer-typescript/src/analyze-project.ts';
+  const neighborId = 'packages/analyzer-typescript/src/analysis-result.ts';
+  const additionalContextId = 'packages/contracts/src/index.ts';
+  const anchorState = {
+    scope: 'workspace-package' as const,
+    packageId: workspacePackageId,
+    selectedNodeId: anchorId,
+    focusedNodeId: anchorId,
+    expandedNodeIds: new Set<string>(),
+  };
+  const anchorProjection = createExplorerProjection(source, anchorState);
+  const anchorAttention = createExplorerAttention(anchorProjection, anchorState);
+
+  assert.equal(anchorAttention.nodes.get(anchorId)?.role, 'anchor');
+  assert.equal(anchorAttention.nodes.get(anchorId)?.selected, true);
+  assert.equal(anchorAttention.nodes.get(neighborId)?.role, 'direct');
+  assert.equal(anchorAttention.nodes.get('packages/analyzer-typescript/src/index.ts')?.anchorRelationshipRole, 'used-by');
+  assert.equal(anchorAttention.edges.get(explorerAttentionEdgeKey(
+    'file-dependency',
+    anchorId,
+    neighborId,
+  ))?.role, 'direct');
+
+  const inspectedNeighborState = selectFileNode(anchorState, neighborId);
+  const inspectedNeighbor = createExplorerAttention(anchorProjection, inspectedNeighborState);
+  assert.equal(inspectedNeighbor.nodes.get(anchorId)?.role, 'anchor');
+  assert.equal(inspectedNeighbor.nodes.get(anchorId)?.selected, false);
+  assert.equal(inspectedNeighbor.nodes.get(neighborId)?.role, 'direct');
+  assert.equal(inspectedNeighbor.nodes.get(neighborId)?.selected, true);
+
+  const clearedSelection = selectFileNode(inspectedNeighborState, null);
+  const clearedAttention = createExplorerAttention(anchorProjection, clearedSelection);
+  assert.equal(clearedAttention.nodes.get(anchorId)?.role, 'anchor');
+  assert.equal([...clearedAttention.nodes.values()].every((node) => !node.selected), true);
+
+  const expandedState = expandFileNode(inspectedNeighborState, neighborId);
+  const expandedProjection = createExplorerProjection(source, expandedState);
+  const expandedAttention = createExplorerAttention(expandedProjection, expandedState);
+  assert.equal(expandedAttention.nodes.get(anchorId)?.role, 'anchor');
+  assert.equal(expandedAttention.nodes.get(neighborId)?.role, 'direct');
+  assert.equal(expandedAttention.nodes.get(additionalContextId)?.role, 'additional-context');
+
+  const selectedContextState = selectFileNode(expandedState, additionalContextId);
+  const selectedContext = createExplorerAttention(expandedProjection, selectedContextState);
+  assert.equal(selectedContext.nodes.get(anchorId)?.role, 'anchor');
+  assert.equal(selectedContext.nodes.get(additionalContextId)?.role, 'additional-context');
+  assert.equal(selectedContext.nodes.get(additionalContextId)?.selected, true);
+
+  const returnedState = returnToFileOverview(selectedContextState);
+  const returnedProjection = createExplorerProjection(source, returnedState);
+  const returnedAttention = createExplorerAttention(returnedProjection, returnedState);
+  assert.equal(returnedState.focusedNodeId, null);
+  assert.equal(returnedAttention.nodes.get(anchorId)?.role, 'selected');
+  assert.equal([...returnedAttention.nodes.values()].some((node) => node.role === 'anchor'), false);
 });
 
 test('vocabulary definitions keep stable identities and introduce workspace language only for detected structure', () => {
