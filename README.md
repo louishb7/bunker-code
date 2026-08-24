@@ -69,10 +69,15 @@ pnpm test:browser
 The browser check uses `puppeteer-core` with the system Firefox executable at
 `/usr/bin/firefox`. Override it with `BUNKERCODE_BROWSER_EXECUTABLE` when needed.
 
-## Explorer spike
+## Explorer
 
-The Phase 2A Explorer renders the real, disposable `AnalysisResult` derived from
-`packages/analyzer-typescript`. Generate its snapshot and start the local app:
+The Explorer generates a disposable snapshot by analyzing the local BunkerCode
+PNPM workspace. When workspace structure is present, it opens with a System
+Overview of detected workspace packages and their evidence-backed aggregated
+dependencies. Selecting a package shows its provenance; **Open package** drills
+down to the existing file-level Explorer, and the breadcrumb returns to System.
+
+Generate the snapshot and start the local app:
 
 ```bash
 pnpm --filter @bunker-code/explorer-web dev
@@ -88,6 +93,8 @@ The generated snapshot at `apps/explorer-web/src/generated/` is ignored by Git.
 Source code remains the source of truth; regenerate the snapshot after analyzer
 changes rather than treating it as persisted Explorer data.
 
-The Explorer can find internal files by path or file name. Selecting a search
-result centers it; selecting a result outside the current focus context returns
-to overview so the file is visible before it is selected.
+Within a package, the Explorer can find its internal files by path or file
+name. Selecting a search result centers it; selecting a result outside the
+current focus context returns to that package's file overview so the file is
+visible before it is selected. Files from another workspace package appear only
+as contextual file nodes when a cross-package dependency requires that context.

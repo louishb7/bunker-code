@@ -1,12 +1,12 @@
-import { buildProjectGraph } from '@bunker-code/graph-engine';
+import { aggregatePackageDependencies, buildProjectGraph, buildProjectStructure } from '@bunker-code/graph-engine';
 import type { AnalysisResult } from '@bunker-code/contracts';
-import type { ProjectGraph } from '@bunker-code/graph-engine';
+import type { PackageDependency, ProjectGraph, ProjectStructure } from '@bunker-code/graph-engine';
 
 export type ExplorerRuntimeState =
   | { kind: 'loading' }
   | { kind: 'invalid-snapshot'; message: string }
   | { kind: 'empty-graph'; graph: ProjectGraph }
-  | { kind: 'ready'; graph: ProjectGraph };
+  | { kind: 'ready'; graph: ProjectGraph; structure: ProjectStructure; packageDependencies: PackageDependency[] };
 
 export function createExplorerRuntime(snapshot: unknown): ExplorerRuntimeState {
   if (!isAnalysisResult(snapshot)) {
@@ -23,7 +23,13 @@ export function createExplorerRuntime(snapshot: unknown): ExplorerRuntimeState {
       return { kind: 'empty-graph', graph };
     }
 
-    return { kind: 'ready', graph };
+    const structure = buildProjectStructure(snapshot);
+    return {
+      kind: 'ready',
+      graph,
+      structure,
+      packageDependencies: aggregatePackageDependencies(graph, structure),
+    };
   } catch (error) {
     return {
       kind: 'invalid-snapshot',

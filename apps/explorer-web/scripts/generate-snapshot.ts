@@ -5,7 +5,7 @@ import { analyzeProject } from '@bunker-code/analyzer-typescript';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const appDirectory = path.resolve(currentDirectory, '..');
-const datasetDirectory = path.resolve(appDirectory, '..', '..', 'packages', 'analyzer-typescript');
+const datasetDirectory = path.resolve(appDirectory, '..', '..');
 const outputDirectory = path.join(appDirectory, 'src', 'generated');
 const outputPath = path.join(outputDirectory, 'analyzer-typescript.snapshot.json');
 

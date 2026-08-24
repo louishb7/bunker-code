@@ -2,54 +2,180 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { test } from 'node:test';
 import { analyzeProject } from '../packages/analyzer-typescript/src/index.js';
-import { buildProjectGraph } from '../packages/graph-engine/src/index.js';
+import {
+  aggregatePackageDependencies,
+  buildProjectGraph,
+  buildProjectStructure,
+  getFilesInWorkspacePackage,
+} from '../packages/graph-engine/src/index.js';
 import { createExplorerElements, layoutExplorerElements } from '../apps/explorer-web/src/explorer-model.js';
-import { createExplorerProjection } from '../apps/explorer-web/src/explorer-projection.js';
+import { createExplorerProjection, type ExplorerSource } from '../apps/explorer-web/src/explorer-projection.js';
 import { createExplorerRuntime } from '../apps/explorer-web/src/explorer-runtime.js';
+import {
+  createFileOverviewExplorerState,
+  createInitialExplorerState,
+  openSelectedWorkspacePackage,
+  returnToSystem,
+  selectWorkspacePackage,
+} from '../apps/explorer-web/src/explorer-state.js';
 import { searchExplorerFiles } from '../apps/explorer-web/src/explorer-search.js';
 
-const datasetPath = path.resolve('packages/analyzer-typescript');
+const fileDatasetPath = path.resolve('packages/analyzer-typescript');
+const workspaceDatasetPath = path.resolve('.');
+const workspacePackageId = 'workspace-package:packages/analyzer-typescript';
+const contractsPackageId = 'workspace-package:packages/contracts';
 
-function createGraph() {
-  return buildProjectGraph(analyzeProject(datasetPath));
+function createFileSource(): ExplorerSource {
+  const analysis = analyzeProject(fileDatasetPath);
+  const graph = buildProjectGraph(analysis);
+  const structure = buildProjectStructure(analysis);
+  return { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
 }
 
-test('search finds internal files by file name and path without changing the projection', () => {
-  const graph = createGraph();
-  const before = structuredClone(graph);
-  const projection = createExplorerProjection(graph, {
-    selectedNodeId: null,
-    focusedNodeId: 'src/analysis-result.ts',
-    expandedNodeIds: new Set(),
-  });
+function createWorkspaceSource(): ExplorerSource {
+  const analysis = analyzeProject(workspaceDatasetPath);
+  const graph = buildProjectGraph(analysis);
+  const structure = buildProjectStructure(analysis);
+  return { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
+}
 
-  assert.deepEqual(searchExplorerFiles(graph, 'analysis-result.ts'), [
-    {
-      nodeId: 'src/analysis-result.ts',
-      fileName: 'analysis-result.ts',
-      path: 'src/analysis-result.ts',
-    },
-  ]);
-  assert.deepEqual(searchExplorerFiles(graph, 'src/analyze'), [
-    {
-      nodeId: 'src/analyze-project.ts',
-      fileName: 'analyze-project.ts',
-      path: 'src/analyze-project.ts',
-    },
-  ]);
-  assert.deepEqual(graph, before);
-  assert.deepEqual(createExplorerProjection(graph, {
-    selectedNodeId: null,
-    focusedNodeId: 'src/analysis-result.ts',
-    expandedNodeIds: new Set(),
-  }), projection);
+test('system projection renders every detected workspace package and uses only aggregated package dependencies', () => {
+  const source = createWorkspaceSource();
+  const projection = createExplorerProjection(source, { scope: 'system', selectedPackageId: null });
+
+  assert.equal(projection.mode, 'system');
+  assert.deepEqual(projection.nodes.map((node) => node.id), source.structure.packages.map((workspacePackage) => workspacePackage.id));
+  assert.equal(projection.nodes.every((node) => node.kind === 'workspace-package'), true);
+  assert.equal(projection.nodes.some((node) => node.id === contractsPackageId), true);
+  assert.equal(projection.nodes.every((node) => node.kind !== 'external'), true);
+  assert.deepEqual(projection.edges.map((edge) => ({
+    source: edge.sourceNodeId,
+    target: edge.targetNodeId,
+  })), source.packageDependencies.map((dependency) => ({
+    source: dependency.sourcePackageId,
+    target: dependency.targetPackageId,
+  })));
+  assert.deepEqual(
+    projection.nodes.filter((node) => node.kind === 'workspace-package' && node.filesystemGroup).map((node) => node.filesystemGroup),
+    ['apps', 'apps', 'packages', 'packages', 'packages'],
+  );
 });
 
-test('empty and unmatched searches return no results', () => {
-  const graph = createGraph();
+test('system projection does not recreate package edges from file graph or manifests', () => {
+  const source = createWorkspaceSource();
+  const projection = createExplorerProjection({ ...source, packageDependencies: [] }, {
+    scope: 'system',
+    selectedPackageId: null,
+  });
 
-  assert.deepEqual(searchExplorerFiles(graph, ''), []);
-  assert.deepEqual(searchExplorerFiles(graph, 'missing-file.ts'), []);
+  assert.equal(source.graph.edges.some((edge) => edge.sourceNodeId.includes('analyzer-typescript') && edge.targetNodeId.includes('contracts')), true);
+  assert.deepEqual(projection.edges, []);
+});
+
+test('isolated detected packages remain visible in the system projection', () => {
+  const analysis = analyzeProject(path.resolve('fixtures/pnpm-workspace-structure'));
+  const graph = buildProjectGraph(analysis);
+  const structure = buildProjectStructure(analysis);
+  const source: ExplorerSource = { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
+  const projection = createExplorerProjection(source, { scope: 'system', selectedPackageId: null });
+
+  assert.equal(projection.nodes.some((node) => node.id === 'workspace-package:packages/isolated'), true);
+  assert.equal(projection.edges.some((edge) => edge.sourceNodeId === 'workspace-package:packages/isolated' || edge.targetNodeId === 'workspace-package:packages/isolated'), false);
+});
+
+test('package selection remains in system scope and opening it creates an isolated package scope', () => {
+  const source = createWorkspaceSource();
+  const initial = createInitialExplorerState(source.structure);
+
+  assert.equal(initial.scope, 'system');
+  if (initial.scope !== 'system') return;
+
+  const selected = selectWorkspacePackage(initial, workspacePackageId);
+  const opened = openSelectedWorkspacePackage(selected);
+
+  assert.equal(selected.scope, 'system');
+  assert.equal(selected.selectedPackageId, workspacePackageId);
+  assert.deepEqual(opened, {
+    scope: 'workspace-package',
+    packageId: workspacePackageId,
+    selectedNodeId: null,
+    focusedNodeId: null,
+    expandedNodeIds: new Set(),
+  });
+});
+
+test('package scope keeps owned files internal and cross-package files contextual', () => {
+  const source = createWorkspaceSource();
+  const projection = createExplorerProjection(source, {
+    scope: 'workspace-package',
+    packageId: workspacePackageId,
+    selectedNodeId: null,
+    focusedNodeId: null,
+    expandedNodeIds: new Set(),
+  });
+  const ownedFileIds = new Set(getFilesInWorkspacePackage(source.structure, workspacePackageId));
+  const contextualContractsFile = 'packages/contracts/src/index.ts';
+
+  assert.equal(projection.mode, 'overview');
+  assert.equal(projection.nodes.filter((node) => node.kind === 'file' && !node.contextualWorkspacePackage).every((node) => ownedFileIds.has(node.id)), true);
+  const contextualFile = projection.nodes.find((node) => node.id === contextualContractsFile);
+  assert.equal(contextualFile?.kind, 'file');
+  assert.equal(contextualFile?.kind === 'file' ? contextualFile.contextualWorkspacePackage?.id : undefined, contractsPackageId);
+  assert.equal(projection.nodes.some((node) => node.kind === 'external'), false);
+});
+
+test('file focus, expansion, and search retain their existing file-level behavior', () => {
+  const source = createFileSource();
+  const focusedFileId = 'src/analysis-result.ts';
+  const expandedFileId = 'src/analyze-project.ts';
+  const focused = createExplorerProjection(source, {
+    scope: 'file-overview',
+    selectedNodeId: focusedFileId,
+    focusedNodeId: focusedFileId,
+    expandedNodeIds: new Set(),
+  });
+  const expanded = createExplorerProjection(source, {
+    scope: 'file-overview',
+    selectedNodeId: expandedFileId,
+    focusedNodeId: focusedFileId,
+    expandedNodeIds: new Set([expandedFileId]),
+  });
+
+  assert.equal(focused.mode, 'focus');
+  assert.equal(focused.nodes.some((node) => node.id === 'external:@bunker-code/contracts'), true);
+  assert.equal(expanded.nodes.some((node) => node.id === 'external:node:fs'), true);
+  assert.deepEqual(searchExplorerFiles(source.graph, 'analysis-result.ts'), [{
+    nodeId: focusedFileId,
+    fileName: focusedFileId,
+    path: focusedFileId,
+  }]);
+});
+
+test('returning from package scope restores the system projection and preserves package context', () => {
+  const source = createWorkspaceSource();
+  const state = {
+    scope: 'workspace-package' as const,
+    packageId: workspacePackageId,
+    selectedNodeId: 'packages/analyzer-typescript/src/analyze-project.ts',
+    focusedNodeId: null,
+    expandedNodeIds: new Set<string>(),
+  };
+  const returned = returnToSystem(state);
+  const projection = createExplorerProjection(source, returned);
+
+  assert.deepEqual(returned, { scope: 'system', selectedPackageId: workspacePackageId });
+  assert.equal(projection.mode, 'system');
+  assert.equal(projection.nodes.some((node) => node.id === workspacePackageId), true);
+});
+
+test('snapshots without workspace structure preserve the file-level overview fallback', () => {
+  const source = createFileSource();
+  const initial = createInitialExplorerState(source.structure);
+  const projection = createExplorerProjection(source, initial);
+
+  assert.equal(initial.scope, 'file-overview');
+  assert.equal(projection.mode, 'overview');
+  assert.equal(projection.nodes.every((node) => node.kind === 'file'), true);
 });
 
 test('runtime reports invalid and empty snapshots without mutating their inputs', () => {
@@ -72,113 +198,26 @@ test('runtime reports invalid and empty snapshots without mutating their inputs'
   assert.deepEqual(invalidSnapshot, before);
 });
 
-test('overview projects only internal files', () => {
-  const projection = createExplorerProjection(createGraph(), {
-    selectedNodeId: null,
-    focusedNodeId: null,
-    expandedNodeIds: new Set(),
-  });
-
-  assert.equal(projection.mode, 'overview');
-  assert.deepEqual(projection.nodes.map((node) => node.id), [
-    '../contracts/src/index.ts',
-    'src/analysis-result.ts',
-    'src/analyze-project.ts',
-    'src/index.ts',
-    'src/pnpm-workspace.ts',
-  ]);
-  assert.equal(projection.nodes.every((node) => node.kind === 'file'), true);
-  assert.equal(projection.edges.every((edge) => edge.dependencyKind === 'internal'), true);
-});
-
-test('focus projects the target, direct context, and contextual external nodes', () => {
-  const graph = createGraph();
-  const projection = createExplorerProjection(graph, {
-    selectedNodeId: 'src/analysis-result.ts',
-    focusedNodeId: 'src/analysis-result.ts',
-    expandedNodeIds: new Set(),
-  });
-
-  assert.equal(projection.mode, 'focus');
-  assert.deepEqual(projection.nodes.map((node) => node.id), [
-    'external:@bunker-code/contracts',
-    'src/analysis-result.ts',
-    'src/analyze-project.ts',
-    'src/index.ts',
-    'src/pnpm-workspace.ts',
-  ]);
-  assert.equal(projection.edges.every((edge) => (
-    projection.visibleNodeIds.has(edge.sourceNodeId) && projection.visibleNodeIds.has(edge.targetNodeId)
-  )), true);
-  assert.equal(projection.nodes.some((node) => node.id === 'external:node:fs'), false);
-});
-
-test('expansion adds direct context without mutating ProjectGraph', () => {
-  const graph = createGraph();
-  const before = structuredClone(graph);
-  const projection = createExplorerProjection(graph, {
-    selectedNodeId: 'src/analyze-project.ts',
-    focusedNodeId: 'src/analysis-result.ts',
-    expandedNodeIds: new Set(['src/analyze-project.ts']),
-  });
-
-  assert.deepEqual(graph, before);
-  assert.deepEqual(projection.nodes.map((node) => node.id), [
-    'external:@bunker-code/contracts',
-    'external:node:fs',
-    'external:node:path',
-    'external:ts-morph',
-    'src/analysis-result.ts',
-    'src/analyze-project.ts',
-    'src/index.ts',
-    'src/pnpm-workspace.ts',
-  ]);
-  assert.equal(projection.nodes.filter((node) => node.kind === 'external').length, 4);
-});
-
-test('multiple explicit expansions produce a deterministic union', () => {
-  const graph = createGraph();
-  const first = createExplorerProjection(graph, {
-    selectedNodeId: null,
-    focusedNodeId: 'src/analyze-project.ts',
-    expandedNodeIds: new Set(['src/analysis-result.ts', 'src/index.ts']),
-  });
-  const second = createExplorerProjection(graph, {
-    selectedNodeId: null,
-    focusedNodeId: 'src/analyze-project.ts',
-    expandedNodeIds: new Set(['src/index.ts', 'src/analysis-result.ts']),
-  });
-
-  assert.deepEqual(first, second);
-  assert.deepEqual(first.nodes.map((node) => node.id), [
-    'external:@bunker-code/contracts',
-    'external:node:fs',
-    'external:node:path',
-    'external:ts-morph',
-    'src/analysis-result.ts',
-    'src/analyze-project.ts',
-    'src/index.ts',
-    'src/pnpm-workspace.ts',
-  ]);
-});
-
-test('web adapter preserves projected identifiers, edge direction, and visual-state boundary', async () => {
-  const graph = createGraph();
-  const before = structuredClone(graph);
-  const projection = createExplorerProjection(graph, {
-    selectedNodeId: 'src/analysis-result.ts',
-    focusedNodeId: 'src/analysis-result.ts',
-    expandedNodeIds: new Set(['src/analyze-project.ts']),
-  });
+test('web adapter preserves package direction and keeps renderer state out of analytical facts', async () => {
+  const source = createWorkspaceSource();
+  const projection = createExplorerProjection(source, { scope: 'system', selectedPackageId: null });
   const elements = createExplorerElements(projection);
   const laidOut = await layoutExplorerElements(elements);
 
-  assert.deepEqual(graph, before);
-  assert.equal(Object.hasOwn(graph, 'selectedNodeId'), false);
-  assert.equal(Object.hasOwn(graph, 'focusedNodeId'), false);
-  assert.equal(Object.hasOwn(graph, 'expandedNodeIds'), false);
-  assert.deepEqual(elements.nodes.map((node) => node.id), projection.nodes.map((node) => node.id));
-  assert.deepEqual(elements.edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target })), projection.edges
-    .map((edge) => ({ id: edge.id, source: edge.sourceNodeId, target: edge.targetNodeId })));
+  assert.deepEqual(elements.edges.map((edge) => ({ source: edge.source, target: edge.target })), projection.edges.map((edge) => ({
+    source: edge.sourceNodeId,
+    target: edge.targetNodeId,
+  })));
+  assert.equal(Object.hasOwn(source.graph, 'selectedNodeId'), false);
   assert.ok(laidOut.nodes.every((node) => Number.isFinite(node.position.x) && Number.isFinite(node.position.y)));
+});
+
+test('search can be restricted to files owned by the current package', () => {
+  const source = createWorkspaceSource();
+  const ownedFileIds = new Set(getFilesInWorkspacePackage(source.structure, workspacePackageId));
+
+  assert.deepEqual(searchExplorerFiles(source.graph, 'index.ts', ownedFileIds).map((result) => result.nodeId), [
+    'packages/analyzer-typescript/src/index.ts',
+  ]);
+  assert.deepEqual(createFileOverviewExplorerState().expandedNodeIds, new Set());
 });

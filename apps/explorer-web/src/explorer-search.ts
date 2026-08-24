@@ -6,7 +6,11 @@ export interface ExplorerSearchResult {
   path: string;
 }
 
-export function searchExplorerFiles(graph: ProjectGraph, query: string): ExplorerSearchResult[] {
+export function searchExplorerFiles(
+  graph: ProjectGraph,
+  query: string,
+  allowedNodeIds?: ReadonlySet<string>,
+): ExplorerSearchResult[] {
   const normalizedQuery = query.trim().toLocaleLowerCase();
 
   if (!normalizedQuery) {
@@ -14,7 +18,7 @@ export function searchExplorerFiles(graph: ProjectGraph, query: string): Explore
   }
 
   return graph.nodes
-    .filter((node): node is FileGraphNode => node.kind === 'file')
+    .filter((node): node is FileGraphNode => node.kind === 'file' && (!allowedNodeIds || allowedNodeIds.has(node.id)))
     .map((node) => ({ nodeId: node.id, fileName: fileNameFromPath(node.path), path: node.path }))
     .filter((node) => (
       node.fileName.toLocaleLowerCase().includes(normalizedQuery)
