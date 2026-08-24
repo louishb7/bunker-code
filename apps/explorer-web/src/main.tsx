@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { getDependencies, getDependents, getFilesInWorkspacePackage } from '@bunker-code/graph-engine';
-import type { PackageDependency, ProjectGraph, ProjectGraphEdge, ProjectGraphNode, ProjectStructure } from '@bunker-code/graph-engine';
+import type { PackageDependency, ProjectGraph, ProjectGraphEdge, ProjectStructure } from '@bunker-code/graph-engine';
 import type { WorkspacePackage } from '@bunker-code/contracts';
 import snapshot from './generated/analyzer-typescript.snapshot.json';
 import {
@@ -60,6 +60,11 @@ import {
   createPackageExploration,
   type PackageExplorationRelation,
 } from './package-exploration.js';
+import {
+  createFileExploration,
+  type FileExploration,
+  type FileExplorationRelation,
+} from './file-exploration.js';
 import './styles.css';
 
 const nodeTypes = { explorer: ExplorerNodeView };
@@ -116,7 +121,6 @@ function Explorer({
   );
   const projection = useMemo(() => createExplorerProjection(source, state), [source, state]);
   const projectedElements = useMemo(() => createExplorerElements(projection), [projection]);
-  const graphNodesById = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node] as const)), [graph]);
   const [elements, setElements] = useState<ExplorerElements>(projectedElements);
   const fileScope = state.scope === 'system' ? null : state;
   const searchableFileIds = useMemo(() => fileScope?.scope === 'workspace-package'
@@ -209,22 +213,12 @@ function Explorer({
     () => elements.edges.map((edge) => relationshipFlowEdge(edge, inspectedNodeId)),
     [elements.edges, inspectedNodeId],
   );
-  const dependencies = selectedNodeId ? getDependencies(graph, selectedNodeId) : [];
-  const dependents = selectedNodeId ? getDependents(graph, selectedNodeId) : [];
-  const canFocus = selectedNode?.kind === 'file'
-    && fileScope !== null
-    && fileScope.focusedNodeId !== selectedNode.id
-    && isFileOwnedByScope(structure, fileScope, selectedNode.id);
-  const canExpand = selectedNode?.kind === 'file'
-    && fileScope !== null
-    && projection.mode === 'focus'
-    && projection.visibleNodeIds.has(selectedNode.id)
-    && !fileScope.expandedNodeIds.has(selectedNode.id)
-    && isFileOwnedByScope(structure, fileScope, selectedNode.id)
-    && hasHiddenDirectContext(graph, selectedNode.id, projection.visibleNodeIds);
+  const fileExploration = useMemo(() => selectedNode && fileScope
+    ? createFileExploration(selectedNode, graph, structure, fileScope, projection.visibleNodeIds)
+    : undefined, [selectedNode, fileScope, graph, structure, projection.visibleNodeIds]);
 
   function focusSelectedFile(): void {
-    if (!canFocus || !selectedNode || !fileScope) {
+    if (!fileExploration?.canFocus || !selectedNode || !fileScope) {
       return;
     }
 
@@ -233,7 +227,7 @@ function Explorer({
   }
 
   function expandSelectedNode(): void {
-    if (!canExpand || !selectedNode || !fileScope) {
+    if (!fileExploration?.canExpand || !selectedNode || !fileScope) {
       return;
     }
 
@@ -362,14 +356,9 @@ function Explorer({
               packageDependencies={packageDependencies}
               onOpen={openSelectedPackage}
             />
-          ) : selectedNode ? (
+          ) : fileExploration ? (
             <FileDetails
-              node={selectedNode}
-              graphNodesById={graphNodesById}
-              dependencies={dependencies}
-              dependents={dependents}
-              canFocus={canFocus}
-              canExpand={canExpand}
+              exploration={fileExploration}
               onFocus={focusSelectedFile}
               onExpand={expandSelectedNode}
             />
@@ -602,44 +591,87 @@ function WorkspacePackageDetails({
 }
 
 function FileDetails({
-  node,
-  graphNodesById,
-  dependencies,
-  dependents,
-  canFocus,
-  canExpand,
+  exploration,
   onFocus,
   onExpand,
 }: {
-  node: ProjectGraphNode;
-  graphNodesById: ReadonlyMap<string, ProjectGraphNode>;
-  dependencies: ProjectGraphEdge[];
-  dependents: ProjectGraphEdge[];
-  canFocus: boolean;
-  canExpand: boolean;
+  exploration: FileExploration;
   onFocus(): void;
   onExpand(): void;
 }) {
   return (
-    <>
-      <p className="eyebrow">{node.kind === 'file' ? 'Selected file' : 'Selected external module'}</p>
-      <h2>{nodeLabel(node)}</h2>
-      <div className="details-actions">
-        {canFocus ? <button type="button" onClick={onFocus}>Show direct connections</button> : null}
-        {canExpand ? <button type="button" onClick={onExpand}>Show one more step</button> : null}
-      </div>
-      <RelationList title="Uses" direction="uses" selectedNode={node} graphNodesById={graphNodesById} edges={dependencies} />
-      <RelationList title="Used by" direction="used-by" selectedNode={node} graphNodesById={graphNodesById} edges={dependents} />
-      <section className="part-technical-details">
-        <h3>Technical details</h3>
-        <dl>
-          <div><dt>ID</dt><dd>{node.id}</dd></div>
-          <div><dt>Type</dt><dd>{node.kind}</dd></div>
-          <div><dt>Uses</dt><dd>{dependencies.length}</dd></div>
-          <div><dt>Used by</dt><dd>{dependents.length}</dd></div>
-        </dl>
+    <article className={`file-exploration file-exploration-${exploration.kind}`} aria-labelledby="selected-file-title">
+      <header className="file-identity">
+        <p className="eyebrow">{exploration.anchor?.isSelected ? 'Connection anchor' : 'Selected item'}</p>
+        <h2 id="selected-file-title">{exploration.presentationLabel}</h2>
+      </header>
+
+      <section className="file-context" aria-labelledby="file-context-title">
+        <h3 id="file-context-title">{exploration.contextLabel}</h3>
+        {exploration.kind === 'external-module' ? <p className="file-secondary-type">External module</p> : null}
+        {exploration.ownerPartLabel ? <p className="file-owner-part">{exploration.ownerPartLabel}</p> : null}
+        {exploration.contextExplanation ? <p>{exploration.contextExplanation}</p> : null}
+        {exploration.location ? (
+          <div className="file-location">
+            <strong>Located in</strong>
+            <span>{exploration.location}</span>
+          </div>
+        ) : null}
       </section>
-    </>
+
+      {exploration.anchor ? (
+        <section className="file-anchor-context" aria-label={`Connection anchor: ${exploration.anchor.label}`}>
+          {!exploration.anchor.isSelected ? (
+            <>
+              <strong>Connection anchor</strong>
+              <span>{exploration.anchor.label}</span>
+            </>
+          ) : null}
+          <p>{exploration.anchor.isSelected
+            ? 'The map is arranged around this file and its direct connections.'
+            : 'This remains the file around which the map is arranged. The selected item is being inspected without changing the anchor.'}</p>
+        </section>
+      ) : null}
+
+      <div className="file-relationships" aria-label="File connections">
+        <FileRelationList title="Uses" emptyMessage={exploration.usesEmptyMessage} relations={exploration.uses} />
+        <FileRelationList title="Used by" emptyMessage={exploration.usedByEmptyMessage} relations={exploration.usedBy} />
+      </div>
+
+      <section className="file-next-action" aria-labelledby="file-next-action-title">
+        <h3 id="file-next-action-title">Investigate this item</h3>
+        {exploration.canFocus ? (
+          <div className="file-action-option">
+            <button className="primary-action" type="button" onClick={onFocus}>Show direct connections</button>
+            <p>Reorganize the map around this file, what it uses, and what uses it.</p>
+          </div>
+        ) : null}
+        {exploration.canExpand ? (
+          <div className="file-action-option file-action-secondary">
+            <button type="button" onClick={onExpand}>Show one more step</button>
+            <p>Reveal one additional direct neighborhood without changing the connection anchor.</p>
+          </div>
+        ) : null}
+        {exploration.actionUnavailableExplanation ? (
+          <p className="part-state-explanation">{exploration.actionUnavailableExplanation}</p>
+        ) : null}
+      </section>
+
+      <details className="part-disclosure file-disclosure" data-disclosure="file-technical-details">
+        <summary>Technical details</summary>
+        <dl>
+          <div><dt>Full ID</dt><dd>{exploration.technicalIdentity}</dd></div>
+          <div><dt>Kind</dt><dd>{exploration.technicalKind}</dd></div>
+          <div><dt>Uses occurrences</dt><dd>{exploration.rawUsesCount}</dd></div>
+          <div><dt>Used by occurrences</dt><dd>{exploration.rawUsedByCount}</dd></div>
+        </dl>
+      </details>
+
+      <details className="part-disclosure file-disclosure" data-disclosure="file-evidence">
+        <summary>How BunkerCode knows</summary>
+        <FileEvidence exploration={exploration} />
+      </details>
+    </article>
   );
 }
 
@@ -761,6 +793,7 @@ function nodeClassName(
 
   if (node.data.kind === 'workspace-package') classes.push('graph-node-package');
   if (node.data.kind === 'external') classes.push('graph-node-external');
+  if (node.data.scopeRole === 'contextual') classes.push('graph-node-contextual');
   if (node.id === focusedNodeId) classes.push('graph-node-target');
   else if (focusedDependencies.has(node.id)) classes.push('graph-node-dependency');
   else if (focusedDependents.has(node.id)) classes.push('graph-node-dependent');
@@ -789,28 +822,10 @@ function nodeContextLabel(
     if (inspectedUses.has(node.id)) labels.push('Selected item uses this');
     else if (inspectedUsedBy.has(node.id)) labels.push('Uses selected item');
   }
-  if (node.data.kind === 'external') labels.push('External module');
+  if (node.data.kind === 'external' && !labels.includes('External module')) labels.push('External module');
   if (node.id === selectedNodeId) labels.push(node.data.kind === 'workspace-package' ? 'Selected for inspection' : 'Selected');
 
   return labels.length > 0 ? labels.join(' · ') : undefined;
-}
-
-function isFileOwnedByScope(
-  structure: ProjectStructure,
-  state: Exclude<ExplorerState, { scope: 'system' }>,
-  nodeId: string,
-): boolean {
-  return state.scope === 'file-overview' || getFilesInWorkspacePackage(structure, state.packageId).includes(nodeId);
-}
-
-function hasHiddenDirectContext(graph: ProjectGraph, nodeId: string, visibleNodeIds: ReadonlySet<string>): boolean {
-  return [...getDependencies(graph, nodeId), ...getDependents(graph, nodeId)].some((edge) => (
-    !visibleNodeIds.has(edge.sourceNodeId) || !visibleNodeIds.has(edge.targetNodeId)
-  ));
-}
-
-function nodeLabel(node: ProjectGraphNode): string {
-  return node.kind === 'file' ? node.path : node.moduleSpecifier;
 }
 
 function countLabel(count: number, singular: string): string {
@@ -832,38 +847,73 @@ function relationLabel(edge: ProjectGraphEdge): string {
   return `${edge.moduleSpecifier} at ${location.filePath}:${location.line}:${location.column} (${edge.confidence})`;
 }
 
-function RelationList({
+function FileRelationList({
   title,
-  direction,
-  selectedNode,
-  graphNodesById,
-  edges,
+  emptyMessage,
+  relations,
 }: {
   title: string;
-  direction: 'uses' | 'used-by';
-  selectedNode: ProjectGraphNode;
-  graphNodesById: ReadonlyMap<string, ProjectGraphNode>;
-  edges: ProjectGraphEdge[];
+  emptyMessage: string;
+  relations: FileExplorationRelation[];
 }) {
   return (
     <section className="relation-list">
       <h3>{title}</h3>
-      {edges.length === 0 ? <p className="muted">None</p> : (
+      {relations.length === 0 ? <p className="part-state-explanation">{emptyMessage}</p> : (
         <ul>
-          {edges.map((edge) => {
-            const relatedNodeId = direction === 'uses' ? edge.targetNodeId : edge.sourceNodeId;
-            const relatedNode = graphNodesById.get(relatedNodeId);
-            const relatedLabel = relatedNode ? nodeLabel(relatedNode) : relatedNodeId;
-            const sourceLabel = direction === 'uses' ? nodeLabel(selectedNode) : relatedLabel;
-            const targetLabel = direction === 'uses' ? relatedLabel : nodeLabel(selectedNode);
+          {relations.map((relation) => (
+            <li
+              key={`${relation.sourceNodeId}->${relation.targetNodeId}`}
+              aria-label={describeRelationship(relation.sourceLabel, relation.targetLabel)}
+            >
+              <strong>{relation.relatedLabel}</strong>
+              <span className="file-relation-context">{relation.relatedContextLabel}</span>
+              <span className="relation-evidence">{countLabel(relation.occurrences.length, 'relationship')}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
 
-            return (
-              <li key={edge.id} aria-label={describeRelationship(sourceLabel, targetLabel)}>
-                <strong>{relatedLabel}</strong>
-                <span className="relation-evidence">{relationLabel(edge)}</span>
-              </li>
-            );
-          })}
+function FileEvidence({ exploration }: { exploration: FileExploration }) {
+  return (
+    <div className="file-evidence">
+      <p>Exact analyzed occurrences supporting the relationships shown above.</p>
+      <FileEvidenceGroup title="Uses evidence" relations={exploration.uses} />
+      <FileEvidenceGroup title="Used by evidence" relations={exploration.usedBy} />
+    </div>
+  );
+}
+
+function FileEvidenceGroup({ title, relations }: { title: string; relations: FileExplorationRelation[] }) {
+  return (
+    <section>
+      <h3>{title}</h3>
+      {relations.length === 0 ? <p className="muted">No supporting occurrences for this direction.</p> : (
+        <ul className="file-evidence-relations">
+          {relations.map((relation) => (
+            <li key={`${relation.sourceNodeId}->${relation.targetNodeId}`}>
+              <strong>{describeRelationship(relation.sourceLabel, relation.targetLabel)}</strong>
+              <span>{countLabel(relation.occurrences.length, 'occurrence')}</span>
+              <ol>
+                {relation.occurrences.map((occurrence) => (
+                  <li key={occurrence.id}>
+                    <dl>
+                      <div><dt>Module specifier</dt><dd>{occurrence.moduleSpecifier}</dd></div>
+                      <div><dt>Source ID</dt><dd>{occurrence.sourceNodeId}</dd></div>
+                      <div><dt>Target ID</dt><dd>{occurrence.targetNodeId}</dd></div>
+                      <div><dt>Evidence file</dt><dd>{occurrence.evidence.location.filePath}</dd></div>
+                      <div><dt>Line</dt><dd>{occurrence.evidence.location.line}</dd></div>
+                      <div><dt>Column</dt><dd>{occurrence.evidence.location.column}</dd></div>
+                      <div><dt>Confidence</dt><dd>{occurrence.confidence}</dd></div>
+                    </dl>
+                  </li>
+                ))}
+              </ol>
+            </li>
+          ))}
         </ul>
       )}
     </section>

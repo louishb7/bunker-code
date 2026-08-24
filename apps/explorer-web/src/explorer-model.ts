@@ -10,6 +10,7 @@ export interface ExplorerNodeData extends Record<string, unknown> {
   kind: 'file' | 'external' | 'workspace-package';
   path?: string;
   contextLabel?: string;
+  scopeRole?: 'owned' | 'contextual' | 'project';
   technicalLabel?: string;
   fileCount?: number;
   usesCount?: number;
@@ -126,11 +127,18 @@ function createExplorerNode(node: ExplorerProjectionNode): ExplorerNode {
       position: { x: 0, y: 0 },
       data: {
         label: fileNameFromPath(node.path),
-        subtitle: node.path,
         path: node.path,
         kind: node.kind,
+        scopeRole: node.scopeRole,
+        subtitle: node.scopeRole === 'contextual'
+          ? node.contextualPartLabel
+            ? `From ${node.contextualPartLabel}`
+            : 'Outside this part'
+          : node.scopeRole === 'owned'
+            ? 'File in this part'
+            : 'Analyzed file',
         contextLabel: node.contextualWorkspacePackage
-          ? `Context from ${node.contextualWorkspacePackage.name ?? node.contextualWorkspacePackage.rootPath}`
+          ? 'Connected from another part'
           : undefined,
       },
     };
@@ -139,7 +147,12 @@ function createExplorerNode(node: ExplorerProjectionNode): ExplorerNode {
   return {
     id: node.id,
     position: { x: 0, y: 0 },
-    data: { label: node.moduleSpecifier, subtitle: 'External module', kind: node.kind },
+    data: {
+      label: node.moduleSpecifier,
+      subtitle: 'Outside this analyzed system',
+      contextLabel: 'External module',
+      kind: node.kind,
+    },
   };
 }
 

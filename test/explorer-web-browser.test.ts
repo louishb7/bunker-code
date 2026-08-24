@@ -24,6 +24,8 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     cwd: repoRoot,
     stdio: 'pipe',
   });
+  const expectedAnalyzedFileCount = readGeneratedAnalyzedFileCount();
+  const expectedAnalyzedFileLabel = countLabel(expectedAnalyzedFileCount, 'analyzed file');
   const distDirectory = path.join(appRoot, 'dist');
   const server = createServer((request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
@@ -72,7 +74,10 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.equal(await page.$('[class="back-action"]'), null);
     assert.equal(await page.$eval('[aria-label="Explorer location"] [aria-current="page"]', (element) => element.textContent), 'bunker-code');
     assert.equal(await page.$eval('[data-system-part-count]', (element) => element.textContent), '5 detected parts');
-    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '24 analyzed files');
+    assert.deepEqual(await page.$eval('[data-analyzed-file-count]', (element) => ({
+      count: Number((element as HTMLElement).dataset.analyzedFileCount),
+      label: element.textContent,
+    })), { count: expectedAnalyzedFileCount, label: expectedAnalyzedFileLabel });
     assert.equal((await page.$$('.react-flow__node')).length, 5);
     assert.equal((await page.$$('.graph-node-package')).length, 5);
     assert.equal((await page.$$('.graph-node-external')).length, 0);
@@ -208,6 +213,11 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Back to system map');
     assert.notEqual(await page.$eval('[aria-label="Back to system map"]', (element) => getComputedStyle(element).outlineStyle), 'none');
     assert.ok(await page.$('.react-flow__node[data-id="packages/contracts/src/index.ts"]'));
+    assert.ok(await page.$('.react-flow__node[data-id="packages/contracts/src/index.ts"].graph-node-contextual'));
+    assert.equal(await page.$eval('.react-flow__node[data-id="packages/contracts/src/index.ts"]', (element) => (
+      element.textContent?.includes('From contracts')
+      && element.textContent.includes('Connected from another part')
+    )), true);
     assert.equal((await page.$$('.graph-node-package')).length, 0);
 
     await page.click('[aria-label="Find file"]');
@@ -220,14 +230,61 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await page.keyboard.type('analyze-project.ts');
     await page.waitForSelector('[data-search-result="packages/analyzer-typescript/src/analyze-project.ts"]', { timeout: 5000 });
     await page.click('[data-search-result="packages/analyzer-typescript/src/analyze-project.ts"]');
-    await page.waitForFunction(() => document.body.textContent?.includes('Selected file') ?? false, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('.file-identity .eyebrow')?.textContent === 'Selected item', { timeout: 5000 });
     assert.ok(await page.$('[data-explorer-scale="part-files"]'));
+    assert.deepEqual(await page.$$eval('.file-exploration > *', (items) => items.map((item) => (
+      item instanceof HTMLDetailsElement ? item.dataset.disclosure : item.className
+    ))), [
+      'file-identity',
+      'file-context',
+      'file-relationships',
+      'file-next-action',
+      'file-technical-details',
+      'file-evidence',
+    ]);
     assert.ok(await page.$eval('.details-panel', (element) => (
-      element.textContent?.includes('Uses')
+      element.querySelector('.file-identity h2')?.textContent === 'analyze-project.ts'
+      && element.querySelector('.file-context h3')?.textContent === 'File in this part'
+      && element.querySelector('.file-owner-part')?.textContent === 'analyzer-typescript'
+      && element.querySelector('.file-location')?.textContent?.includes('packages/analyzer-typescript/src/analyze-project.ts')
+      && element.textContent?.includes('Uses')
       && element.textContent.includes('Used by')
       && !element.textContent.includes('Dependencies')
       && !element.textContent.includes('Dependents')
     )));
+    assert.equal(await page.$$eval('.file-relationships .relation-list:first-child li', (items) => (
+      items.filter((item) => item.querySelector('strong')?.textContent === 'analysis-result.ts').length
+    )), 1);
+    assert.equal(await page.$eval('.file-relationships .relation-list:first-child', (element) => (
+      element.textContent?.includes('analysis-result.ts')
+      && element.textContent.includes('2 relationships')
+      && !element.textContent.includes('./analysis-result.js')
+    )), true);
+    assert.equal(await page.$eval('[data-disclosure="file-technical-details"]', (element) => (
+      element instanceof HTMLDetailsElement && !element.open
+    )), true);
+    assert.equal(await page.$eval('[data-disclosure="file-evidence"]', (element) => (
+      element instanceof HTMLDetailsElement && !element.open
+    )), true);
+    await page.click('[data-disclosure="file-evidence"] summary');
+    assert.equal(await page.$eval('[data-disclosure="file-evidence"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && element.open
+      && element.textContent?.includes('analyze-project.ts uses analysis-result.ts')
+      && element.textContent.includes('2 occurrences')
+      && element.textContent.includes('Module specifier')
+      && element.textContent.includes('./analysis-result.js')
+      && element.textContent.includes('Source ID')
+      && element.textContent.includes('packages/analyzer-typescript/src/analyze-project.ts')
+      && element.textContent.includes('Target ID')
+      && element.textContent.includes('packages/analyzer-typescript/src/analysis-result.ts')
+      && element.textContent.includes('Evidence file')
+      && element.textContent.includes('Line')
+      && element.textContent.includes('Column')
+      && element.textContent.includes('Confidence')
+      && element.textContent.includes('exact')
+    )), true);
+    await page.click('[data-disclosure="file-evidence"] summary');
     await clickButton(page, 'Show direct connections');
     await page.waitForSelector('[data-explorer-scale="file-connections"]', { timeout: 5000 });
     await page.waitForSelector('[aria-label="Back to analyzer-typescript files"]', { timeout: 5000 });
@@ -238,23 +295,51 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     )), true);
     assert.equal((await page.$$('.react-flow__edge-text')).length > 0, true);
     assert.ok(await page.$('.react-flow__edge[aria-label="analyze-project.ts uses ts-morph"]'));
+    assert.equal(await page.$eval('.file-identity .eyebrow', (element) => element.textContent), 'Connection anchor');
+    assert.equal(await page.$eval('.file-anchor-context', (element) => (
+      element.getAttribute('aria-label') === 'Connection anchor: analyze-project.ts'
+      && element.textContent?.includes('map is arranged around this file')
+    )), true);
 
     await clickFlowNode(page, 'packages/analyzer-typescript/src/analysis-result.ts');
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-target'));
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analysis-result.ts"].graph-node-selected'));
+    assert.equal(await page.$eval('.file-identity .eyebrow', (element) => element.textContent), 'Selected item');
+    assert.equal(await page.$eval('.file-anchor-context', (element) => (
+      element.textContent?.includes('analyze-project.ts')
+      && element.textContent.includes('without changing the anchor')
+    )), true);
+    assert.equal(await page.$eval('[data-explorer-scale]', (element) => element.getAttribute('data-explorer-scale')), 'file-connections');
     await clickButton(page, 'Show one more step');
     await page.waitForFunction(() => document.querySelectorAll('.graph-node-external').length > 0, { timeout: 5000 });
     await page.waitForFunction(() => !document.body.textContent?.includes('Arranging visible graph...'), { timeout: 5000 });
     assert.ok(await page.$('[data-explorer-scale="file-connections"]'));
+    assert.equal(await page.$$eval('.graph-node-external', (nodes) => nodes.every((node) => (
+      node.textContent?.includes('Outside this analyzed system')
+      && node.textContent.includes('External module')
+    ))), true);
 
     const externalNodeId = await page.$eval('.react-flow__node.graph-node-external', (element) => element.getAttribute('data-id'));
     assert.ok(externalNodeId);
     await clickFlowNode(page, externalNodeId);
-    await page.waitForFunction(() => document.body.textContent?.includes('Selected external module') ?? false, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('.file-exploration-external-module') !== null, { timeout: 5000 });
+    assert.equal(await page.$eval('.file-exploration-external-module', (element) => (
+      element.querySelector('.file-context h3')?.textContent === 'Outside this analyzed system'
+      && element.querySelector('.file-secondary-type')?.textContent === 'External module'
+      && !element.querySelector('.file-context')?.textContent?.includes('File in this part')
+    )), true);
     assert.equal(await page.$eval('.details-panel', (element) => element.textContent?.includes('Used by') ?? false), true);
     assert.equal(await page.$eval('.details-panel', (element) => (
       [...element.querySelectorAll('button')].some((button) => (
         button.textContent === 'Show direct connections' || button.textContent === 'Show one more step'
       ))
     )), false);
+    await page.evaluate(() => {
+      document.querySelector('.react-flow__pane')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await page.waitForFunction(() => document.querySelector('.details-panel')?.textContent?.includes('Direct connections for analyze-project.ts') ?? false, { timeout: 5000 });
+    assert.ok(await page.$('[data-explorer-scale="file-connections"]'));
+    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-target'));
 
     await page.click('[aria-label="Back to analyzer-typescript files"]');
     await page.waitForSelector('[data-explorer-scale="part-files"]', { timeout: 5000 });
@@ -264,8 +349,12 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await clickFlowNode(page, 'packages/contracts/src/index.ts');
     assert.ok(await page.$('[data-explorer-scale="part-files"]'));
     assert.ok(await page.$eval('.details-panel', (element) => (
-      element.textContent?.includes('Used by')
-      && [...element.querySelectorAll('li[aria-label]')].some((item) => item.getAttribute('aria-label')?.endsWith('uses packages/contracts/src/index.ts'))
+      element.querySelector('.file-context h3')?.textContent === 'From another part'
+      && element.querySelector('.file-owner-part')?.textContent === 'contracts'
+      && element.querySelector('.file-location')?.textContent?.includes('packages/contracts/src/index.ts')
+      && element.textContent?.includes('shown because it connects to files in the part')
+      && element.textContent.includes('Used by')
+      && [...element.querySelectorAll('li[aria-label]')].some((item) => item.getAttribute('aria-label')?.endsWith('uses index.ts'))
     )));
     assert.equal(await page.$eval('.details-panel', (element) => (
       [...element.querySelectorAll('button')].some((button) => button.textContent === 'Show direct connections')
@@ -289,7 +378,10 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.equal(await page.$eval('.explorer-header', (element) => element.getBoundingClientRect().right <= window.innerWidth), true);
     assert.equal(await page.$eval('.system-map-summary', (element) => element.getBoundingClientRect().right <= window.innerWidth), true);
     assert.equal(await page.$eval('[data-system-part-count]', (element) => element.textContent), '5 detected parts');
-    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '24 analyzed files');
+    assert.deepEqual(await page.$eval('[data-analyzed-file-count]', (element) => ({
+      count: Number((element as HTMLElement).dataset.analyzedFileCount),
+      label: element.textContent,
+    })), { count: expectedAnalyzedFileCount, label: expectedAnalyzedFileLabel });
     assert.equal(await page.$eval('.relationship-key', (element) => {
       const rect = element.getBoundingClientRect();
       return element.textContent?.includes('A → B')
@@ -369,4 +461,23 @@ function contentType(filePath: string): string {
   if (filePath.endsWith('.css')) return 'text/css';
   if (filePath.endsWith('.svg')) return 'image/svg+xml';
   return 'text/html';
+}
+
+function readGeneratedAnalyzedFileCount(): number {
+  const snapshotPath = path.join(appRoot, 'src', 'generated', 'analyzer-typescript.snapshot.json');
+  const snapshot: unknown = JSON.parse(readFileSync(snapshotPath, 'utf8'));
+
+  if (!isRecord(snapshot) || !isRecord(snapshot.analysis) || !Array.isArray(snapshot.analysis.files)) {
+    throw new Error('Generated Explorer snapshot does not expose analysis.files.');
+  }
+
+  return snapshot.analysis.files.length;
+}
+
+function countLabel(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? '' : 's'}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

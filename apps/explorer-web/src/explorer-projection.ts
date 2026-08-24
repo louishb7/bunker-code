@@ -25,7 +25,9 @@ export interface ExplorerSource {
 export type ExplorerProjectionNode = ExplorerFileProjectionNode | ExplorerExternalProjectionNode | ExplorerWorkspacePackageProjectionNode;
 
 export interface ExplorerFileProjectionNode extends FileGraphNode {
+  scopeRole: 'owned' | 'contextual' | 'project';
   contextualWorkspacePackage?: WorkspacePackage;
+  contextualPartLabel?: string;
 }
 
 export interface ExplorerExternalProjectionNode extends ExternalGraphNode {}
@@ -96,7 +98,7 @@ export function createExplorerProjection(source: ExplorerSource, state: Explorer
 }
 
 function systemProjection(source: ExplorerSource): ExplorerProjection {
-  const presentationLabels = packagePresentationLabels(source.structure.packages);
+  const presentationLabels = workspacePackagePresentationLabels(source.structure.packages);
   const usesCounts = new Map<string, number>();
   const usedByCounts = new Map<string, number>();
 
@@ -217,13 +219,15 @@ function projectionFromVisibleNodeIds(
   visibleNodeIds: ReadonlySet<string>,
   currentPackageId: string | null,
 ): ExplorerProjection {
+  const packageLabels = workspacePackagePresentationLabels(source.structure.packages);
+
   return {
     mode,
     visibleNodeIds,
     nodes: source.graph.nodes
       .filter((node) => visibleNodeIds.has(node.id))
       .map((node) => node.kind === 'file'
-        ? contextualizeFileNode(source.structure, node, currentPackageId)
+        ? contextualizeFileNode(source.structure, node, currentPackageId, packageLabels)
         : node),
     edges: source.graph.edges
       .filter((edge) => visibleNodeIds.has(edge.sourceNodeId) && visibleNodeIds.has(edge.targetNodeId))
@@ -241,15 +245,27 @@ function contextualizeFileNode(
   structure: ProjectStructure,
   node: FileGraphNode,
   currentPackageId: string | null,
+  packageLabels: ReadonlyMap<string, string>,
 ): ExplorerFileProjectionNode {
   const workspacePackage = getWorkspacePackageForFile(structure, node.id);
 
-  return currentPackageId && workspacePackage?.id !== currentPackageId
-    ? { ...node, contextualWorkspacePackage: workspacePackage }
-    : node;
+  if (!currentPackageId) {
+    return { ...node, scopeRole: 'project' };
+  }
+
+  return workspacePackage?.id === currentPackageId
+    ? { ...node, scopeRole: 'owned' }
+    : {
+      ...node,
+      scopeRole: 'contextual',
+      contextualWorkspacePackage: workspacePackage,
+      contextualPartLabel: workspacePackage
+        ? packageLabels.get(workspacePackage.id) ?? workspacePackage.name ?? workspacePackage.rootPath
+        : undefined,
+    };
 }
 
-function packagePresentationLabels(packages: WorkspacePackage[]): ReadonlyMap<string, string> {
+export function workspacePackagePresentationLabels(packages: WorkspacePackage[]): ReadonlyMap<string, string> {
   const candidates = packages.map((workspacePackage) => ({
     workspacePackage,
     candidate: packageLabelCandidate(workspacePackage),

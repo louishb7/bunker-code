@@ -13,6 +13,7 @@ import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-ori
 import { createExplorerProjection, type ExplorerSource } from '../apps/explorer-web/src/explorer-projection.js';
 import { createExplorerRuntime } from '../apps/explorer-web/src/explorer-runtime.js';
 import { createPackageExploration } from '../apps/explorer-web/src/package-exploration.js';
+import { createFileExploration } from '../apps/explorer-web/src/file-exploration.js';
 import {
   createFileOverviewExplorerState,
   createInitialExplorerState,
@@ -325,6 +326,196 @@ test('package scope keeps owned files internal and cross-package files contextua
   assert.equal(contextualEdge.markerEnd && typeof contextualEdge.markerEnd === 'object'
     ? contextualEdge.markerEnd.type
     : undefined, 'arrowclosed');
+});
+
+test('file exploration separates identity and ownership while grouping every exact relationship occurrence', () => {
+  const source = createWorkspaceSource();
+  const analysisResultFileId = 'packages/analyzer-typescript/src/analysis-result.ts';
+  const analyzeProjectFileId = 'packages/analyzer-typescript/src/analyze-project.ts';
+  const contractsFileId = 'packages/contracts/src/index.ts';
+  const overviewState = {
+    scope: 'workspace-package' as const,
+    packageId: workspacePackageId,
+    selectedNodeId: analysisResultFileId,
+    focusedNodeId: null,
+    expandedNodeIds: new Set<string>(),
+  };
+  const overview = createExplorerProjection(source, overviewState);
+  const analysisResultNode = source.graph.nodes.find((node) => node.id === analysisResultFileId);
+  const contractsNode = source.graph.nodes.find((node) => node.id === contractsFileId);
+  assert.ok(analysisResultNode);
+  assert.ok(contractsNode);
+
+  const owned = createFileExploration(
+    analysisResultNode,
+    source.graph,
+    source.structure,
+    overviewState,
+    overview.visibleNodeIds,
+  );
+  const contextual = createFileExploration(
+    contractsNode,
+    source.graph,
+    source.structure,
+    { ...overviewState, selectedNodeId: contractsFileId },
+    overview.visibleNodeIds,
+  );
+
+  assert.equal(owned.presentationLabel, 'analysis-result.ts');
+  assert.equal(owned.location, analysisResultFileId);
+  assert.equal(owned.kind, 'owned-file');
+  assert.equal(owned.contextLabel, 'File in this part');
+  assert.equal(owned.ownerPartLabel, 'analyzer-typescript');
+  assert.equal(owned.canFocus, true);
+  assert.equal(owned.uses.length, 1);
+  assert.equal(owned.uses[0]?.relatedNodeId, contractsFileId);
+  assert.equal(owned.uses[0]?.relatedLabel, 'index.ts');
+  assert.equal(owned.uses[0]?.relatedContextLabel, 'From contracts');
+  assert.equal(owned.uses[0]?.sourceNodeId, analysisResultFileId);
+  assert.equal(owned.uses[0]?.targetNodeId, contractsFileId);
+  assert.equal(owned.uses[0]?.occurrences.length, 2);
+  assert.equal(owned.rawUsesCount, 2);
+  assert.equal(owned.usedBy.length, 3);
+  assert.equal(owned.rawUsedByCount, 5);
+  const analyzeProjectRelation = owned.usedBy.find((relation) => relation.relatedNodeId === analyzeProjectFileId);
+  const expectedOccurrences = source.graph.edges.filter((edge) => (
+    edge.sourceNodeId === analyzeProjectFileId && edge.targetNodeId === analysisResultFileId
+  ));
+  assert.equal(analyzeProjectRelation?.occurrences.length, 2);
+  assert.deepEqual(analyzeProjectRelation?.occurrences.map((edge) => ({
+    moduleSpecifier: edge.moduleSpecifier,
+    sourceNodeId: edge.sourceNodeId,
+    targetNodeId: edge.targetNodeId,
+    filePath: edge.evidence.location.filePath,
+    line: edge.evidence.location.line,
+    column: edge.evidence.location.column,
+    confidence: edge.confidence,
+  })), expectedOccurrences.map((edge) => ({
+    moduleSpecifier: edge.moduleSpecifier,
+    sourceNodeId: edge.sourceNodeId,
+    targetNodeId: edge.targetNodeId,
+    filePath: edge.evidence.location.filePath,
+    line: edge.evidence.location.line,
+    column: edge.evidence.location.column,
+    confidence: edge.confidence,
+  })));
+  assert.equal(analyzeProjectRelation?.occurrences.every((edge) => (
+    edge.moduleSpecifier.length > 0
+    && edge.evidence.location.filePath.length > 0
+    && Number.isInteger(edge.evidence.location.line)
+    && Number.isInteger(edge.evidence.location.column)
+    && ['exact', 'inferred', 'uncertain'].includes(edge.confidence)
+  )), true);
+
+  assert.equal(contextual.presentationLabel, 'index.ts');
+  assert.equal(contextual.location, contractsFileId);
+  assert.equal(contextual.kind, 'contextual-file');
+  assert.equal(contextual.contextLabel, 'From another part');
+  assert.equal(contextual.ownerPartLabel, 'contracts');
+  assert.equal(contextual.contextExplanation?.includes('connects to files in the part'), true);
+  assert.equal(contextual.canFocus, false);
+  assert.equal(contextual.canExpand, false);
+
+  const collidingStructure = {
+    ...source.structure,
+    packages: source.structure.packages.map((workspacePackage) => (
+      workspacePackage.id === workspacePackageId
+        ? { ...workspacePackage, name: '@scope-one/shared' }
+        : workspacePackage.id === contractsPackageId
+          ? { ...workspacePackage, name: '@scope-two/shared' }
+          : workspacePackage
+    )),
+  };
+  const collidingSource = { ...source, structure: collidingStructure };
+  const collidingProjection = createExplorerProjection(collidingSource, overviewState);
+  const collisionSafeContextual = createFileExploration(
+    contractsNode,
+    source.graph,
+    collidingStructure,
+    { ...overviewState, selectedNodeId: contractsFileId },
+    collidingProjection.visibleNodeIds,
+  );
+  const collisionSafeCanvasNode = createExplorerElements(collidingProjection).nodes.find((node) => node.id === contractsFileId);
+  assert.equal(collisionSafeContextual.ownerPartLabel, '@scope-two/shared');
+  assert.equal(collisionSafeCanvasNode?.data.subtitle, 'From @scope-two/shared');
+});
+
+test('file exploration distinguishes external, anchor, inspected neighbor, and project-file empty states', () => {
+  const source = createWorkspaceSource();
+  const anchorFileId = 'packages/analyzer-typescript/src/analyze-project.ts';
+  const neighborFileId = 'packages/analyzer-typescript/src/analysis-result.ts';
+  const focusState = {
+    scope: 'workspace-package' as const,
+    packageId: workspacePackageId,
+    selectedNodeId: anchorFileId,
+    focusedNodeId: anchorFileId,
+    expandedNodeIds: new Set<string>(),
+  };
+  const focused = createExplorerProjection(source, focusState);
+  const anchorNode = source.graph.nodes.find((node) => node.id === anchorFileId);
+  const neighborNode = source.graph.nodes.find((node) => node.id === neighborFileId);
+  const externalNode = focused.nodes.find((node) => node.kind === 'external' && node.moduleSpecifier === 'ts-morph');
+  assert.ok(anchorNode);
+  assert.ok(neighborNode);
+  assert.ok(externalNode);
+
+  const anchor = createFileExploration(anchorNode, source.graph, source.structure, focusState, focused.visibleNodeIds);
+  const neighbor = createFileExploration(
+    neighborNode,
+    source.graph,
+    source.structure,
+    { ...focusState, selectedNodeId: neighborFileId },
+    focused.visibleNodeIds,
+  );
+  const external = createFileExploration(
+    externalNode,
+    source.graph,
+    source.structure,
+    { ...focusState, selectedNodeId: externalNode.id },
+    focused.visibleNodeIds,
+  );
+
+  assert.equal(anchor.anchor?.label, 'analyze-project.ts');
+  assert.equal(anchor.anchor?.isSelected, true);
+  assert.equal(anchor.canFocus, false);
+  assert.equal(anchor.actionUnavailableExplanation, 'This file is already the connection anchor.');
+  assert.equal(neighbor.anchor?.label, 'analyze-project.ts');
+  assert.equal(neighbor.anchor?.isSelected, false);
+  assert.equal(neighbor.canExpand, true);
+  assert.equal(external.kind, 'external-module');
+  assert.equal(external.presentationLabel, 'ts-morph');
+  assert.equal(external.contextLabel, 'Outside this analyzed system');
+  assert.equal(external.technicalKind, 'external');
+  assert.equal(external.canFocus, false);
+  assert.equal(external.canExpand, false);
+  assert.equal(external.contextExplanation?.includes('does not imply a remote service'), true);
+  assert.equal(external.usedBy.length, 1);
+  assert.equal(external.usedBy[0]?.sourceNodeId, anchorFileId);
+  assert.equal(external.usedBy[0]?.targetNodeId, externalNode.id);
+  assert.equal(external.usedBy[0]?.occurrences[0]?.moduleSpecifier, 'ts-morph');
+  assert.equal(external.usedBy[0]?.occurrences[0]?.evidence.location.filePath, anchorFileId);
+  assert.equal(external.usedBy[0]?.occurrences[0]?.confidence, 'exact');
+
+  const isolatedNode = { id: 'src/isolated.ts', kind: 'file' as const, path: 'src/isolated.ts' };
+  const isolatedGraph = { nodes: [isolatedNode], edges: [], unresolvedDependencies: [] };
+  const isolatedStructure = { packages: [], fileMemberships: [], unassignedFileIds: [isolatedNode.id] };
+  const projectState = createFileOverviewExplorerState();
+  const isolated = createFileExploration(
+    isolatedNode,
+    isolatedGraph,
+    isolatedStructure,
+    projectState,
+    new Set([isolatedNode.id]),
+  );
+
+  assert.equal(isolated.kind, 'project-file');
+  assert.equal(isolated.contextLabel, 'Analyzed file');
+  assert.equal(isolated.ownerPartLabel, undefined);
+  assert.equal(isolated.uses.length, 0);
+  assert.equal(isolated.usedBy.length, 0);
+  assert.equal(isolated.usesEmptyMessage, 'No detected outgoing connections.');
+  assert.equal(isolated.usedByEmptyMessage, 'No detected files use this item.');
+  assert.equal(isolated.canFocus, true);
 });
 
 test('file focus, expansion, and search retain their existing file-level behavior', () => {

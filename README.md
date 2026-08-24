@@ -123,3 +123,10 @@ Returning from File connections preserves its anchor as the selected file;
 returning from Part files preserves the previously opened part on the System
 map. The no-workspace snapshot fallback remains a project-file overview and
 does not invent a system part.
+
+Selecting a file now presents its filename before its full path and distinguishes
+a file in the open part, a file shown from another detected part, and a module
+outside the analyzed system. `Uses` and `Used by` group repeated source/target
+occurrences for first reading. `Technical details` and `How BunkerCode knows`
+remain closed until requested; the latter retains every exact module specifier,
+source/target identity, location, and confidence value.
