@@ -56,6 +56,10 @@ import {
   relationshipDirectionKey,
   relationshipRole,
 } from './relationship-language.js';
+import {
+  createPackageExploration,
+  type PackageExplorationRelation,
+} from './package-exploration.js';
 import './styles.css';
 
 const nodeTypes = { explorer: ExplorerNodeView };
@@ -526,26 +530,74 @@ function WorkspacePackageDetails({
   packageDependencies: PackageDependency[];
   onOpen(): void;
 }) {
-  const outgoing = packageDependencies.filter((dependency) => dependency.sourcePackageId === part.id);
-  const incoming = packageDependencies.filter((dependency) => dependency.targetPackageId === part.id);
+  const exploration = createPackageExploration(part, systemParts, packageDependencies);
 
   return (
-    <>
-      <p className="eyebrow">Part of this system</p>
-      <h2>{part.presentationLabel}</h2>
-      {part.technicalLabel !== part.presentationLabel ? <p className="part-technical-name">{part.technicalLabel}</p> : null}
-      <dl>
-        <div><dt>Analyzed files</dt><dd>{part.fileCount}</dd></div>
-      </dl>
-      <div className="details-actions"><button type="button" onClick={onOpen}>Open files</button></div>
-      <PackageRelationList title="Uses" dependencies={outgoing} systemParts={systemParts} source="target" />
-      <PackageRelationList title="Used by" dependencies={incoming} systemParts={systemParts} source="source" />
-      <section className="part-technical-details">
-        <h3>Technical details</h3>
-        <dl><div><dt>Path</dt><dd>{part.workspacePackage.rootPath}</dd></div></dl>
+    <article className="part-exploration" aria-labelledby="selected-part-title">
+      <header className="part-identity">
+        <p className="eyebrow">Part of this system</p>
+        <h2 id="selected-part-title">{exploration.presentationLabel}</h2>
+        <p className="part-file-summary">{countLabel(exploration.fileCount, 'analyzed file')}</p>
+        {exploration.zeroFileExplanation ? <p className="part-state-explanation">{exploration.zeroFileExplanation}</p> : null}
+      </header>
+
+      <section className="part-location" aria-labelledby="part-location-title">
+        <h3 id="part-location-title">Located in</h3>
+        <p>{exploration.location}</p>
       </section>
-      <EvidenceList evidence={part.workspacePackage.evidence} />
-    </>
+
+      <div className="part-relationships" aria-label="Connections to other parts">
+        {exploration.isolatedExplanation ? (
+          <section aria-labelledby="part-connections-title">
+            <h3 id="part-connections-title">Connections</h3>
+            <p className="part-state-explanation">{exploration.isolatedExplanation}</p>
+          </section>
+        ) : (
+          <>
+            <PackageRelationList
+              title="Uses"
+              emptyMessage="No detected connections from this part to other parts."
+              relations={exploration.uses}
+            />
+            <PackageRelationList
+              title="Used by"
+              emptyMessage="No other detected parts use this part."
+              relations={exploration.usedBy}
+            />
+          </>
+        )}
+      </div>
+
+      <section className="part-next-action" aria-labelledby="part-next-action-title">
+        <h3 id="part-next-action-title">Explore this part</h3>
+        {exploration.canOpenFiles ? (
+          <>
+            <div className="details-actions"><button className="primary-action" type="button" onClick={onOpen}>Open files</button></div>
+            <p>See the analyzed files that make up this part.</p>
+          </>
+        ) : (
+          <p className="part-state-explanation">There are no analyzed files to open for this part.</p>
+        )}
+      </section>
+
+      <details className="part-disclosure" data-disclosure="technical-details">
+        <summary>Technical details</summary>
+        <dl>
+          <div><dt>Workspace package</dt><dd>{exploration.technicalIdentity}</dd></div>
+          <div><dt>Root path</dt><dd>{exploration.location}</dd></div>
+          <div><dt>Filesystem group</dt><dd>{exploration.filesystemGroup === '.' ? './' : `${exploration.filesystemGroup}/`}</dd></div>
+        </dl>
+      </details>
+
+      <details className="part-disclosure" data-disclosure="evidence">
+        <summary>How BunkerCode knows</summary>
+        <PackageEvidence
+          rootPath={exploration.location}
+          evidence={exploration.evidence}
+          relationships={[...exploration.uses, ...exploration.usedBy]}
+        />
+      </details>
+    </article>
   );
 }
 
@@ -591,47 +643,71 @@ function FileDetails({
   );
 }
 
-function EvidenceList({ evidence }: { evidence: WorkspacePackage['evidence'] }) {
+function PackageEvidence({
+  rootPath,
+  evidence,
+  relationships,
+}: {
+  rootPath: string;
+  evidence: WorkspacePackage['evidence'];
+  relationships: PackageExplorationRelation[];
+}) {
   return (
-    <section className="relation-list">
-      <h3>Evidence</h3>
-      <ul>
-        {evidence.map((item) => <li key={evidenceLabel(item)}>{evidenceLabel(item)}</li>)}
-      </ul>
-    </section>
+    <div className="package-evidence">
+      <section aria-labelledby="detection-evidence-title">
+        <h3 id="detection-evidence-title">Detection evidence</h3>
+        <p><strong>Detected root:</strong> {rootPath}</p>
+        <ul>
+          {evidence.map((item) => <li key={evidenceLabel(item)}>{evidenceLabel(item)}</li>)}
+        </ul>
+      </section>
+      <section aria-labelledby="relationship-evidence-title">
+        <h3 id="relationship-evidence-title">Relationship evidence</h3>
+        {relationships.length === 0 ? <p className="muted">No package relationships were detected for this part.</p> : (
+          <ul className="relationship-proof-list">
+            {relationships.map((relationship) => (
+              <li key={relationship.id}>
+                <strong>{describeRelationship(relationship.sourceLabel, relationship.targetLabel)}</strong>
+                <span>{countLabel(relationship.fileDependencies.length, 'supporting file relationship')}</span>
+                <ul>
+                  {relationship.fileDependencies.map((edge) => (
+                    <li key={edge.id}>
+                      <span>{describeRelationship(edge.sourceNodeId, edge.targetNodeId)}</span>
+                      <span>{relationLabel(edge)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
   );
 }
 
 function PackageRelationList({
   title,
-  dependencies,
-  systemParts,
-  source,
+  emptyMessage,
+  relations,
 }: {
   title: string;
-  dependencies: PackageDependency[];
-  systemParts: ExplorerWorkspacePackageProjectionNode[];
-  source: 'source' | 'target';
+  emptyMessage: string;
+  relations: PackageExplorationRelation[];
 }) {
-  return (
-    <section className="relation-list">
-      <h3>{title}</h3>
-      {dependencies.length === 0 ? <p className="muted">None</p> : (
-        <ul>
-          {dependencies.map((dependency) => {
-            const relatedPackageId = source === 'source' ? dependency.sourcePackageId : dependency.targetPackageId;
-            const relatedPart = systemParts.find((part) => part.id === relatedPackageId);
-            const relatedLabel = relatedPart?.presentationLabel ?? relatedPackageId;
-            const sourceLabel = source === 'source' ? relatedLabel : systemParts.find((part) => part.id === dependency.sourcePackageId)?.presentationLabel ?? dependency.sourcePackageId;
-            const targetLabel = source === 'target' ? relatedLabel : systemParts.find((part) => part.id === dependency.targetPackageId)?.presentationLabel ?? dependency.targetPackageId;
+  const headingId = `part-${title.toLowerCase().replaceAll(' ', '-')}-title`;
 
-            return (
-              <li key={dependency.id} aria-label={describeRelationship(sourceLabel, targetLabel)}>
-                <strong>{relatedLabel}</strong>
-                <span className="relation-evidence">{countLabel(dependency.fileDependencies.length, 'supporting file relationship')}</span>
-              </li>
-            );
-          })}
+  return (
+    <section className="relation-list" aria-labelledby={headingId}>
+      <h3 id={headingId}>{title}</h3>
+      {relations.length === 0 ? <p className="part-state-explanation">{emptyMessage}</p> : (
+        <ul>
+          {relations.map((relation) => (
+            <li key={relation.id} aria-label={describeRelationship(relation.sourceLabel, relation.targetLabel)}>
+              <strong>{relation.relatedLabel}</strong>
+              <span className="relation-evidence">{countLabel(relation.fileDependencies.length, 'supporting file relationship')}</span>
+            </li>
+          ))}
         </ul>
       )}
     </section>

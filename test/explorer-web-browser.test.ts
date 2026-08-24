@@ -72,7 +72,7 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.equal(await page.$('[class="back-action"]'), null);
     assert.equal(await page.$eval('[aria-label="Explorer location"] [aria-current="page"]', (element) => element.textContent), 'bunker-code');
     assert.equal(await page.$eval('[data-system-part-count]', (element) => element.textContent), '5 detected parts');
-    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '23 analyzed files');
+    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '24 analyzed files');
     assert.equal((await page.$$('.react-flow__node')).length, 5);
     assert.equal((await page.$$('.graph-node-package')).length, 5);
     assert.equal((await page.$$('.graph-node-external')).length, 0);
@@ -112,17 +112,33 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await clickFlowNode(page, 'workspace-package:packages/analyzer-typescript');
     await page.waitForFunction(() => document.body.textContent?.includes('Selected for inspection') ?? false, { timeout: 5000 });
     assert.ok(await page.$('[data-explorer-scale="system-map"]'));
-    assert.ok(await page.$eval('.details-panel', (element) => (
-      element.textContent?.includes('Part of this system')
-      && element.textContent.includes('analyzer-typescript')
-      && element.textContent.includes('@bunker-code/analyzer-typescript')
-      && element.textContent.includes('Analyzed files')
-      && element.textContent.includes('Uses')
-      && element.textContent.includes('Used by')
-      && element.textContent.includes('Workspace configuration: pnpm-workspace.yaml')
-      && element.textContent.includes('Package manifest: packages/analyzer-typescript/package.json')
-      && element.textContent.includes('file relationship')
-    )));
+    assert.deepEqual(await page.$$eval('.part-exploration > *', (items) => items.map((item) => (
+      item instanceof HTMLDetailsElement ? item.dataset.disclosure : item.className
+    ))), [
+      'part-identity',
+      'part-location',
+      'part-relationships',
+      'part-next-action',
+      'technical-details',
+      'evidence',
+    ]);
+    assert.equal(await page.$eval('.part-identity', (element) => (
+      element.querySelector('.eyebrow')?.textContent === 'Part of this system'
+      && element.querySelector('h2')?.textContent === 'analyzer-typescript'
+      && element.querySelector('.part-file-summary')?.textContent === '4 analyzed files'
+    )), true);
+    assert.equal(await page.$eval('.part-location', (element) => (
+      element.textContent?.includes('Located in')
+      && element.textContent.includes('packages/analyzer-typescript')
+    )), true);
+    assert.equal(await page.$eval('[data-disclosure="technical-details"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && !element.open
+    )), true);
+    assert.equal(await page.$eval('[data-disclosure="evidence"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && !element.open
+    )), true);
     assert.ok(await page.$('.graph-edge-uses'));
     assert.equal((await page.$$('.graph-edge-used-by')).length, 2);
     assert.equal(await page.$$eval('.react-flow__edge-text', (labels) => (
@@ -132,6 +148,53 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.ok(await page.$('.details-panel li[aria-label="analyzer-typescript uses contracts"]'));
     assert.ok(await page.$('.details-panel li[aria-label="cli uses analyzer-typescript"]'));
     assert.ok(await page.$('.details-panel li[aria-label="explorer-web uses analyzer-typescript"]'));
+
+    const stateBeforeDisclosures = await page.evaluate(() => ({
+      scale: document.querySelector('[data-explorer-scale]')?.getAttribute('data-explorer-scale'),
+      selected: document.querySelector('.graph-node-selected')?.getAttribute('data-id'),
+      edges: document.querySelectorAll('.react-flow__edge').length,
+      viewportTransform: (document.querySelector('.react-flow__viewport') as HTMLElement | null)?.style.transform,
+    }));
+    await page.focus('[data-disclosure="technical-details"] summary');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.$eval('[data-disclosure="technical-details"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && element.open
+      && element.textContent?.includes('Workspace package')
+      && element.textContent.includes('@bunker-code/analyzer-typescript')
+      && element.textContent.includes('Root path')
+      && element.textContent.includes('packages/analyzer-typescript')
+      && element.textContent.includes('Filesystem group')
+    )), true);
+    await page.keyboard.press('Enter');
+    assert.equal(await page.$eval('[data-disclosure="technical-details"]', (element) => (
+      element instanceof HTMLDetailsElement && !element.open
+    )), true);
+
+    await page.focus('[data-disclosure="evidence"] summary');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.$eval('[data-disclosure="evidence"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && element.open
+      && element.textContent?.includes('Workspace configuration: pnpm-workspace.yaml')
+      && element.textContent.includes('Workspace pattern: packages/*')
+      && element.textContent.includes('Package manifest: packages/analyzer-typescript/package.json')
+      && element.textContent.includes('analyzer-typescript uses contracts')
+      && element.textContent.includes('2 supporting file relationships')
+      && element.textContent.includes('packages/analyzer-typescript/src/analysis-result.ts')
+      && element.textContent.includes('(exact)')
+    )), true);
+    assert.deepEqual(await page.evaluate(() => ({
+      scale: document.querySelector('[data-explorer-scale]')?.getAttribute('data-explorer-scale'),
+      selected: document.querySelector('.graph-node-selected')?.getAttribute('data-id'),
+      edges: document.querySelectorAll('.react-flow__edge').length,
+      viewportTransform: (document.querySelector('.react-flow__viewport') as HTMLElement | null)?.style.transform,
+    })), stateBeforeDisclosures);
+    await page.keyboard.press('Enter');
+    assert.equal(await page.$eval('[data-disclosure="evidence"]', (element) => (
+      element instanceof HTMLDetailsElement && !element.open
+    )), true);
+
     await clickButton(page, 'Open files');
     await page.waitForSelector('[data-explorer-scale="part-files"]', { timeout: 5000 });
     await page.waitForSelector('[aria-label="Back to system map"]', { timeout: 5000 });
@@ -226,7 +289,7 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.equal(await page.$eval('.explorer-header', (element) => element.getBoundingClientRect().right <= window.innerWidth), true);
     assert.equal(await page.$eval('.system-map-summary', (element) => element.getBoundingClientRect().right <= window.innerWidth), true);
     assert.equal(await page.$eval('[data-system-part-count]', (element) => element.textContent), '5 detected parts');
-    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '23 analyzed files');
+    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '24 analyzed files');
     assert.equal(await page.$eval('.relationship-key', (element) => {
       const rect = element.getBoundingClientRect();
       return element.textContent?.includes('A → B')
@@ -243,6 +306,19 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       && item.textContent.includes('analyzed file')
       && (item.textContent.includes('Uses') || item.textContent.includes('No detected connections'))
     ))), true);
+    assert.equal(await page.$eval('.details-panel', (element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0
+        && rect.right <= window.innerWidth
+        && element.scrollWidth <= element.clientWidth
+        && element.querySelector('.part-identity h2')?.textContent === 'analyzer-typescript'
+        && element.querySelector('.part-file-summary')?.textContent === '4 analyzed files'
+        && element.querySelector('.part-location')?.textContent?.includes('packages/analyzer-typescript')
+        && element.querySelector('.part-relationships')?.textContent?.includes('Uses')
+        && element.querySelector('.part-relationships')?.textContent?.includes('Used by')
+        && [...element.querySelectorAll('button')].some((button) => button.textContent === 'Open files')
+        && element.querySelectorAll('details:not([open])').length === 2;
+    }), true);
 
     await clickButton(page, 'Open files');
     await page.waitForSelector('[data-explorer-scale="part-files"]', { timeout: 5000 });

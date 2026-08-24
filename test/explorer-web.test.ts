@@ -12,6 +12,7 @@ import { createExplorerElements, layoutExplorerElements } from '../apps/explorer
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
 import { createExplorerProjection, type ExplorerSource } from '../apps/explorer-web/src/explorer-projection.js';
 import { createExplorerRuntime } from '../apps/explorer-web/src/explorer-runtime.js';
+import { createPackageExploration } from '../apps/explorer-web/src/package-exploration.js';
 import {
   createFileOverviewExplorerState,
   createInitialExplorerState,
@@ -106,6 +107,24 @@ test('system projection renders every detected workspace package and uses only a
     projection.nodes.filter((node) => node.kind === 'workspace-package' && node.filesystemGroup).map((node) => node.filesystemGroup),
     ['apps', 'apps', 'packages', 'packages', 'packages'],
   );
+
+  const analyzerPart = systemParts.find((part) => part.id === workspacePackageId);
+  assert.ok(analyzerPart);
+  const exploration = createPackageExploration(analyzerPart, systemParts, source.packageDependencies);
+  assert.equal(exploration.presentationLabel, 'analyzer-typescript');
+  assert.equal(exploration.technicalIdentity, '@bunker-code/analyzer-typescript');
+  assert.equal(exploration.fileCount, 4);
+  assert.equal(exploration.location, 'packages/analyzer-typescript');
+  assert.deepEqual(exploration.uses.map((relation) => relation.relatedLabel), ['contracts']);
+  assert.deepEqual(exploration.usedBy.map((relation) => relation.relatedLabel), ['cli', 'explorer-web']);
+  assert.equal(exploration.uses[0]?.sourceLabel, 'analyzer-typescript');
+  assert.equal(exploration.uses[0]?.targetLabel, 'contracts');
+  assert.equal(exploration.uses[0]?.fileDependencies.length, 2);
+  assert.deepEqual(exploration.evidence.map((evidence) => evidence.kind), [
+    'workspace-configuration',
+    'workspace-pattern',
+    'package-manifest',
+  ]);
 });
 
 test('system projection does not recreate package edges from file graph or manifests', () => {
@@ -134,9 +153,18 @@ test('isolated detected packages remain visible in the system projection', () =>
   assert.equal(isolatedPart?.kind === 'workspace-package' ? isolatedPart.usesCount : undefined, 0);
   assert.equal(isolatedPart?.kind === 'workspace-package' ? isolatedPart.usedByCount : undefined, 0);
   assert.equal(projection.edges.some((edge) => edge.sourceNodeId === 'workspace-package:packages/isolated' || edge.targetNodeId === 'workspace-package:packages/isolated'), false);
+  assert.ok(isolatedPart?.kind === 'workspace-package');
+  if (isolatedPart?.kind !== 'workspace-package') return;
+  const exploration = createPackageExploration(
+    isolatedPart,
+    projection.nodes.filter((node) => node.kind === 'workspace-package'),
+    source.packageDependencies,
+  );
+  assert.equal(exploration.isolatedExplanation, 'No detected connections to other parts.');
+  assert.equal(exploration.canOpenFiles, true);
 });
 
-test('detected packages without names or analyzed files remain safe to project and open', async () => {
+test('detected packages without names or analyzed files remain safe to project and explain', async () => {
   const analysis = analyzeProject(path.resolve('fixtures/pnpm-workspace-structure'));
   const graph = buildProjectGraph(analysis);
   const structure = buildProjectStructure(analysis);
@@ -156,6 +184,7 @@ test('detected packages without names or analyzed files remain safe to project a
 
   const libraryNode = elements.nodes.find((node) => node.id === libraryPackageId);
   const emptyNode = systemProjection.nodes.find((node) => node.id === emptyPackageId);
+  const systemParts = systemProjection.nodes.filter((node) => node.kind === 'workspace-package');
   assert.deepEqual(systemProjection.systemSummary?.filesystemGroups.map((group) => group.label), ['apps/', 'packages/']);
   assert.equal(libraryNode?.data.label, 'library');
   assert.equal(libraryNode?.data.technicalLabel, 'packages/library');
@@ -167,6 +196,17 @@ test('detected packages without names or analyzed files remain safe to project a
   assert.deepEqual(emptyProjection.nodes, []);
   assert.deepEqual(emptyProjection.edges, []);
   assert.deepEqual(laidOutEmptyElements.nodes, []);
+  assert.ok(emptyNode?.kind === 'workspace-package');
+  const libraryPart = systemParts.find((node) => node.id === libraryPackageId);
+  assert.ok(libraryPart);
+  if (emptyNode?.kind !== 'workspace-package' || !libraryPart) return;
+  const unnamedExploration = createPackageExploration(libraryPart, systemParts, source.packageDependencies);
+  const zeroFileExploration = createPackageExploration(emptyNode, systemParts, source.packageDependencies);
+  assert.equal(unnamedExploration.presentationLabel, 'library');
+  assert.equal(unnamedExploration.technicalIdentity, 'packages/library');
+  assert.equal(zeroFileExploration.fileCount, 0);
+  assert.equal(zeroFileExploration.canOpenFiles, false);
+  assert.equal(zeroFileExploration.zeroFileExplanation, 'No analyzed TypeScript files were found in this detected part.');
 });
 
 test('package selection remains in system scope and opening it creates an isolated package scope', () => {
