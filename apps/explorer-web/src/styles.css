@@ -89,7 +89,7 @@ button { border: 1px solid #67c7bd; border-radius: 4px; padding: 7px 10px; color
 .file-location strong { color: #aebdca; font-size: 12px; }
 .file-location span { overflow-wrap: anywhere; color: #dce5eb; line-height: 1.45; }
 .file-anchor-context { display: grid; gap: 3px; margin-top: 18px; border: 1px solid #806b37; border-radius: 4px; padding: 10px 11px; background: #2a2519; }
-.file-anchor-context strong { color: #f2c14e; font-size: 12px; text-transform: uppercase; }
+.file-anchor-context > strong { color: #f2c14e; font-size: 12px; text-transform: uppercase; }
 .file-anchor-context > span { font-weight: 700; }
 .file-anchor-context p { margin: 2px 0 0; color: #c6bfae; font-size: 12px; line-height: 1.45; }
 .file-relationships { margin-top: 22px; }
@@ -114,6 +114,16 @@ button { border: 1px solid #67c7bd; border-radius: 4px; padding: 7px 10px; color
 .part-disclosure[open] summary { margin-bottom: 12px; color: #8de0d6; }
 .part-disclosure dl div { align-items: flex-start; padding: 7px 0; }
 .part-disclosure dd { max-width: 62%; }
+.vocabulary-help { max-width: 100%; margin-top: 9px; }
+.vocabulary-help summary { width: fit-content; max-width: 100%; border-radius: 3px; color: #8de0d6; font-size: 12px; font-weight: 700; cursor: pointer; overflow-wrap: anywhere; }
+.vocabulary-help[open] { border: 1px solid #405462; border-radius: 4px; padding: 7px 9px; background: #101920; }
+.vocabulary-help[open] summary { margin-bottom: 10px; }
+.vocabulary-help-content { display: grid; gap: 10px; }
+.vocabulary-help-content section { min-width: 0; border-left: 2px solid #536978; padding-left: 9px; }
+.vocabulary-help-content p { margin: 0; overflow-wrap: anywhere; line-height: 1.45; }
+.vocabulary-friendly-term { color: #e7edf2; font-size: 12px; font-weight: 700; }
+.vocabulary-help-content .vocabulary-technical-term { margin-top: 2px; color: #c7d4de; font-size: 11px; }
+.vocabulary-help-content .vocabulary-explanation { margin-top: 5px; color: #aebdca; font-size: 12px; }
 .package-evidence h3 { margin: 14px 0 7px; }
 .package-evidence p, .package-evidence li { overflow-wrap: anywhere; line-height: 1.45; }
 .package-evidence ul { margin: 0; padding-left: 18px; }

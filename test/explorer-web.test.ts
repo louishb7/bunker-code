@@ -33,6 +33,12 @@ import {
   relationshipDirectionKey,
   relationshipRole,
 } from '../apps/explorer-web/src/relationship-language.js';
+import {
+  explorerVocabulary,
+  systemMapVocabularyPlacement,
+  vocabularyConceptIds,
+  vocabularyForPlacement,
+} from '../apps/explorer-web/src/explorer-vocabulary.js';
 
 const fileDatasetPath = path.resolve('packages/analyzer-typescript');
 const workspaceDatasetPath = path.resolve('.');
@@ -665,6 +671,69 @@ test('relationship presentation names source and target without reversing analyt
   assert.equal(relationshipRole(workspacePackageId, relationship), 'uses');
   assert.equal(relationshipRole(contractsPackageId, relationship), 'used-by');
   assert.equal(relationshipRole('workspace-package:packages/isolated', relationship), 'unrelated');
+});
+
+test('vocabulary definitions keep stable identities and introduce workspace language only for detected structure', () => {
+  assert.deepEqual(Object.keys(explorerVocabulary), vocabularyConceptIds);
+  assert.equal(new Set(vocabularyConceptIds).size, vocabularyConceptIds.length);
+  assert.equal(vocabularyConceptIds.every((conceptId) => explorerVocabulary[conceptId].id === conceptId), true);
+  assert.equal(systemMapVocabularyPlacement(false), null);
+  assert.equal(systemMapVocabularyPlacement(true), 'system-map');
+  assert.deepEqual(vocabularyForPlacement('system-map').map((concept) => concept.id), [
+    'detected-part',
+    'workspace',
+    'workspace-package',
+    'analyzed-file',
+  ]);
+  assert.equal(explorerVocabulary.workspace.technicalTerm, 'PNPM workspace');
+  assert.equal(explorerVocabulary.workspace.explanation.includes('pnpm-workspace.yaml'), true);
+  assert.equal(explorerVocabulary['workspace-package'].friendlyTerm, 'Part of this system');
+  assert.equal(explorerVocabulary['workspace-package'].technicalTerm, 'Workspace package');
+  assert.equal(explorerVocabulary['workspace-package'].explanation.includes('package.json'), true);
+  assert.equal(explorerVocabulary['filesystem-group'].explanation.includes('not a detected architectural role'), true);
+});
+
+test('relationship and exceptional-context vocabulary preserve direction and ownership guardrails', () => {
+  const relationshipVocabulary = vocabularyForPlacement('relationship-direction');
+  const dependency = explorerVocabulary.dependency;
+  const dependent = explorerVocabulary.dependent;
+  const external = explorerVocabulary['external-module'];
+  const contextual = explorerVocabulary['contextual-file'];
+
+  assert.deepEqual(relationshipVocabulary.map((concept) => [concept.friendlyTerm, concept.technicalTerm]), [
+    ['Uses', 'Dependency'],
+    ['Used by', 'Dependent'],
+  ]);
+  assert.equal(dependency.explanation.includes('A → B means A uses B'), true);
+  assert.equal(dependent.explanation.includes('If B is used by A, A is a dependent of B'), true);
+  assert.equal(dependent.explanation.includes('without reversing'), true);
+  assert.equal(external.explanation.includes('did not resolve to an analyzed internal file'), true);
+  assert.equal(external.explanation.includes('does not prove a remote service'), true);
+  assert.equal(external.explanation.includes('third-party SaaS'), true);
+  assert.equal(external.explanation.includes('confirmed npm package'), true);
+  assert.equal(contextual.friendlyTerm, 'From another part');
+  assert.equal(contextual.explanation.includes('belongs to another detected part'), true);
+  assert.equal(contextual.explanation.includes('owner does not change'), true);
+  assert.equal(contextual.explanation.includes('not contained by the open part'), true);
+});
+
+test('connection and evidence vocabulary preserve anchors, recorded facts, and contract confidence categories', () => {
+  const connections = vocabularyForPlacement('file-connections');
+  const evidence = explorerVocabulary.evidence;
+  const confidence = explorerVocabulary.confidence;
+
+  assert.deepEqual(connections.map((concept) => concept.id), ['file-connections', 'connection-anchor']);
+  assert.equal(explorerVocabulary['file-connections'].explanation.includes('temporarily centered on one file'), true);
+  assert.equal(explorerVocabulary['connection-anchor'].explanation.includes('Selecting another visible item inspects it without replacing the anchor'), true);
+  assert.equal(evidence.friendlyTerm, 'How BunkerCode knows');
+  assert.equal(evidence.technicalTerm, 'Evidence');
+  assert.equal(evidence.explanation.includes('recorded facts'), true);
+  assert.equal(evidence.explanation.includes('not from an AI-generated explanation'), true);
+  assert.equal(explorerVocabulary['module-specifier'].explanation.includes('./analysis-result.js'), true);
+  assert.equal(explorerVocabulary['module-specifier'].explanation.includes('ts-morph'), true);
+  assert.equal(confidence.explanation.includes('exact, inferred, and uncertain'), true);
+  assert.equal(confidence.explanation.includes('does not currently emit uncertain'), true);
+  assert.equal(confidence.explanation.includes('not percentages'), true);
 });
 
 test('search can be restricted to files owned by the current package', () => {

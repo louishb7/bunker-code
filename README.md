@@ -130,3 +130,9 @@ outside the analyzed system. `Uses` and `Used by` group repeated source/target
 occurrences for first reading. `Technical details` and `How BunkerCode knows`
 remain closed until requested; the latter retains every exact module specifier,
 source/target identity, location, and confidence value.
+
+Small contextual disclosures now connect the human-first labels to terms such
+as PNPM workspace, workspace package, dependency, dependent, external module,
+connection anchor, evidence, module specifier, and confidence. They remain
+closed by default, work with keyboard and touch, and do not change selection,
+navigation, graph projection, or analytical facts.

@@ -65,6 +65,8 @@ import {
   type FileExploration,
   type FileExplorationRelation,
 } from './file-exploration.js';
+import { systemMapVocabularyPlacement } from './explorer-vocabulary.js';
+import { VocabularyHelp } from './vocabulary-help.js';
 import './styles.css';
 
 const nodeTypes = { explorer: ExplorerNodeView };
@@ -375,6 +377,9 @@ function Explorer({
                 : orientation.scale === 'file-connections'
                   ? 'Select any visible item to inspect it. Use Back to return to the files in this part.'
                   : 'Find a file, select it, then show its direct structural connections.'}</p>
+              {orientation.scale === 'file-connections' ? (
+                <VocabularyHelp placement="file-connections" label="Learn about this view" />
+              ) : null}
             </div>
           )}
         </aside>
@@ -384,6 +389,8 @@ function Explorer({
 }
 
 function SystemMapSummary({ summary }: { summary: ExplorerSystemSummary }) {
+  const vocabularyPlacement = systemMapVocabularyPlacement(summary.detectedPartCount > 0);
+
   return (
     <section className="system-map-summary" aria-labelledby="system-map-summary-title">
       <div className="system-summary-introduction">
@@ -394,11 +401,13 @@ function SystemMapSummary({ summary }: { summary: ExplorerSystemSummary }) {
           <span data-analyzed-file-count={summary.analyzedFileCount}>{countLabel(summary.analyzedFileCount, 'analyzed file')}</span>
         </h2>
         <p>Select a part to understand how it connects. Open its files to explore deeper.</p>
+        {vocabularyPlacement ? <VocabularyHelp placement={vocabularyPlacement} label="Learn about detected parts" /> : null}
       </div>
       <div className="relationship-key" aria-label={`Relationship direction: ${relationshipDirectionKey}. ${relationshipDirectionHelp}`}>
         <strong>Relationship direction</strong>
         <p><span aria-hidden="true">A → B</span><span>means A uses B</span></p>
         <small>{relationshipDirectionHelp}</small>
+        <VocabularyHelp placement="relationship-direction" label="Learn Uses and Used by" />
       </div>
       <div className="filesystem-overview" aria-label="Folder organization">
         <div>
@@ -528,6 +537,7 @@ function WorkspacePackageDetails({
         <h2 id="selected-part-title">{exploration.presentationLabel}</h2>
         <p className="part-file-summary">{countLabel(exploration.fileCount, 'analyzed file')}</p>
         {exploration.zeroFileExplanation ? <p className="part-state-explanation">{exploration.zeroFileExplanation}</p> : null}
+        <VocabularyHelp placement="workspace-package" label="Learn about this part" />
       </header>
 
       <section className="part-location" aria-labelledby="part-location-title">
@@ -543,6 +553,7 @@ function WorkspacePackageDetails({
           </section>
         ) : (
           <>
+            <VocabularyHelp placement="relationship-direction" label="Learn Uses and Used by" />
             <PackageRelationList
               title="Uses"
               emptyMessage="No detected connections from this part to other parts."
@@ -611,6 +622,11 @@ function FileDetails({
         {exploration.kind === 'external-module' ? <p className="file-secondary-type">External module</p> : null}
         {exploration.ownerPartLabel ? <p className="file-owner-part">{exploration.ownerPartLabel}</p> : null}
         {exploration.contextExplanation ? <p>{exploration.contextExplanation}</p> : null}
+        {exploration.kind === 'external-module' ? (
+          <VocabularyHelp placement="external-module" label="Why is this here?" />
+        ) : exploration.kind === 'contextual-file' ? (
+          <VocabularyHelp placement="contextual-file" label="Why is this here?" />
+        ) : null}
         {exploration.location ? (
           <div className="file-location">
             <strong>Located in</strong>
@@ -630,10 +646,12 @@ function FileDetails({
           <p>{exploration.anchor.isSelected
             ? 'The map is arranged around this file and its direct connections.'
             : 'This remains the file around which the map is arranged. The selected item is being inspected without changing the anchor.'}</p>
+          <VocabularyHelp placement="file-connections" label="Learn about this view" />
         </section>
       ) : null}
 
       <div className="file-relationships" aria-label="File connections">
+        <VocabularyHelp placement="relationship-direction" label="Learn Uses and Used by" />
         <FileRelationList title="Uses" emptyMessage={exploration.usesEmptyMessage} relations={exploration.uses} />
         <FileRelationList title="Used by" emptyMessage={exploration.usedByEmptyMessage} relations={exploration.usedBy} />
       </div>
@@ -686,6 +704,7 @@ function PackageEvidence({
 }) {
   return (
     <div className="package-evidence">
+      <VocabularyHelp placement="evidence" label="Learn about this evidence" />
       <section aria-labelledby="detection-evidence-title">
         <h3 id="detection-evidence-title">Detection evidence</h3>
         <p><strong>Detected root:</strong> {rootPath}</p>
@@ -881,6 +900,7 @@ function FileEvidence({ exploration }: { exploration: FileExploration }) {
   return (
     <div className="file-evidence">
       <p>Exact analyzed occurrences supporting the relationships shown above.</p>
+      <VocabularyHelp placement="evidence" label="Learn about this evidence" />
       <FileEvidenceGroup title="Uses evidence" relations={exploration.uses} />
       <FileEvidenceGroup title="Used by evidence" relations={exploration.usedBy} />
     </div>

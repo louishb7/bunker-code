@@ -103,10 +103,45 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       && element.textContent.includes('means A uses B')
       && element.textContent.includes('Arrow points to what is used.')
     )), true);
+    assert.equal((await page.$$('[data-vocabulary-help]')).length, 2);
+    assert.equal((await page.$$('.graph-canvas [data-vocabulary-help]')).length, 0);
+    assert.equal(await page.$$eval('[data-vocabulary-help]', (items) => items.every((item) => (
+      item instanceof HTMLDetailsElement && !item.open
+    ))), true);
     assert.equal(await page.$eval('.graph-canvas', (element) => element.textContent?.includes('Filesystem group:')), false);
     assert.equal(await page.$('[aria-label="Find file"]'), null);
 
     await page.waitForFunction(() => !document.body.textContent?.includes('Arranging visible graph...'), { timeout: 5000 });
+    const stateBeforeSystemHelp = await readExplorerUiState(page);
+    await page.focus('[data-vocabulary-help="system-map"] summary');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.$eval('[data-vocabulary-help="system-map"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && element.open
+      && element.textContent?.includes('Technical term: PNPM workspace')
+      && element.textContent.includes('pnpm-workspace.yaml')
+      && element.textContent.includes('Technical term: Workspace package')
+      && element.textContent.includes('Part of this system')
+      && element.textContent.includes('Technical term: Analyzed file')
+    )), true);
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('[data-vocabulary-help="system-map"] summary')), true);
+    assert.deepEqual(await readExplorerUiState(page), stateBeforeSystemHelp);
+    await page.keyboard.press('Enter');
+    assert.equal(await page.$eval('[data-vocabulary-help="system-map"]', (element) => (
+      element instanceof HTMLDetailsElement && !element.open
+    )), true);
+
+    await page.click('.relationship-key [data-vocabulary-help="relationship-direction"] summary');
+    assert.equal(await page.$eval('.relationship-key [data-vocabulary-help="relationship-direction"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && element.open
+      && element.textContent?.includes('Technical term: Dependency')
+      && element.textContent.includes('A → B means A uses B')
+      && element.textContent.includes('Technical term: Dependent')
+      && element.textContent.includes('If B is used by A, A is a dependent of B')
+    )), true);
+    assert.deepEqual(await readExplorerUiState(page), stateBeforeSystemHelp);
+    await page.click('.relationship-key [data-vocabulary-help="relationship-direction"] summary');
     assert.equal(await page.$$eval('.react-flow__edge-path', (edges) => (
       edges.length === 7 && edges.every((edge) => edge.getAttribute('marker-end')?.includes('arrowclosed'))
     )), true);
@@ -144,6 +179,19 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       element instanceof HTMLDetailsElement
       && !element.open
     )), true);
+    assert.equal(await page.$eval('.part-identity [data-vocabulary-help="workspace-package"]', (element) => (
+      element instanceof HTMLDetailsElement && !element.open
+    )), true);
+    await page.click('.part-identity [data-vocabulary-help="workspace-package"] summary');
+    assert.equal(await page.$eval('.part-identity [data-vocabulary-help="workspace-package"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && element.open
+      && element.textContent?.includes('Part of this system')
+      && element.textContent.includes('Technical term: Workspace package')
+      && element.textContent.includes('supported PNPM workspace configuration')
+      && element.textContent.includes('Technical term: Filesystem group')
+    )), true);
+    await page.click('.part-identity [data-vocabulary-help="workspace-package"] summary');
     assert.ok(await page.$('.graph-edge-uses'));
     assert.equal((await page.$$('.graph-edge-used-by')).length, 2);
     assert.equal(await page.$$eval('.react-flow__edge-text', (labels) => (
@@ -189,12 +237,28 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       && element.textContent.includes('packages/analyzer-typescript/src/analysis-result.ts')
       && element.textContent.includes('(exact)')
     )), true);
+    assert.equal(await page.$eval('[data-disclosure="evidence"] [data-vocabulary-help="evidence"]', (element) => (
+      element instanceof HTMLDetailsElement && !element.open
+    )), true);
+    await page.click('[data-disclosure="evidence"] [data-vocabulary-help="evidence"] summary');
+    assert.equal(await page.$eval('[data-disclosure="evidence"] [data-vocabulary-help="evidence"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && element.open
+      && element.textContent?.includes('How BunkerCode knows')
+      && element.textContent.includes('Technical term: Evidence')
+      && element.textContent.includes('not from an AI-generated explanation')
+      && element.textContent.includes('Technical term: Module specifier')
+      && element.textContent.includes('exact, inferred, and uncertain')
+      && element.textContent.includes('not percentages')
+    )), true);
     assert.deepEqual(await page.evaluate(() => ({
       scale: document.querySelector('[data-explorer-scale]')?.getAttribute('data-explorer-scale'),
       selected: document.querySelector('.graph-node-selected')?.getAttribute('data-id'),
       edges: document.querySelectorAll('.react-flow__edge').length,
       viewportTransform: (document.querySelector('.react-flow__viewport') as HTMLElement | null)?.style.transform,
     })), stateBeforeDisclosures);
+    await page.click('[data-disclosure="evidence"] [data-vocabulary-help="evidence"] summary');
+    await page.focus('[data-disclosure="evidence"] > summary');
     await page.keyboard.press('Enter');
     assert.equal(await page.$eval('[data-disclosure="evidence"]', (element) => (
       element instanceof HTMLDetailsElement && !element.open
@@ -252,10 +316,10 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       && !element.textContent.includes('Dependencies')
       && !element.textContent.includes('Dependents')
     )));
-    assert.equal(await page.$$eval('.file-relationships .relation-list:first-child li', (items) => (
+    assert.equal(await page.$$eval('.file-relationships .relation-list:first-of-type li', (items) => (
       items.filter((item) => item.querySelector('strong')?.textContent === 'analysis-result.ts').length
     )), 1);
-    assert.equal(await page.$eval('.file-relationships .relation-list:first-child', (element) => (
+    assert.equal(await page.$eval('.file-relationships .relation-list:first-of-type', (element) => (
       element.textContent?.includes('analysis-result.ts')
       && element.textContent.includes('2 relationships')
       && !element.textContent.includes('./analysis-result.js')
@@ -284,6 +348,9 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       && element.textContent.includes('Confidence')
       && element.textContent.includes('exact')
     )), true);
+    assert.equal(await page.$eval('[data-disclosure="file-evidence"] [data-vocabulary-help="evidence"]', (element) => (
+      element instanceof HTMLDetailsElement && !element.open
+    )), true);
     await page.click('[data-disclosure="file-evidence"] summary');
     await clickButton(page, 'Show direct connections');
     await page.waitForSelector('[data-explorer-scale="file-connections"]', { timeout: 5000 });
@@ -300,6 +367,21 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       element.getAttribute('aria-label') === 'Connection anchor: analyze-project.ts'
       && element.textContent?.includes('map is arranged around this file')
     )), true);
+    assert.equal(await page.$eval('.file-anchor-context [data-vocabulary-help="file-connections"]', (element) => (
+      element instanceof HTMLDetailsElement && !element.open
+    )), true);
+    const stateBeforeAnchorHelp = await readExplorerUiState(page);
+    await page.click('.file-anchor-context [data-vocabulary-help="file-connections"] summary');
+    assert.equal(await page.$eval('.file-anchor-context [data-vocabulary-help="file-connections"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && element.open
+      && element.textContent?.includes('Technical term: File connections')
+      && element.textContent.includes('temporarily centered on one file')
+      && element.textContent.includes('Technical term: Connection anchor')
+      && element.textContent.includes('without replacing the anchor')
+    )), true);
+    assert.deepEqual(await readExplorerUiState(page), stateBeforeAnchorHelp);
+    await page.click('.file-anchor-context [data-vocabulary-help="file-connections"] summary');
 
     await clickFlowNode(page, 'packages/analyzer-typescript/src/analysis-result.ts');
     assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-target'));
@@ -327,6 +409,15 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       element.querySelector('.file-context h3')?.textContent === 'Outside this analyzed system'
       && element.querySelector('.file-secondary-type')?.textContent === 'External module'
       && !element.querySelector('.file-context')?.textContent?.includes('File in this part')
+    )), true);
+    await page.click('.file-context [data-vocabulary-help="external-module"] summary');
+    assert.equal(await page.$eval('.file-context [data-vocabulary-help="external-module"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && element.open
+      && element.textContent?.includes('did not resolve to an analyzed internal file')
+      && element.textContent.includes('does not prove a remote service')
+      && element.textContent.includes('third-party SaaS')
+      && element.textContent.includes('confirmed npm package')
     )), true);
     assert.equal(await page.$eval('.details-panel', (element) => element.textContent?.includes('Used by') ?? false), true);
     assert.equal(await page.$eval('.details-panel', (element) => (
@@ -356,6 +447,14 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       && element.textContent.includes('Used by')
       && [...element.querySelectorAll('li[aria-label]')].some((item) => item.getAttribute('aria-label')?.endsWith('uses index.ts'))
     )));
+    await page.click('.file-context [data-vocabulary-help="contextual-file"] summary');
+    assert.equal(await page.$eval('.file-context [data-vocabulary-help="contextual-file"]', (element) => (
+      element instanceof HTMLDetailsElement
+      && element.open
+      && element.textContent?.includes('belongs to another detected part')
+      && element.textContent.includes('owner does not change')
+      && element.textContent.includes('not contained by the open part')
+    )), true);
     assert.equal(await page.$eval('.details-panel', (element) => (
       [...element.querySelectorAll('button')].some((button) => button.textContent === 'Show direct connections')
     )), false);
@@ -409,8 +508,21 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
         && element.querySelector('.part-relationships')?.textContent?.includes('Uses')
         && element.querySelector('.part-relationships')?.textContent?.includes('Used by')
         && [...element.querySelectorAll('button')].some((button) => button.textContent === 'Open files')
-        && element.querySelectorAll('details:not([open])').length === 2;
+        && element.querySelectorAll('[data-disclosure]:not([open])').length === 2;
     }), true);
+
+    await page.click('.part-identity [data-vocabulary-help="workspace-package"] summary');
+    assert.equal(await page.$eval('.part-identity [data-vocabulary-help="workspace-package"]', (element) => {
+      const rect = element.getBoundingClientRect();
+      return element instanceof HTMLDetailsElement
+        && element.open
+        && rect.width > 0
+        && rect.left >= 0
+        && rect.right <= window.innerWidth
+        && element.scrollWidth <= element.clientWidth;
+    }), true);
+    await page.click('.part-identity [data-vocabulary-help="workspace-package"] summary');
+    await page.evaluate(() => window.scrollTo(0, 0));
 
     await clickButton(page, 'Open files');
     await page.waitForSelector('[data-explorer-scale="part-files"]', { timeout: 5000 });
@@ -425,7 +537,38 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     }), true);
     assert.ok(await page.$('[data-explorer-scale="file-connections"]'));
     assert.equal(await page.$eval('[aria-label="Explorer location"] [aria-current="page"]', (element) => element.textContent), 'analyze-project.ts');
+    await page.$eval('.file-anchor-context [data-vocabulary-help="file-connections"]', (element) => element.scrollIntoView());
+    await page.click('.file-anchor-context [data-vocabulary-help="file-connections"] summary');
+    assert.equal(await page.$eval('.file-anchor-context [data-vocabulary-help="file-connections"]', (element) => {
+      const rect = element.getBoundingClientRect();
+      return element instanceof HTMLDetailsElement
+        && element.open
+        && rect.width > 0
+        && rect.left >= 0
+        && rect.right <= window.innerWidth
+        && element.scrollWidth <= element.clientWidth;
+    }), true);
     assert.ok((await page.screenshot()).byteLength > 1000);
+
+    const touchPage = await browser.newPage();
+    await touchPage.setViewport({ width: 640, height: 900, hasTouch: true });
+    await touchPage.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
+    await touchPage.waitForSelector('[data-vocabulary-help="system-map"] summary', { timeout: 5000 });
+    const touchTarget = await touchPage.$eval('[data-vocabulary-help="system-map"] summary', (element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    });
+    await touchPage.touchscreen.tap(touchTarget.x, touchTarget.y);
+    assert.equal(await touchPage.$eval('[data-vocabulary-help="system-map"]', (element) => {
+      const rect = element.getBoundingClientRect();
+      return element instanceof HTMLDetailsElement
+        && element.open
+        && rect.width > 0
+        && rect.left >= 0
+        && rect.right <= window.innerWidth
+        && element.scrollWidth <= element.clientWidth;
+    }), true);
+    await touchPage.close();
   } finally {
     await browser.close();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -454,6 +597,20 @@ async function clickFlowNode(page: import('puppeteer-core').Page, nodeId: string
 
     node.click();
   }, nodeId);
+}
+
+async function readExplorerUiState(page: import('puppeteer-core').Page): Promise<{
+  scale: string | null;
+  selected: string | null;
+  anchor: string | null;
+  viewportTransform: string | null;
+}> {
+  return page.evaluate(() => ({
+    scale: document.querySelector('[data-explorer-scale]')?.getAttribute('data-explorer-scale') ?? null,
+    selected: document.querySelector('.graph-node-selected')?.getAttribute('data-id') ?? null,
+    anchor: document.querySelector('.graph-node-target')?.getAttribute('data-id') ?? null,
+    viewportTransform: (document.querySelector('.react-flow__viewport') as HTMLElement | null)?.style.transform ?? null,
+  }));
 }
 
 function contentType(filePath: string): string {
