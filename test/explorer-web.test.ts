@@ -25,6 +25,12 @@ import {
   selectWorkspacePackage,
 } from '../apps/explorer-web/src/explorer-state.js';
 import { searchExplorerFiles } from '../apps/explorer-web/src/explorer-search.js';
+import {
+  describeRelationship,
+  relationshipDirectionHelp,
+  relationshipDirectionKey,
+  relationshipRole,
+} from '../apps/explorer-web/src/relationship-language.js';
 
 const fileDatasetPath = path.resolve('packages/analyzer-typescript');
 const workspaceDatasetPath = path.resolve('.');
@@ -87,6 +93,15 @@ test('system projection renders every detected workspace package and uses only a
     source: dependency.sourcePackageId,
     target: dependency.targetPackageId,
   })));
+  const analyzerContractsEdge = elements.edges.find((edge) => (
+    edge.source === workspacePackageId && edge.target === contractsPackageId
+  ));
+  assert.equal(analyzerContractsEdge?.markerEnd && typeof analyzerContractsEdge.markerEnd === 'object'
+    ? analyzerContractsEdge.markerEnd.type
+    : undefined, 'arrowclosed');
+  assert.equal(analyzerContractsEdge?.ariaLabel, 'analyzer-typescript uses contracts');
+  assert.equal(analyzerContractsEdge?.data?.accessibleLabel, 'analyzer-typescript uses contracts');
+  assert.equal(elements.edges.every((edge) => edge.markerEnd !== undefined), true);
   assert.deepEqual(
     projection.nodes.filter((node) => node.kind === 'workspace-package' && node.filesystemGroup).map((node) => node.filesystemGroup),
     ['apps', 'apps', 'packages', 'packages', 'packages'],
@@ -262,6 +277,14 @@ test('package scope keeps owned files internal and cross-package files contextua
   assert.equal(contextualFile?.kind, 'file');
   assert.equal(contextualFile?.kind === 'file' ? contextualFile.contextualWorkspacePackage?.id : undefined, contractsPackageId);
   assert.equal(projection.nodes.some((node) => node.kind === 'external'), false);
+  const elements = createExplorerElements(projection);
+  const contextualEdge = elements.edges.find((edge) => edge.target === contextualContractsFile);
+  assert.ok(contextualEdge);
+  assert.equal(contextualEdge.source.startsWith('packages/analyzer-typescript/'), true);
+  assert.equal(contextualEdge.ariaLabel?.endsWith('uses index.ts'), true);
+  assert.equal(contextualEdge.markerEnd && typeof contextualEdge.markerEnd === 'object'
+    ? contextualEdge.markerEnd.type
+    : undefined, 'arrowclosed');
 });
 
 test('file focus, expansion, and search retain their existing file-level behavior', () => {
@@ -284,6 +307,16 @@ test('file focus, expansion, and search retain their existing file-level behavio
   assert.equal(focused.mode, 'focus');
   assert.equal(focused.nodes.some((node) => node.id === 'external:@bunker-code/contracts'), true);
   assert.equal(expanded.nodes.some((node) => node.id === 'external:node:fs'), true);
+  const focusedElements = createExplorerElements(focused);
+  const externalRelationship = focusedElements.edges.find((edge) => edge.target === 'external:@bunker-code/contracts');
+  assert.ok(externalRelationship);
+  assert.equal(externalRelationship.source, focusedFileId);
+  assert.equal(externalRelationship.ariaLabel, 'analysis-result.ts uses @bunker-code/contracts');
+  assert.equal(externalRelationship.markerEnd && typeof externalRelationship.markerEnd === 'object'
+    ? externalRelationship.markerEnd.type
+    : undefined, 'arrowclosed');
+  assert.equal(externalRelationship.data?.occurrenceCount, 2);
+  assert.equal(externalRelationship.data?.relations.length, 2);
   assert.deepEqual(searchExplorerFiles(source.graph, 'analysis-result.ts'), [{
     nodeId: focusedFileId,
     fileName: 'analysis-result.ts',
@@ -390,6 +423,17 @@ test('web adapter preserves package direction and keeps renderer state out of an
   assert.equal(Object.hasOwn(source.graph, 'selectedNodeId'), false);
   assert.equal(laidOut.mode, 'system');
   assert.ok(laidOut.nodes.every((node) => Number.isFinite(node.position.x) && Number.isFinite(node.position.y)));
+});
+
+test('relationship presentation names source and target without reversing analytical direction', () => {
+  const relationship = { sourceNodeId: workspacePackageId, targetNodeId: contractsPackageId };
+
+  assert.equal(relationshipDirectionKey, 'A → B means A uses B');
+  assert.equal(relationshipDirectionHelp, 'Arrow points to what is used.');
+  assert.equal(describeRelationship('Analyzer', 'Contracts'), 'Analyzer uses Contracts');
+  assert.equal(relationshipRole(workspacePackageId, relationship), 'uses');
+  assert.equal(relationshipRole(contractsPackageId, relationship), 'used-by');
+  assert.equal(relationshipRole('workspace-package:packages/isolated', relationship), 'unrelated');
 });
 
 test('search can be restricted to files owned by the current package', () => {

@@ -20,6 +20,7 @@ import {
   createExplorerElements,
   layoutExplorerElements,
   type ExplorerElements,
+  type ExplorerEdge,
   type ExplorerNode,
   type ExplorerNodeData,
 } from './explorer-model.js';
@@ -49,6 +50,12 @@ import {
   type WorkspacePackageExplorerState,
 } from './explorer-state.js';
 import { searchExplorerFiles } from './explorer-search.js';
+import {
+  describeRelationship,
+  relationshipDirectionHelp,
+  relationshipDirectionKey,
+  relationshipRole,
+} from './relationship-language.js';
 import './styles.css';
 
 const nodeTypes = { explorer: ExplorerNodeView };
@@ -105,6 +112,7 @@ function Explorer({
   );
   const projection = useMemo(() => createExplorerProjection(source, state), [source, state]);
   const projectedElements = useMemo(() => createExplorerElements(projection), [projection]);
+  const graphNodesById = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node] as const)), [graph]);
   const [elements, setElements] = useState<ExplorerElements>(projectedElements);
   const fileScope = state.scope === 'system' ? null : state;
   const searchableFileIds = useMemo(() => fileScope?.scope === 'workspace-package'
@@ -166,6 +174,13 @@ function Explorer({
     () => focusedNodeId ? new Set(getDependents(graph, focusedNodeId).map((edge) => edge.sourceNodeId)) : new Set<string>(),
     [graph, focusedNodeId],
   );
+  const inspectedNodeId = state.scope === 'system' ? state.selectedPackageId : selectedNodeId;
+  const inspectedUses = useMemo(() => new Set(
+    elements.edges.filter((edge) => edge.source === inspectedNodeId).map((edge) => edge.target),
+  ), [elements.edges, inspectedNodeId]);
+  const inspectedUsedBy = useMemo(() => new Set(
+    elements.edges.filter((edge) => edge.target === inspectedNodeId).map((edge) => edge.source),
+  ), [elements.edges, inspectedNodeId]);
   const flowNodes: Node<ExplorerNodeData>[] = useMemo(
     () => elements.nodes.map((node) => ({
       ...node,
@@ -178,21 +193,17 @@ function Explorer({
           focusedNodeId,
           focusedDependencies,
           focusedDependents,
+          inspectedUses,
+          inspectedUsedBy,
         ),
       },
       className: nodeClassName(node, state, selectedNodeId, focusedNodeId, focusedDependencies, focusedDependents),
     })),
-    [elements.nodes, state, selectedNodeId, focusedNodeId, focusedDependencies, focusedDependents],
+    [elements.nodes, state, selectedNodeId, focusedNodeId, focusedDependencies, focusedDependents, inspectedUses, inspectedUsedBy],
   );
   const flowEdges: Edge[] = useMemo(
-    () => elements.edges.map((edge) => ({
-      ...edge,
-      className: edge.source === (state.scope === 'system' ? state.selectedPackageId : selectedNodeId)
-        || edge.target === (state.scope === 'system' ? state.selectedPackageId : selectedNodeId)
-        ? 'graph-edge-active'
-        : 'graph-edge',
-    })),
-    [elements.edges, state, selectedNodeId],
+    () => elements.edges.map((edge) => relationshipFlowEdge(edge, inspectedNodeId)),
+    [elements.edges, inspectedNodeId],
   );
   const dependencies = selectedNodeId ? getDependencies(graph, selectedNodeId) : [];
   const dependents = selectedNodeId ? getDependents(graph, selectedNodeId) : [];
@@ -350,6 +361,7 @@ function Explorer({
           ) : selectedNode ? (
             <FileDetails
               node={selectedNode}
+              graphNodesById={graphNodesById}
               dependencies={dependencies}
               dependents={dependents}
               canFocus={canFocus}
@@ -389,6 +401,11 @@ function SystemMapSummary({ summary }: { summary: ExplorerSystemSummary }) {
           <span data-analyzed-file-count={summary.analyzedFileCount}>{countLabel(summary.analyzedFileCount, 'analyzed file')}</span>
         </h2>
         <p>Select a part to understand how it connects. Open its files to explore deeper.</p>
+      </div>
+      <div className="relationship-key" aria-label={`Relationship direction: ${relationshipDirectionKey}. ${relationshipDirectionHelp}`}>
+        <strong>Relationship direction</strong>
+        <p><span aria-hidden="true">A → B</span><span>means A uses B</span></p>
+        <small>{relationshipDirectionHelp}</small>
       </div>
       <div className="filesystem-overview" aria-label="Folder organization">
         <div>
@@ -519,8 +536,6 @@ function WorkspacePackageDetails({
       {part.technicalLabel !== part.presentationLabel ? <p className="part-technical-name">{part.technicalLabel}</p> : null}
       <dl>
         <div><dt>Analyzed files</dt><dd>{part.fileCount}</dd></div>
-        <div><dt>Uses</dt><dd>{outgoing.length}</dd></div>
-        <div><dt>Used by</dt><dd>{incoming.length}</dd></div>
       </dl>
       <div className="details-actions"><button type="button" onClick={onOpen}>Open files</button></div>
       <PackageRelationList title="Uses" dependencies={outgoing} systemParts={systemParts} source="target" />
@@ -536,6 +551,7 @@ function WorkspacePackageDetails({
 
 function FileDetails({
   node,
+  graphNodesById,
   dependencies,
   dependents,
   canFocus,
@@ -544,6 +560,7 @@ function FileDetails({
   onExpand,
 }: {
   node: ProjectGraphNode;
+  graphNodesById: ReadonlyMap<string, ProjectGraphNode>;
   dependencies: ProjectGraphEdge[];
   dependents: ProjectGraphEdge[];
   canFocus: boolean;
@@ -555,18 +572,21 @@ function FileDetails({
     <>
       <p className="eyebrow">{node.kind === 'file' ? 'Selected file' : 'Selected external module'}</p>
       <h2>{nodeLabel(node)}</h2>
-      <dl>
-        <div><dt>ID</dt><dd>{node.id}</dd></div>
-        <div><dt>Type</dt><dd>{node.kind}</dd></div>
-        <div><dt>Dependencies</dt><dd>{dependencies.length}</dd></div>
-        <div><dt>Dependents</dt><dd>{dependents.length}</dd></div>
-      </dl>
       <div className="details-actions">
         {canFocus ? <button type="button" onClick={onFocus}>Show direct connections</button> : null}
         {canExpand ? <button type="button" onClick={onExpand}>Show one more step</button> : null}
       </div>
-      <RelationList title="Dependencies" edges={dependencies} />
-      <RelationList title="Dependents" edges={dependents} />
+      <RelationList title="Uses" direction="uses" selectedNode={node} graphNodesById={graphNodesById} edges={dependencies} />
+      <RelationList title="Used by" direction="used-by" selectedNode={node} graphNodesById={graphNodesById} edges={dependents} />
+      <section className="part-technical-details">
+        <h3>Technical details</h3>
+        <dl>
+          <div><dt>ID</dt><dd>{node.id}</dd></div>
+          <div><dt>Type</dt><dd>{node.kind}</dd></div>
+          <div><dt>Uses</dt><dd>{dependencies.length}</dd></div>
+          <div><dt>Used by</dt><dd>{dependents.length}</dd></div>
+        </dl>
+      </section>
     </>
   );
 }
@@ -601,7 +621,16 @@ function PackageRelationList({
           {dependencies.map((dependency) => {
             const relatedPackageId = source === 'source' ? dependency.sourcePackageId : dependency.targetPackageId;
             const relatedPart = systemParts.find((part) => part.id === relatedPackageId);
-            return <li key={dependency.id}>{relatedPart?.presentationLabel ?? relatedPackageId} ({countLabel(dependency.fileDependencies.length, 'file relationship')})</li>;
+            const relatedLabel = relatedPart?.presentationLabel ?? relatedPackageId;
+            const sourceLabel = source === 'source' ? relatedLabel : systemParts.find((part) => part.id === dependency.sourcePackageId)?.presentationLabel ?? dependency.sourcePackageId;
+            const targetLabel = source === 'target' ? relatedLabel : systemParts.find((part) => part.id === dependency.targetPackageId)?.presentationLabel ?? dependency.targetPackageId;
+
+            return (
+              <li key={dependency.id} aria-label={describeRelationship(sourceLabel, targetLabel)}>
+                <strong>{relatedLabel}</strong>
+                <span className="relation-evidence">{countLabel(dependency.fileDependencies.length, 'supporting file relationship')}</span>
+              </li>
+            );
           })}
         </ul>
       )}
@@ -672,12 +701,18 @@ function nodeContextLabel(
   focusedNodeId: string | null,
   focusedDependencies: ReadonlySet<string>,
   focusedDependents: ReadonlySet<string>,
+  inspectedUses: ReadonlySet<string>,
+  inspectedUsedBy: ReadonlySet<string>,
 ): string | undefined {
   const labels = node.data.contextLabel ? [node.data.contextLabel] : [];
 
-  if (node.id === focusedNodeId) labels.push('Focus target');
-  else if (focusedDependencies.has(node.id)) labels.push('Direct dependency');
-  else if (focusedDependents.has(node.id)) labels.push('Direct dependent');
+  if (node.id === focusedNodeId) labels.push('Connection anchor');
+  else if (focusedDependencies.has(node.id)) labels.push('Anchor uses this');
+  else if (focusedDependents.has(node.id)) labels.push('Uses the anchor');
+  if (selectedNodeId !== focusedNodeId) {
+    if (inspectedUses.has(node.id)) labels.push('Selected item uses this');
+    else if (inspectedUsedBy.has(node.id)) labels.push('Uses selected item');
+  }
   if (node.data.kind === 'external') labels.push('External module');
   if (node.id === selectedNodeId) labels.push(node.data.kind === 'workspace-package' ? 'Selected for inspection' : 'Selected');
 
@@ -721,17 +756,69 @@ function relationLabel(edge: ProjectGraphEdge): string {
   return `${edge.moduleSpecifier} at ${location.filePath}:${location.line}:${location.column} (${edge.confidence})`;
 }
 
-function RelationList({ title, edges }: { title: string; edges: ProjectGraphEdge[] }) {
+function RelationList({
+  title,
+  direction,
+  selectedNode,
+  graphNodesById,
+  edges,
+}: {
+  title: string;
+  direction: 'uses' | 'used-by';
+  selectedNode: ProjectGraphNode;
+  graphNodesById: ReadonlyMap<string, ProjectGraphNode>;
+  edges: ProjectGraphEdge[];
+}) {
   return (
     <section className="relation-list">
       <h3>{title}</h3>
       {edges.length === 0 ? <p className="muted">None</p> : (
         <ul>
-          {edges.map((edge) => <li key={edge.id}>{relationLabel(edge)}</li>)}
+          {edges.map((edge) => {
+            const relatedNodeId = direction === 'uses' ? edge.targetNodeId : edge.sourceNodeId;
+            const relatedNode = graphNodesById.get(relatedNodeId);
+            const relatedLabel = relatedNode ? nodeLabel(relatedNode) : relatedNodeId;
+            const sourceLabel = direction === 'uses' ? nodeLabel(selectedNode) : relatedLabel;
+            const targetLabel = direction === 'uses' ? relatedLabel : nodeLabel(selectedNode);
+
+            return (
+              <li key={edge.id} aria-label={describeRelationship(sourceLabel, targetLabel)}>
+                <strong>{relatedLabel}</strong>
+                <span className="relation-evidence">{relationLabel(edge)}</span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
   );
+}
+
+function relationshipFlowEdge(edge: ExplorerEdge, inspectedNodeId: string | null): ExplorerEdge {
+  const role = relationshipRole(inspectedNodeId, {
+    sourceNodeId: edge.source,
+    targetNodeId: edge.target,
+  });
+  const active = role !== 'unrelated';
+  const occurrenceSuffix = edge.data && edge.data.occurrenceCount > 1
+    ? ` · ${edge.data.occurrenceCount} relationships`
+    : '';
+
+  return {
+    ...edge,
+    className: active ? `graph-edge graph-edge-active graph-edge-${role}` : 'graph-edge',
+    label: role === 'uses' ? `Uses${occurrenceSuffix}` : role === 'used-by' ? `Used by${occurrenceSuffix}` : undefined,
+    labelStyle: active ? { fill: '#edf5f7', fontSize: 11, fontWeight: 700 } : undefined,
+    labelBgStyle: active ? { fill: '#17232e', fillOpacity: 0.96, stroke: '#78909c', strokeWidth: 1 } : undefined,
+    labelBgPadding: active ? [6, 4] : undefined,
+    labelBgBorderRadius: active ? 4 : undefined,
+    markerEnd: {
+      type: 'arrowclosed',
+      width: active ? 25 : 22,
+      height: active ? 25 : 22,
+      color: active ? '#f2c14e' : '#8fa2b1',
+    },
+  };
 }
 
 const root = document.getElementById('root');

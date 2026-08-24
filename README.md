@@ -88,6 +88,13 @@ separate **Folder organization** legend groups paths such as `apps/` and
 `packages/` visually without turning folders into analytical nodes or inferred
 architecture.
 
+Every visible relationship keeps the analytical direction **source → target**
+and presents it as **source uses target**. Closed arrowheads point to what is
+used, the System map includes a persistent direction key, and selection labels
+outgoing relationships as **Uses** and incoming relationships as **Used by**.
+Duplicate file occurrences between the same two nodes share one visual edge,
+while the details panel retains every supporting location and confidence value.
+
 Generate the snapshot and start the local app:
 
 ```bash

@@ -72,7 +72,7 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.equal(await page.$('[class="back-action"]'), null);
     assert.equal(await page.$eval('[aria-label="Explorer location"] [aria-current="page"]', (element) => element.textContent), 'bunker-code');
     assert.equal(await page.$eval('[data-system-part-count]', (element) => element.textContent), '5 detected parts');
-    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '22 analyzed files');
+    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '23 analyzed files');
     assert.equal((await page.$$('.react-flow__node')).length, 5);
     assert.equal((await page.$$('.graph-node-package')).length, 5);
     assert.equal((await page.$$('.graph-node-external')).length, 0);
@@ -93,10 +93,22 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.equal(await page.$eval('[data-filesystem-group="packages"]', (element) => (
       element.textContent?.includes('analyzer-typescript · contracts · graph-engine')
     )), true);
+    assert.equal(await page.$eval('.relationship-key', (element) => (
+      element.textContent?.includes('A → B')
+      && element.textContent.includes('means A uses B')
+      && element.textContent.includes('Arrow points to what is used.')
+    )), true);
     assert.equal(await page.$eval('.graph-canvas', (element) => element.textContent?.includes('Filesystem group:')), false);
     assert.equal(await page.$('[aria-label="Find file"]'), null);
 
     await page.waitForFunction(() => !document.body.textContent?.includes('Arranging visible graph...'), { timeout: 5000 });
+    assert.equal(await page.$$eval('.react-flow__edge-path', (edges) => (
+      edges.length === 7 && edges.every((edge) => edge.getAttribute('marker-end')?.includes('arrowclosed'))
+    )), true);
+    assert.equal(await page.$$eval('.react-flow__edge', (edges) => edges.every((edge) => (
+      edge.getAttribute('aria-label')?.includes(' uses ')
+    ))), true);
+    assert.ok(await page.$('.react-flow__edge[aria-label="analyzer-typescript uses contracts"]'));
     await clickFlowNode(page, 'workspace-package:packages/analyzer-typescript');
     await page.waitForFunction(() => document.body.textContent?.includes('Selected for inspection') ?? false, { timeout: 5000 });
     assert.ok(await page.$('[data-explorer-scale="system-map"]'));
@@ -111,6 +123,15 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       && element.textContent.includes('Package manifest: packages/analyzer-typescript/package.json')
       && element.textContent.includes('file relationship')
     )));
+    assert.ok(await page.$('.graph-edge-uses'));
+    assert.equal((await page.$$('.graph-edge-used-by')).length, 2);
+    assert.equal(await page.$$eval('.react-flow__edge-text', (labels) => (
+      labels.filter((label) => label.textContent === 'Uses').length === 1
+      && labels.filter((label) => label.textContent === 'Used by').length === 2
+    )), true);
+    assert.ok(await page.$('.details-panel li[aria-label="analyzer-typescript uses contracts"]'));
+    assert.ok(await page.$('.details-panel li[aria-label="cli uses analyzer-typescript"]'));
+    assert.ok(await page.$('.details-panel li[aria-label="explorer-web uses analyzer-typescript"]'));
     await clickButton(page, 'Open files');
     await page.waitForSelector('[data-explorer-scale="part-files"]', { timeout: 5000 });
     await page.waitForSelector('[aria-label="Back to system map"]', { timeout: 5000 });
@@ -138,12 +159,22 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await page.click('[data-search-result="packages/analyzer-typescript/src/analyze-project.ts"]');
     await page.waitForFunction(() => document.body.textContent?.includes('Selected file') ?? false, { timeout: 5000 });
     assert.ok(await page.$('[data-explorer-scale="part-files"]'));
-    assert.ok(await page.$eval('.details-panel', (element) => element.textContent?.includes('Dependencies') ?? false));
+    assert.ok(await page.$eval('.details-panel', (element) => (
+      element.textContent?.includes('Uses')
+      && element.textContent.includes('Used by')
+      && !element.textContent.includes('Dependencies')
+      && !element.textContent.includes('Dependents')
+    )));
     await clickButton(page, 'Show direct connections');
     await page.waitForSelector('[data-explorer-scale="file-connections"]', { timeout: 5000 });
     await page.waitForSelector('[aria-label="Back to analyzer-typescript files"]', { timeout: 5000 });
     assert.equal(await page.$eval('[aria-label="Explorer location"] [aria-current="page"]', (element) => element.textContent), 'analyze-project.ts');
     assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-target'));
+    assert.equal(await page.$$eval('.react-flow__edge-path', (edges) => (
+      edges.length > 0 && edges.every((edge) => edge.getAttribute('marker-end')?.includes('arrowclosed'))
+    )), true);
+    assert.equal((await page.$$('.react-flow__edge-text')).length > 0, true);
+    assert.ok(await page.$('.react-flow__edge[aria-label="analyze-project.ts uses ts-morph"]'));
 
     await clickFlowNode(page, 'packages/analyzer-typescript/src/analysis-result.ts');
     await clickButton(page, 'Show one more step');
@@ -155,6 +186,7 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.ok(externalNodeId);
     await clickFlowNode(page, externalNodeId);
     await page.waitForFunction(() => document.body.textContent?.includes('Selected external module') ?? false, { timeout: 5000 });
+    assert.equal(await page.$eval('.details-panel', (element) => element.textContent?.includes('Used by') ?? false), true);
     assert.equal(await page.$eval('.details-panel', (element) => (
       [...element.querySelectorAll('button')].some((button) => (
         button.textContent === 'Show direct connections' || button.textContent === 'Show one more step'
@@ -168,6 +200,10 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
 
     await clickFlowNode(page, 'packages/contracts/src/index.ts');
     assert.ok(await page.$('[data-explorer-scale="part-files"]'));
+    assert.ok(await page.$eval('.details-panel', (element) => (
+      element.textContent?.includes('Used by')
+      && [...element.querySelectorAll('li[aria-label]')].some((item) => item.getAttribute('aria-label')?.endsWith('uses packages/contracts/src/index.ts'))
+    )));
     assert.equal(await page.$eval('.details-panel', (element) => (
       [...element.querySelectorAll('button')].some((button) => button.textContent === 'Show direct connections')
     )), false);
@@ -190,7 +226,17 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.equal(await page.$eval('.explorer-header', (element) => element.getBoundingClientRect().right <= window.innerWidth), true);
     assert.equal(await page.$eval('.system-map-summary', (element) => element.getBoundingClientRect().right <= window.innerWidth), true);
     assert.equal(await page.$eval('[data-system-part-count]', (element) => element.textContent), '5 detected parts');
-    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '22 analyzed files');
+    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '23 analyzed files');
+    assert.equal(await page.$eval('.relationship-key', (element) => {
+      const rect = element.getBoundingClientRect();
+      return element.textContent?.includes('A → B')
+        && element.textContent.includes('means A uses B')
+        && rect.width > 0
+        && rect.right <= window.innerWidth;
+    }), true);
+    assert.equal(await page.$$eval('.react-flow__edge-path', (edges) => (
+      edges.length === 7 && edges.every((edge) => edge.getAttribute('marker-end')?.includes('arrowclosed'))
+    )), true);
     assert.equal((await page.$$('.graph-node-package .part-node-name')).length, 5);
     assert.equal(await page.$$eval('.graph-node-package', (items) => items.every((item) => (
       item.textContent?.includes('Part of this system')

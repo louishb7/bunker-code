@@ -1,7 +1,8 @@
-import type { Edge, Node } from '@xyflow/react';
+import { MarkerType, type Edge, type Node } from '@xyflow/react';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ExplorerProjection, ExplorerProjectionEdge, ExplorerProjectionNode } from './explorer-projection.js';
 import { fileNameFromPath } from './explorer-search.js';
+import { describeRelationship } from './relationship-language.js';
 
 export interface ExplorerNodeData extends Record<string, unknown> {
   label: string;
@@ -17,7 +18,12 @@ export interface ExplorerNodeData extends Record<string, unknown> {
 
 export interface ExplorerEdgeData extends Record<string, unknown> {
   relation: ExplorerProjectionEdge['relation'];
+  relations: ExplorerProjectionEdge['relation'][];
   kind: ExplorerProjectionEdge['kind'];
+  occurrenceCount: number;
+  sourceLabel: string;
+  targetLabel: string;
+  accessibleLabel: string;
 }
 
 export type ExplorerNode = Node<ExplorerNodeData>;
@@ -35,16 +41,65 @@ const elk = new ELK();
 
 /** Adapts the Web projection into renderer-owned React Flow elements. */
 export function createExplorerElements(projection: ExplorerProjection): ExplorerElements {
+  const nodes = projection.nodes.map((node) => createExplorerNode(node));
+  const labels = new Map(nodes.map((node) => [node.id, node.data.label] as const));
+
   return {
     mode: projection.mode,
-    nodes: projection.nodes.map((node) => createExplorerNode(node)),
-    edges: projection.edges.map((edge) => ({
-      id: edge.id,
-      source: edge.sourceNodeId,
-      target: edge.targetNodeId,
-      data: { relation: edge.relation, kind: edge.kind },
-    })),
+    nodes,
+    edges: aggregateVisualEdges(projection.edges).map((edges) => {
+      const [edge] = edges;
+
+      if (!edge) {
+        throw new Error('Visual relationship group cannot be empty.');
+      }
+
+      const sourceLabel = labels.get(edge.sourceNodeId) ?? edge.sourceNodeId;
+      const targetLabel = labels.get(edge.targetNodeId) ?? edge.targetNodeId;
+      const accessibleLabel = describeRelationship(sourceLabel, targetLabel);
+
+      return {
+        id: edge.id,
+        source: edge.sourceNodeId,
+        target: edge.targetNodeId,
+        ariaLabel: accessibleLabel,
+        selectable: false,
+        focusable: false,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 22,
+          height: 22,
+          color: '#8fa2b1',
+        },
+        data: {
+          relation: edge.relation,
+          relations: edges.map((item) => item.relation),
+          kind: edge.kind,
+          occurrenceCount: edges.length,
+          sourceLabel,
+          targetLabel,
+          accessibleLabel,
+        },
+      };
+    }),
   };
+}
+
+function aggregateVisualEdges(edges: ExplorerProjectionEdge[]): ExplorerProjectionEdge[][] {
+  const groups = new Map<string, ExplorerProjectionEdge[]>();
+
+  for (const edge of edges) {
+    const key = `${edge.kind}:${edge.sourceNodeId}->${edge.targetNodeId}`;
+    const group = groups.get(key);
+
+    if (group) {
+      group.push(edge);
+    } else {
+      groups.set(key, [edge]);
+    }
+  }
+
+  return [...groups.values()];
 }
 
 function createExplorerNode(node: ExplorerProjectionNode): ExplorerNode {
