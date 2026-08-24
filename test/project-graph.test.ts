@@ -152,6 +152,7 @@ test('detects PNPM workspace containment and aggregates evidence-backed package 
   assert.equal(first.workspaceConfigurationPath, 'pnpm-workspace.yaml');
   assert.deepEqual(structure.packages.map(({ id, rootPath, name }) => ({ id, rootPath, name })), [
     { id: applicationPackageId, rootPath: 'apps/application', name: '@fixture/application' },
+    { id: 'workspace-package:packages/empty', rootPath: 'packages/empty', name: undefined },
     { id: 'workspace-package:packages/isolated', rootPath: 'packages/isolated', name: '@fixture/isolated' },
     { id: libraryPackageId, rootPath: 'packages/library', name: undefined },
   ]);
@@ -168,6 +169,7 @@ test('detects PNPM workspace containment and aggregates evidence-backed package 
     'packages/library/src/first.ts',
     'packages/library/src/second.ts',
   ]);
+  assert.deepEqual(getFilesInWorkspacePackage(structure, 'workspace-package:packages/empty'), []);
   assert.deepEqual(structure.unassignedFileIds, ['orphan.ts']);
   assert.deepEqual(aggregatePackageDependencies(graph, structure).map((dependency) => ({
     sourcePackageId: dependency.sourcePackageId,

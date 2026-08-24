@@ -103,7 +103,7 @@ test('includes structural facts in the enriched analyze result for a PNPM worksp
 
   assert.equal(output.analysis.tsconfigPath, undefined);
   assert.equal(output.analysis.workspaceConfigurationPath, 'pnpm-workspace.yaml');
-  assert.equal(output.structure.packages.length, 3);
+  assert.equal(output.structure.packages.length, 4);
   assert.deepEqual(output.packageDependencies.map((dependency) => ({
     sourcePackageId: dependency.sourcePackageId,
     targetPackageId: dependency.targetPackageId,

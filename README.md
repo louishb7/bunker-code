@@ -91,7 +91,10 @@ pnpm --filter @bunker-code/explorer-web build
 
 The generated snapshot at `apps/explorer-web/src/generated/` is ignored by Git.
 Source code remains the source of truth; regenerate the snapshot after analyzer
-changes rather than treating it as persisted Explorer data.
+changes rather than treating it as persisted Explorer data. Its Web delivery
+payload carries the `AnalysisResult` plus package dependencies already
+aggregated by `graph-engine`; the browser consumes that fact and does not
+reconstruct package relationships itself.
 
 Within a package, the Explorer can find its internal files by path or file
 name. Selecting a search result centers it; selecting a result outside the

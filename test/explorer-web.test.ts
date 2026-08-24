@@ -83,6 +83,34 @@ test('isolated detected packages remain visible in the system projection', () =>
   assert.equal(projection.edges.some((edge) => edge.sourceNodeId === 'workspace-package:packages/isolated' || edge.targetNodeId === 'workspace-package:packages/isolated'), false);
 });
 
+test('detected packages without names or analyzed files remain safe to project and open', async () => {
+  const analysis = analyzeProject(path.resolve('fixtures/pnpm-workspace-structure'));
+  const graph = buildProjectGraph(analysis);
+  const structure = buildProjectStructure(analysis);
+  const source: ExplorerSource = { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
+  const libraryPackageId = 'workspace-package:packages/library';
+  const emptyPackageId = 'workspace-package:packages/empty';
+  const systemProjection = createExplorerProjection(source, { scope: 'system', selectedPackageId: null });
+  const emptyProjection = createExplorerProjection(source, {
+    scope: 'workspace-package',
+    packageId: emptyPackageId,
+    selectedNodeId: null,
+    focusedNodeId: null,
+    expandedNodeIds: new Set(),
+  });
+  const elements = createExplorerElements(systemProjection);
+  const laidOutEmptyElements = await layoutExplorerElements(createExplorerElements(emptyProjection));
+
+  const libraryNode = elements.nodes.find((node) => node.id === libraryPackageId);
+  const emptyNode = systemProjection.nodes.find((node) => node.id === emptyPackageId);
+  assert.equal(libraryNode?.data.label, 'library');
+  assert.equal(emptyNode?.kind, 'workspace-package');
+  assert.equal(emptyNode?.kind === 'workspace-package' ? emptyNode.fileCount : undefined, 0);
+  assert.deepEqual(emptyProjection.nodes, []);
+  assert.deepEqual(emptyProjection.edges, []);
+  assert.deepEqual(laidOutEmptyElements.nodes, []);
+});
+
 test('package selection remains in system scope and opening it creates an isolated package scope', () => {
   const source = createWorkspaceSource();
   const initial = createInitialExplorerState(source.structure);
@@ -95,6 +123,7 @@ test('package selection remains in system scope and opening it creates an isolat
 
   assert.equal(selected.scope, 'system');
   assert.equal(selected.selectedPackageId, workspacePackageId);
+  assert.deepEqual(selectWorkspacePackage(selected, null), { scope: 'system', selectedPackageId: null });
   assert.deepEqual(opened, {
     scope: 'workspace-package',
     packageId: workspacePackageId,
@@ -102,6 +131,7 @@ test('package selection remains in system scope and opening it creates an isolat
     focusedNodeId: null,
     expandedNodeIds: new Set(),
   });
+  assert.equal(openSelectedWorkspacePackage({ scope: 'system', selectedPackageId: null }), null);
 });
 
 test('package scope keeps owned files internal and cross-package files contextual', () => {
@@ -146,7 +176,7 @@ test('file focus, expansion, and search retain their existing file-level behavio
   assert.equal(expanded.nodes.some((node) => node.id === 'external:node:fs'), true);
   assert.deepEqual(searchExplorerFiles(source.graph, 'analysis-result.ts'), [{
     nodeId: focusedFileId,
-    fileName: focusedFileId,
+    fileName: 'analysis-result.ts',
     path: focusedFileId,
   }]);
 });
@@ -170,12 +200,38 @@ test('returning from package scope restores the system projection and preserves 
 
 test('snapshots without workspace structure preserve the file-level overview fallback', () => {
   const source = createFileSource();
+  const runtime = createExplorerRuntime(analyzeProject(fileDatasetPath));
   const initial = createInitialExplorerState(source.structure);
   const projection = createExplorerProjection(source, initial);
 
+  assert.equal(runtime.kind, 'ready');
   assert.equal(initial.scope, 'file-overview');
   assert.equal(projection.mode, 'overview');
   assert.equal(projection.nodes.every((node) => node.kind === 'file'), true);
+});
+
+test('workspace runtime consumes supplied package dependencies without rebuilding them in the Web layer', () => {
+  const analysis = analyzeProject(path.resolve('fixtures/pnpm-workspace-structure'));
+  const graph = buildProjectGraph(analysis);
+  const structure = buildProjectStructure(analysis);
+  const packageDependencies = aggregatePackageDependencies(graph, structure);
+  const runtime = createExplorerRuntime({ analysis, packageDependencies });
+
+  assert.equal(runtime.kind, 'ready');
+  if (runtime.kind !== 'ready') return;
+  assert.deepEqual(runtime.packageDependencies, packageDependencies);
+});
+
+test('an invalid package scope fails explicitly instead of producing a corrupt file projection', () => {
+  const source = createWorkspaceSource();
+
+  assert.throws(() => createExplorerProjection(source, {
+    scope: 'workspace-package',
+    packageId: 'workspace-package:packages/stale',
+    selectedNodeId: null,
+    focusedNodeId: null,
+    expandedNodeIds: new Set(),
+  }), /Workspace package not found/);
 });
 
 test('runtime reports invalid and empty snapshots without mutating their inputs', () => {

@@ -79,6 +79,7 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
       element.textContent?.includes('Detected workspace package')
       && element.textContent.includes('Workspace configuration: pnpm-workspace.yaml')
       && element.textContent.includes('Package manifest: packages/analyzer-typescript/package.json')
+      && element.textContent.includes('file dependencies')
     )));
     await clickButton(page, 'Open package');
     await page.waitForSelector('[aria-label="Explorer breadcrumb"]', { timeout: 5000 });
@@ -109,6 +110,10 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await page.waitForFunction(() => document.querySelectorAll('.react-flow__node').length === 5, { timeout: 5000 });
     assert.equal((await page.$$('.graph-node-package')).length, 5);
     assert.equal((await page.$$('.graph-node-external')).length, 0);
+
+    await page.setViewport({ width: 640, height: 900 });
+    await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
+    assert.ok((await page.screenshot()).byteLength > 1000);
   } finally {
     await browser.close();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

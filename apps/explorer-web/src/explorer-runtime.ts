@@ -1,6 +1,11 @@
-import { aggregatePackageDependencies, buildProjectGraph, buildProjectStructure } from '@bunker-code/graph-engine';
+import { buildProjectGraph, buildProjectStructure } from '@bunker-code/graph-engine';
 import type { AnalysisResult } from '@bunker-code/contracts';
 import type { PackageDependency, ProjectGraph, ProjectStructure } from '@bunker-code/graph-engine';
+
+export interface ExplorerSnapshot {
+  analysis: AnalysisResult;
+  packageDependencies: PackageDependency[];
+}
 
 export type ExplorerRuntimeState =
   | { kind: 'loading' }
@@ -9,26 +14,28 @@ export type ExplorerRuntimeState =
   | { kind: 'ready'; graph: ProjectGraph; structure: ProjectStructure; packageDependencies: PackageDependency[] };
 
 export function createExplorerRuntime(snapshot: unknown): ExplorerRuntimeState {
-  if (!isAnalysisResult(snapshot)) {
+  const explorerSnapshot = readExplorerSnapshot(snapshot);
+
+  if (!explorerSnapshot) {
     return {
       kind: 'invalid-snapshot',
-      message: 'The generated snapshot is not a usable AnalysisResult.',
+      message: 'The generated snapshot is not a usable Explorer snapshot.',
     };
   }
 
   try {
-    const graph = buildProjectGraph(snapshot);
+    const graph = buildProjectGraph(explorerSnapshot.analysis);
 
     if (!graph.nodes.some((node) => node.kind === 'file')) {
       return { kind: 'empty-graph', graph };
     }
 
-    const structure = buildProjectStructure(snapshot);
+    const structure = buildProjectStructure(explorerSnapshot.analysis);
     return {
       kind: 'ready',
       graph,
       structure,
-      packageDependencies: aggregatePackageDependencies(graph, structure),
+      packageDependencies: explorerSnapshot.packageDependencies,
     };
   } catch (error) {
     return {
@@ -36,6 +43,34 @@ export function createExplorerRuntime(snapshot: unknown): ExplorerRuntimeState {
       message: error instanceof Error ? error.message : 'The generated snapshot could not be read.',
     };
   }
+}
+
+function readExplorerSnapshot(value: unknown): ExplorerSnapshot | null {
+  if (isExplorerSnapshot(value)) {
+    return value;
+  }
+
+  if (isAnalysisResult(value) && !value.structure) {
+    return { analysis: value, packageDependencies: [] };
+  }
+
+  return null;
+}
+
+function isExplorerSnapshot(value: unknown): value is ExplorerSnapshot {
+  return isRecord(value)
+    && isAnalysisResult(value.analysis)
+    && Array.isArray(value.packageDependencies)
+    && value.packageDependencies.every(isPackageDependency);
+}
+
+function isPackageDependency(value: unknown): value is PackageDependency {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.sourcePackageId === 'string'
+    && typeof value.targetPackageId === 'string'
+    && value.kind === 'dependency'
+    && Array.isArray(value.fileDependencies);
 }
 
 function isAnalysisResult(value: unknown): value is AnalysisResult {
