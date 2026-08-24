@@ -12,7 +12,7 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { getDependencies, getDependents, getFilesInWorkspacePackage, getWorkspacePackage } from '@bunker-code/graph-engine';
+import { getDependencies, getDependents, getFilesInWorkspacePackage } from '@bunker-code/graph-engine';
 import type { PackageDependency, ProjectGraph, ProjectGraphEdge, ProjectGraphNode, ProjectStructure } from '@bunker-code/graph-engine';
 import type { WorkspacePackage } from '@bunker-code/contracts';
 import snapshot from './generated/analyzer-typescript.snapshot.json';
@@ -28,7 +28,12 @@ import {
   type ExplorerNavigationTarget,
   type ExplorerOrientation,
 } from './explorer-orientation.js';
-import { createExplorerProjection, type ExplorerSource } from './explorer-projection.js';
+import {
+  createExplorerProjection,
+  type ExplorerSource,
+  type ExplorerSystemSummary,
+  type ExplorerWorkspacePackageProjectionNode,
+} from './explorer-projection.js';
 import { createExplorerRuntime, type ExplorerRuntimeState } from './explorer-runtime.js';
 import {
   createInitialExplorerState,
@@ -147,8 +152,11 @@ function Explorer({
   const selectedNodeId = fileScope?.selectedNodeId ?? null;
   const focusedNodeId = fileScope?.focusedNodeId ?? null;
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId);
-  const selectedPackage = state.scope === 'system' && state.selectedPackageId
-    ? getWorkspacePackage(structure, state.selectedPackageId)
+  const systemParts = useMemo(() => projection.nodes.filter(
+    (node): node is ExplorerWorkspacePackageProjectionNode => node.kind === 'workspace-package',
+  ), [projection.nodes]);
+  const selectedPart = state.scope === 'system' && state.selectedPackageId
+    ? systemParts.find((node) => node.id === state.selectedPackageId)
     : undefined;
   const focusedDependencies = useMemo(
     () => focusedNodeId ? new Set(getDependencies(graph, focusedNodeId).map((edge) => edge.targetNodeId)) : new Set<string>(),
@@ -164,7 +172,13 @@ function Explorer({
       type: 'explorer',
       data: {
         ...node.data,
-        contextLabel: nodeContextLabel(node, selectedNodeId, focusedNodeId, focusedDependencies, focusedDependents),
+        contextLabel: nodeContextLabel(
+          node,
+          state.scope === 'system' ? state.selectedPackageId : selectedNodeId,
+          focusedNodeId,
+          focusedDependencies,
+          focusedDependents,
+        ),
       },
       className: nodeClassName(node, state, selectedNodeId, focusedNodeId, focusedDependencies, focusedDependents),
     })),
@@ -292,7 +306,8 @@ function Explorer({
           ) : null}
         </div>
       </header>
-      <section className="explorer-main" aria-label="Project graph explorer">
+      <section className={`explorer-main ${projection.systemSummary ? 'explorer-main-system' : ''}`} aria-label="Project graph explorer">
+        {projection.systemSummary ? <SystemMapSummary summary={projection.systemSummary} /> : null}
         <div className="graph-canvas">
           <ReactFlow
             nodes={flowNodes}
@@ -325,10 +340,10 @@ function Explorer({
           ) : null}
         </div>
         <aside className="details-panel" aria-live="polite">
-          {selectedPackage ? (
+          {selectedPart ? (
             <WorkspacePackageDetails
-              workspacePackage={selectedPackage}
-              structure={structure}
+              part={selectedPart}
+              systemParts={systemParts}
               packageDependencies={packageDependencies}
               onOpen={openSelectedPackage}
             />
@@ -347,9 +362,11 @@ function Explorer({
               <p className="eyebrow">{orientation.scaleLabel}</p>
               <h2>{orientation.focusedFileLabel
                 ? `Direct connections for ${orientation.focusedFileLabel}`
-                : `${projection.nodes.length} visible nodes`}</h2>
+                : orientation.scale === 'system-map'
+                  ? 'Select a part to understand it'
+                  : `${projection.nodes.length} visible nodes`}</h2>
               <p>{orientation.scale === 'system-map'
-                ? 'Select a detected workspace package to inspect its evidence, then open its files.'
+                ? 'Each part shows its analyzed files and detected connections. Selection keeps you on this map; Open files takes you deeper.'
                 : orientation.scale === 'file-connections'
                   ? 'Select any visible item to inspect it. Use Back to return to the files in this part.'
                   : 'Find a file, select it, then show its direct structural connections.'}</p>
@@ -358,6 +375,36 @@ function Explorer({
         </aside>
       </section>
     </main>
+  );
+}
+
+function SystemMapSummary({ summary }: { summary: ExplorerSystemSummary }) {
+  return (
+    <section className="system-map-summary" aria-labelledby="system-map-summary-title">
+      <div className="system-summary-introduction">
+        <p className="eyebrow">System at a glance</p>
+        <h2 id="system-map-summary-title">
+          <span data-system-part-count={summary.detectedPartCount}>{countLabel(summary.detectedPartCount, 'detected part')}</span>
+          <span aria-hidden="true"> · </span>
+          <span data-analyzed-file-count={summary.analyzedFileCount}>{countLabel(summary.analyzedFileCount, 'analyzed file')}</span>
+        </h2>
+        <p>Select a part to understand how it connects. Open its files to explore deeper.</p>
+      </div>
+      <div className="filesystem-overview" aria-label="Folder organization">
+        <div>
+          <strong>Folder organization</strong>
+          <span>Where these parts live; not an architectural classification.</span>
+        </div>
+        <ul>
+          {summary.filesystemGroups.map((group) => (
+            <li key={group.id} data-filesystem-group={group.id}>
+              <strong>{group.label}</strong>
+              <span>{group.partLabels.join(' · ')}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
   );
 }
 
@@ -416,12 +463,35 @@ function OrientationHeader({
 }
 
 function ExplorerNodeView({ data }: NodeProps<ExplorerNode>) {
+  if (data.kind === 'workspace-package') {
+    const fileCount = data.fileCount ?? 0;
+    const usesCount = data.usesCount ?? 0;
+    const usedByCount = data.usedByCount ?? 0;
+
+    return (
+      <>
+        <Handle type="target" position={Position.Top} />
+        <strong className="graph-node-label part-node-name" title={data.technicalLabel ?? data.label}>{data.label}</strong>
+        <span className="part-node-type">Part of this system</span>
+        <div className="part-node-facts">
+          <span className="part-file-count">{countLabel(fileCount, 'analyzed file')}</span>
+          <span className="part-relationship-summary">
+            {usesCount === 0 && usedByCount === 0
+              ? 'No detected connections'
+              : `Uses ${usesCount} · Used by ${usedByCount}`}
+          </span>
+        </div>
+        {data.contextLabel ? <span className="graph-node-context">{data.contextLabel}</span> : null}
+        <Handle type="source" position={Position.Bottom} />
+      </>
+    );
+  }
+
   return (
     <>
       <Handle type="target" position={Position.Left} />
       <strong className="graph-node-label" title={data.label}>{data.label}</strong>
       <span className="graph-node-subtitle" title={data.subtitle}>{data.subtitle}</span>
-      {data.filesystemGroup ? <span className="filesystem-group">Filesystem group: {data.filesystemGroup}</span> : null}
       {data.contextLabel ? <span className="graph-node-context">{data.contextLabel}</span> : null}
       <Handle type="source" position={Position.Right} />
     </>
@@ -429,34 +499,37 @@ function ExplorerNodeView({ data }: NodeProps<ExplorerNode>) {
 }
 
 function WorkspacePackageDetails({
-  workspacePackage,
-  structure,
+  part,
+  systemParts,
   packageDependencies,
   onOpen,
 }: {
-  workspacePackage: WorkspacePackage;
-  structure: ProjectStructure;
+  part: ExplorerWorkspacePackageProjectionNode;
+  systemParts: ExplorerWorkspacePackageProjectionNode[];
   packageDependencies: PackageDependency[];
   onOpen(): void;
 }) {
-  const outgoing = packageDependencies.filter((dependency) => dependency.sourcePackageId === workspacePackage.id);
-  const incoming = packageDependencies.filter((dependency) => dependency.targetPackageId === workspacePackage.id);
+  const outgoing = packageDependencies.filter((dependency) => dependency.sourcePackageId === part.id);
+  const incoming = packageDependencies.filter((dependency) => dependency.targetPackageId === part.id);
 
   return (
     <>
-      <p className="eyebrow">Selected workspace package</p>
-      <h2>{packageLabel(workspacePackage)}</h2>
+      <p className="eyebrow">Part of this system</p>
+      <h2>{part.presentationLabel}</h2>
+      {part.technicalLabel !== part.presentationLabel ? <p className="part-technical-name">{part.technicalLabel}</p> : null}
       <dl>
-        <div><dt>Type</dt><dd>Detected workspace package</dd></div>
-        <div><dt>Path</dt><dd>{workspacePackage.rootPath}</dd></div>
-        <div><dt>Files</dt><dd>{getFilesInWorkspacePackage(structure, workspacePackage.id).length}</dd></div>
-        <div><dt>Depends on</dt><dd>{outgoing.length}</dd></div>
+        <div><dt>Analyzed files</dt><dd>{part.fileCount}</dd></div>
+        <div><dt>Uses</dt><dd>{outgoing.length}</dd></div>
         <div><dt>Used by</dt><dd>{incoming.length}</dd></div>
       </dl>
       <div className="details-actions"><button type="button" onClick={onOpen}>Open files</button></div>
-      <EvidenceList evidence={workspacePackage.evidence} />
-      <PackageRelationList title="Depends on" dependencies={outgoing} structure={structure} source="target" />
-      <PackageRelationList title="Used by" dependencies={incoming} structure={structure} source="source" />
+      <PackageRelationList title="Uses" dependencies={outgoing} systemParts={systemParts} source="target" />
+      <PackageRelationList title="Used by" dependencies={incoming} systemParts={systemParts} source="source" />
+      <section className="part-technical-details">
+        <h3>Technical details</h3>
+        <dl><div><dt>Path</dt><dd>{part.workspacePackage.rootPath}</dd></div></dl>
+      </section>
+      <EvidenceList evidence={part.workspacePackage.evidence} />
     </>
   );
 }
@@ -512,12 +585,12 @@ function EvidenceList({ evidence }: { evidence: WorkspacePackage['evidence'] }) 
 function PackageRelationList({
   title,
   dependencies,
-  structure,
+  systemParts,
   source,
 }: {
   title: string;
   dependencies: PackageDependency[];
-  structure: ProjectStructure;
+  systemParts: ExplorerWorkspacePackageProjectionNode[];
   source: 'source' | 'target';
 }) {
   return (
@@ -527,7 +600,8 @@ function PackageRelationList({
         <ul>
           {dependencies.map((dependency) => {
             const relatedPackageId = source === 'source' ? dependency.sourcePackageId : dependency.targetPackageId;
-            return <li key={dependency.id}>{packageLabel(getWorkspacePackage(structure, relatedPackageId))} ({dependency.fileDependencies.length} file dependencies)</li>;
+            const relatedPart = systemParts.find((part) => part.id === relatedPackageId);
+            return <li key={dependency.id}>{relatedPart?.presentationLabel ?? relatedPackageId} ({countLabel(dependency.fileDependencies.length, 'file relationship')})</li>;
           })}
         </ul>
       )}
@@ -605,7 +679,7 @@ function nodeContextLabel(
   else if (focusedDependencies.has(node.id)) labels.push('Direct dependency');
   else if (focusedDependents.has(node.id)) labels.push('Direct dependent');
   if (node.data.kind === 'external') labels.push('External module');
-  if (node.id === selectedNodeId) labels.push('Selected');
+  if (node.id === selectedNodeId) labels.push(node.data.kind === 'workspace-package' ? 'Selected for inspection' : 'Selected');
 
   return labels.length > 0 ? labels.join(' · ') : undefined;
 }
@@ -628,8 +702,8 @@ function nodeLabel(node: ProjectGraphNode): string {
   return node.kind === 'file' ? node.path : node.moduleSpecifier;
 }
 
-function packageLabel(workspacePackage: WorkspacePackage | undefined): string {
-  return workspacePackage?.name ?? workspacePackage?.rootPath ?? 'Unknown workspace package';
+function countLabel(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? '' : 's'}`;
 }
 
 function evidenceLabel(evidence: WorkspacePackage['evidence'][number]): string {

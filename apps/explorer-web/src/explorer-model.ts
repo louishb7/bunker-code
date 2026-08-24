@@ -9,7 +9,10 @@ export interface ExplorerNodeData extends Record<string, unknown> {
   kind: 'file' | 'external' | 'workspace-package';
   path?: string;
   contextLabel?: string;
-  filesystemGroup?: string;
+  technicalLabel?: string;
+  fileCount?: number;
+  usesCount?: number;
+  usedByCount?: number;
 }
 
 export interface ExplorerEdgeData extends Record<string, unknown> {
@@ -21,17 +24,19 @@ export type ExplorerNode = Node<ExplorerNodeData>;
 export type ExplorerEdge = Edge<ExplorerEdgeData>;
 
 export interface ExplorerElements {
+  mode: ExplorerProjection['mode'];
   nodes: ExplorerNode[];
   edges: ExplorerEdge[];
 }
 
-const nodeWidth = 250;
-const nodeHeight = 86;
+const fileNodeDimensions = { width: 250, height: 86 };
+const systemPartNodeDimensions = { width: 280, height: 150 };
 const elk = new ELK();
 
 /** Adapts the Web projection into renderer-owned React Flow elements. */
 export function createExplorerElements(projection: ExplorerProjection): ExplorerElements {
   return {
+    mode: projection.mode,
     nodes: projection.nodes.map((node) => createExplorerNode(node)),
     edges: projection.edges.map((edge) => ({
       id: edge.id,
@@ -48,11 +53,14 @@ function createExplorerNode(node: ExplorerProjectionNode): ExplorerNode {
       id: node.id,
       position: { x: 0, y: 0 },
       data: {
-        label: node.workspacePackage.name ?? fileNameFromPath(node.workspacePackage.rootPath),
-        subtitle: 'Detected workspace package',
+        label: node.presentationLabel,
+        subtitle: 'Part of this system',
         kind: node.kind,
         path: node.workspacePackage.rootPath,
-        filesystemGroup: node.filesystemGroup,
+        technicalLabel: node.technicalLabel,
+        fileCount: node.fileCount,
+        usesCount: node.usesCount,
+        usedByCount: node.usedByCount,
       },
     };
   }
@@ -82,15 +90,19 @@ function createExplorerNode(node: ExplorerProjectionNode): ExplorerNode {
 
 /** Uses the analytical edge direction: dependent source to dependency target. */
 export async function layoutExplorerElements(elements: ExplorerElements): Promise<ExplorerElements> {
+  const isSystemMap = elements.mode === 'system';
   const layout = await elk.layout({
     id: 'explorer',
     layoutOptions: {
       'elk.algorithm': 'layered',
-      'elk.direction': 'RIGHT',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '72',
-      'elk.spacing.nodeNode': '32',
+      'elk.direction': isSystemMap ? 'DOWN' : 'RIGHT',
+      'elk.layered.spacing.nodeNodeBetweenLayers': isSystemMap ? '82' : '72',
+      'elk.spacing.nodeNode': isSystemMap ? '40' : '32',
     },
-    children: elements.nodes.map((node) => ({ id: node.id, width: nodeWidth, height: nodeHeight })),
+    children: elements.nodes.map((node) => {
+      const dimensions = node.data.kind === 'workspace-package' ? systemPartNodeDimensions : fileNodeDimensions;
+      return { id: node.id, ...dimensions };
+    }),
     edges: elements.edges.map((edge) => ({ id: edge.id, sources: [edge.source], targets: [edge.target] })),
   });
   const positions = new Map(
@@ -98,6 +110,7 @@ export async function layoutExplorerElements(elements: ExplorerElements): Promis
   );
 
   return {
+    mode: elements.mode,
     edges: elements.edges,
     nodes: elements.nodes.map((node) => ({
       ...node,

@@ -71,21 +71,45 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.equal(await page.$eval('[data-explorer-scale]', (element) => element.textContent?.includes('System map')), true);
     assert.equal(await page.$('[class="back-action"]'), null);
     assert.equal(await page.$eval('[aria-label="Explorer location"] [aria-current="page"]', (element) => element.textContent), 'bunker-code');
+    assert.equal(await page.$eval('[data-system-part-count]', (element) => element.textContent), '5 detected parts');
+    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '22 analyzed files');
     assert.equal((await page.$$('.react-flow__node')).length, 5);
     assert.equal((await page.$$('.graph-node-package')).length, 5);
     assert.equal((await page.$$('.graph-node-external')).length, 0);
-    assert.ok(await page.$eval('.graph-canvas', (element) => element.textContent?.includes('Filesystem group: apps') ?? false));
+    assert.equal(await page.$$eval('.graph-node-package', (items) => items.every((item) => item.getAttribute('tabindex') === '0')), true);
+    assert.deepEqual(await page.$$eval('.graph-node-package .part-node-name', (items) => items.map((item) => item.textContent)), [
+      'cli',
+      'explorer-web',
+      'analyzer-typescript',
+      'contracts',
+      'graph-engine',
+    ]);
+    assert.equal(await page.$$eval('.graph-node-package .part-node-type', (items) => (
+      items.length === 5 && items.every((item) => item.textContent === 'Part of this system')
+    )), true);
+    assert.equal((await page.$$('.graph-node-package .part-file-count')).length, 5);
+    assert.equal((await page.$$('.graph-node-package .part-relationship-summary')).length, 5);
+    assert.equal(await page.$eval('[data-filesystem-group="apps"]', (element) => element.textContent?.includes('cli · explorer-web')), true);
+    assert.equal(await page.$eval('[data-filesystem-group="packages"]', (element) => (
+      element.textContent?.includes('analyzer-typescript · contracts · graph-engine')
+    )), true);
+    assert.equal(await page.$eval('.graph-canvas', (element) => element.textContent?.includes('Filesystem group:')), false);
     assert.equal(await page.$('[aria-label="Find file"]'), null);
 
     await page.waitForFunction(() => !document.body.textContent?.includes('Arranging visible graph...'), { timeout: 5000 });
     await clickFlowNode(page, 'workspace-package:packages/analyzer-typescript');
-    await page.waitForFunction(() => document.body.textContent?.includes('Selected workspace package') ?? false, { timeout: 5000 });
+    await page.waitForFunction(() => document.body.textContent?.includes('Selected for inspection') ?? false, { timeout: 5000 });
     assert.ok(await page.$('[data-explorer-scale="system-map"]'));
     assert.ok(await page.$eval('.details-panel', (element) => (
-      element.textContent?.includes('Detected workspace package')
+      element.textContent?.includes('Part of this system')
+      && element.textContent.includes('analyzer-typescript')
+      && element.textContent.includes('@bunker-code/analyzer-typescript')
+      && element.textContent.includes('Analyzed files')
+      && element.textContent.includes('Uses')
+      && element.textContent.includes('Used by')
       && element.textContent.includes('Workspace configuration: pnpm-workspace.yaml')
       && element.textContent.includes('Package manifest: packages/analyzer-typescript/package.json')
-      && element.textContent.includes('file dependencies')
+      && element.textContent.includes('file relationship')
     )));
     await clickButton(page, 'Open files');
     await page.waitForSelector('[data-explorer-scale="part-files"]', { timeout: 5000 });
@@ -159,7 +183,20 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     assert.equal((await page.$$('.graph-node-package')).length, 5);
     assert.equal((await page.$$('.graph-node-external')).length, 0);
     assert.ok(await page.$('.react-flow__node[data-id="workspace-package:packages/analyzer-typescript"].graph-node-selected'));
-    assert.ok(await page.$eval('.details-panel', (element) => element.textContent?.includes('Selected workspace package') ?? false));
+    assert.ok(await page.$eval('.details-panel', (element) => element.textContent?.includes('Part of this system') ?? false));
+
+    await page.setViewport({ width: 640, height: 900 });
+    await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
+    assert.equal(await page.$eval('.explorer-header', (element) => element.getBoundingClientRect().right <= window.innerWidth), true);
+    assert.equal(await page.$eval('.system-map-summary', (element) => element.getBoundingClientRect().right <= window.innerWidth), true);
+    assert.equal(await page.$eval('[data-system-part-count]', (element) => element.textContent), '5 detected parts');
+    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => element.textContent), '22 analyzed files');
+    assert.equal((await page.$$('.graph-node-package .part-node-name')).length, 5);
+    assert.equal(await page.$$eval('.graph-node-package', (items) => items.every((item) => (
+      item.textContent?.includes('Part of this system')
+      && item.textContent.includes('analyzed file')
+      && (item.textContent.includes('Uses') || item.textContent.includes('No detected connections'))
+    ))), true);
 
     await clickButton(page, 'Open files');
     await page.waitForSelector('[data-explorer-scale="part-files"]', { timeout: 5000 });
@@ -167,7 +204,6 @@ test('Explorer navigates the generated workspace Snapshot V1 in a real browser',
     await clickButton(page, 'Show direct connections');
     await page.waitForSelector('[aria-label="Back to analyzer-typescript files"]', { timeout: 5000 });
 
-    await page.setViewport({ width: 640, height: 900 });
     await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
     assert.equal(await page.$eval('[aria-label="Back to analyzer-typescript files"]', (element) => {
       const rect = element.getBoundingClientRect();

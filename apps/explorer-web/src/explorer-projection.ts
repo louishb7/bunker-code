@@ -34,8 +34,24 @@ export interface ExplorerWorkspacePackageProjectionNode {
   id: string;
   kind: 'workspace-package';
   workspacePackage: WorkspacePackage;
+  presentationLabel: string;
+  technicalLabel: string;
   fileCount: number;
-  filesystemGroup?: string;
+  usesCount: number;
+  usedByCount: number;
+  filesystemGroup: string;
+}
+
+export interface ExplorerFilesystemGroup {
+  id: string;
+  label: string;
+  partLabels: string[];
+}
+
+export interface ExplorerSystemSummary {
+  detectedPartCount: number;
+  analyzedFileCount: number;
+  filesystemGroups: ExplorerFilesystemGroup[];
 }
 
 export type ExplorerProjectionEdge = ExplorerFileDependencyEdge | ExplorerPackageDependencyEdge;
@@ -61,6 +77,7 @@ export interface ExplorerProjection {
   nodes: ExplorerProjectionNode[];
   edges: ExplorerProjectionEdge[];
   visibleNodeIds: ReadonlySet<string>;
+  systemSummary?: ExplorerSystemSummary;
 }
 
 /** Derives either the declared-workspace system map or the existing file-level map. */
@@ -79,13 +96,25 @@ export function createExplorerProjection(source: ExplorerSource, state: Explorer
 }
 
 function systemProjection(source: ExplorerSource): ExplorerProjection {
-  const groupCounts = filesystemGroupCounts(source.structure.packages);
+  const presentationLabels = packagePresentationLabels(source.structure.packages);
+  const usesCounts = new Map<string, number>();
+  const usedByCounts = new Map<string, number>();
+
+  for (const dependency of source.packageDependencies) {
+    usesCounts.set(dependency.sourcePackageId, (usesCounts.get(dependency.sourcePackageId) ?? 0) + 1);
+    usedByCounts.set(dependency.targetPackageId, (usedByCounts.get(dependency.targetPackageId) ?? 0) + 1);
+  }
+
   const nodes = source.structure.packages.map((workspacePackage) => ({
     id: workspacePackage.id,
     kind: 'workspace-package' as const,
     workspacePackage,
+    presentationLabel: presentationLabels.get(workspacePackage.id) ?? workspacePackage.rootPath,
+    technicalLabel: workspacePackage.name ?? workspacePackage.rootPath,
     fileCount: getFilesInWorkspacePackage(source.structure, workspacePackage.id).length,
-    filesystemGroup: filesystemGroupForPackage(workspacePackage, groupCounts),
+    usesCount: usesCounts.get(workspacePackage.id) ?? 0,
+    usedByCount: usedByCounts.get(workspacePackage.id) ?? 0,
+    filesystemGroup: filesystemGroupForPackage(workspacePackage),
   }));
   const visibleNodeIds = new Set(nodes.map((node) => node.id));
 
@@ -93,6 +122,11 @@ function systemProjection(source: ExplorerSource): ExplorerProjection {
     mode: 'system',
     visibleNodeIds,
     nodes,
+    systemSummary: {
+      detectedPartCount: nodes.length,
+      analyzedFileCount: source.graph.nodes.filter((node) => node.kind === 'file').length,
+      filesystemGroups: filesystemGroups(nodes),
+    },
     edges: source.packageDependencies.map((relation) => ({
       id: relation.id,
       kind: 'package-dependency' as const,
@@ -215,25 +249,49 @@ function contextualizeFileNode(
     : node;
 }
 
-function filesystemGroupCounts(packages: WorkspacePackage[]): ReadonlyMap<string, number> {
-  const counts = new Map<string, number>();
+function packagePresentationLabels(packages: WorkspacePackage[]): ReadonlyMap<string, string> {
+  const candidates = packages.map((workspacePackage) => ({
+    workspacePackage,
+    candidate: packageLabelCandidate(workspacePackage),
+  }));
+  const candidateCounts = new Map<string, number>();
 
-  for (const workspacePackage of packages) {
-    const group = workspacePackage.rootPath.split('/')[0];
-
-    if (group) {
-      counts.set(group, (counts.get(group) ?? 0) + 1);
-    }
+  for (const { candidate } of candidates) {
+    candidateCounts.set(candidate, (candidateCounts.get(candidate) ?? 0) + 1);
   }
 
-  return counts;
+  return new Map(candidates.map(({ workspacePackage, candidate }) => [
+    workspacePackage.id,
+    candidateCounts.get(candidate) === 1
+      ? candidate
+      : workspacePackage.name ?? workspacePackage.rootPath,
+  ]));
 }
 
-function filesystemGroupForPackage(
-  workspacePackage: WorkspacePackage,
-  groupCounts: ReadonlyMap<string, number>,
-): string | undefined {
-  const group = workspacePackage.rootPath.split('/')[0];
-  const count = group ? groupCounts.get(group) : undefined;
-  return group && count !== undefined && count > 1 ? group : undefined;
+function packageLabelCandidate(workspacePackage: WorkspacePackage): string {
+  if (workspacePackage.name) {
+    const nameSegments = workspacePackage.name.split('/').filter(Boolean);
+    return nameSegments.at(-1) ?? workspacePackage.name;
+  }
+
+  const pathSegments = workspacePackage.rootPath.split('/').filter(Boolean);
+  return pathSegments.at(-1) ?? workspacePackage.rootPath;
+}
+
+function filesystemGroupForPackage(workspacePackage: WorkspacePackage): string {
+  return workspacePackage.rootPath.split('/').filter(Boolean).at(0) ?? '.';
+}
+
+function filesystemGroups(nodes: ExplorerWorkspacePackageProjectionNode[]): ExplorerFilesystemGroup[] {
+  const groups = new Map<string, string[]>();
+
+  for (const node of nodes) {
+    const labels = groups.get(node.filesystemGroup) ?? [];
+    labels.push(node.presentationLabel);
+    groups.set(node.filesystemGroup, labels);
+  }
+
+  return [...groups.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([id, partLabels]) => ({ id, label: id === '.' ? './' : `${id}/`, partLabels }));
 }

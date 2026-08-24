@@ -81,6 +81,13 @@ only inspects it; **Show direct connections** enters its focused relationship
 view. Explicit Back actions return one semantic level while the breadcrumb
 shows the complete location and permits ancestor jumps.
 
+The System map begins with factual detected-part and analyzed-file counts. Its
+compact part cards show a presentation label, analyzed files, **Uses**, and
+**Used by** counts derived only from the supplied package dependencies. A
+separate **Folder organization** legend groups paths such as `apps/` and
+`packages/` visually without turning folders into analytical nodes or inferred
+architecture.
+
 Generate the snapshot and start the local app:
 
 ```bash

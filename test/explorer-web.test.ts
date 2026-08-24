@@ -48,12 +48,38 @@ function createWorkspaceSource(): ExplorerSource {
 test('system projection renders every detected workspace package and uses only aggregated package dependencies', () => {
   const source = createWorkspaceSource();
   const projection = createExplorerProjection(source, { scope: 'system', selectedPackageId: null });
+  const systemParts = projection.nodes.filter((node) => node.kind === 'workspace-package');
+  const analyzedFileCount = source.graph.nodes.filter((node) => node.kind === 'file').length;
+  const elements = createExplorerElements(projection);
 
   assert.equal(projection.mode, 'system');
+  assert.equal(projection.systemSummary?.detectedPartCount, source.structure.packages.length);
+  assert.equal(projection.systemSummary?.analyzedFileCount, analyzedFileCount);
   assert.deepEqual(projection.nodes.map((node) => node.id), source.structure.packages.map((workspacePackage) => workspacePackage.id));
   assert.equal(projection.nodes.every((node) => node.kind === 'workspace-package'), true);
   assert.equal(projection.nodes.some((node) => node.id === contractsPackageId), true);
   assert.equal(projection.nodes.every((node) => node.kind !== 'external'), true);
+  assert.equal(elements.nodes.length, source.structure.packages.length);
+  assert.equal(elements.nodes.some((node) => node.data.kind !== 'workspace-package'), false);
+  assert.equal(elements.nodes.some((node) => node.id.startsWith('filesystem-group:')), false);
+  for (const part of systemParts) {
+    assert.equal(part.fileCount, getFilesInWorkspacePackage(source.structure, part.id).length);
+    assert.equal(part.usesCount, source.packageDependencies.filter((dependency) => dependency.sourcePackageId === part.id).length);
+    assert.equal(part.usedByCount, source.packageDependencies.filter((dependency) => dependency.targetPackageId === part.id).length);
+    assert.equal(projection.systemSummary?.filesystemGroups.some((group) => (
+      group.id === part.filesystemGroup && group.partLabels.includes(part.presentationLabel)
+    )), true);
+  }
+  const collidingPackages = source.structure.packages.map((workspacePackage, index) => (
+    index < 2 ? { ...workspacePackage, name: `@scope-${index + 1}/shared` } : workspacePackage
+  ));
+  const collisionProjection = createExplorerProjection({
+    ...source,
+    structure: { ...source.structure, packages: collidingPackages },
+  }, { scope: 'system', selectedPackageId: null });
+  assert.deepEqual(collisionProjection.nodes.slice(0, 2).map((node) => (
+    node.kind === 'workspace-package' ? node.presentationLabel : undefined
+  )), ['@scope-1/shared', '@scope-2/shared']);
   assert.deepEqual(projection.edges.map((edge) => ({
     source: edge.sourceNodeId,
     target: edge.targetNodeId,
@@ -76,6 +102,9 @@ test('system projection does not recreate package edges from file graph or manif
 
   assert.equal(source.graph.edges.some((edge) => edge.sourceNodeId.includes('analyzer-typescript') && edge.targetNodeId.includes('contracts')), true);
   assert.deepEqual(projection.edges, []);
+  assert.equal(projection.nodes.every((node) => (
+    node.kind === 'workspace-package' && node.usesCount === 0 && node.usedByCount === 0
+  )), true);
 });
 
 test('isolated detected packages remain visible in the system projection', () => {
@@ -84,8 +113,11 @@ test('isolated detected packages remain visible in the system projection', () =>
   const structure = buildProjectStructure(analysis);
   const source: ExplorerSource = { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
   const projection = createExplorerProjection(source, { scope: 'system', selectedPackageId: null });
+  const isolatedPart = projection.nodes.find((node) => node.id === 'workspace-package:packages/isolated');
 
-  assert.equal(projection.nodes.some((node) => node.id === 'workspace-package:packages/isolated'), true);
+  assert.equal(isolatedPart?.kind, 'workspace-package');
+  assert.equal(isolatedPart?.kind === 'workspace-package' ? isolatedPart.usesCount : undefined, 0);
+  assert.equal(isolatedPart?.kind === 'workspace-package' ? isolatedPart.usedByCount : undefined, 0);
   assert.equal(projection.edges.some((edge) => edge.sourceNodeId === 'workspace-package:packages/isolated' || edge.targetNodeId === 'workspace-package:packages/isolated'), false);
 });
 
@@ -109,9 +141,14 @@ test('detected packages without names or analyzed files remain safe to project a
 
   const libraryNode = elements.nodes.find((node) => node.id === libraryPackageId);
   const emptyNode = systemProjection.nodes.find((node) => node.id === emptyPackageId);
+  assert.deepEqual(systemProjection.systemSummary?.filesystemGroups.map((group) => group.label), ['apps/', 'packages/']);
   assert.equal(libraryNode?.data.label, 'library');
+  assert.equal(libraryNode?.data.technicalLabel, 'packages/library');
+  assert.equal(libraryNode?.data.subtitle, 'Part of this system');
   assert.equal(emptyNode?.kind, 'workspace-package');
+  assert.equal(emptyNode?.kind === 'workspace-package' ? emptyNode.presentationLabel : undefined, 'empty');
   assert.equal(emptyNode?.kind === 'workspace-package' ? emptyNode.fileCount : undefined, 0);
+  assert.equal(elements.nodes.find((node) => node.id === emptyPackageId)?.data.fileCount, 0);
   assert.deepEqual(emptyProjection.nodes, []);
   assert.deepEqual(emptyProjection.edges, []);
   assert.deepEqual(laidOutEmptyElements.nodes, []);
@@ -285,6 +322,7 @@ test('snapshots without workspace structure preserve the file-level overview fal
   assert.equal(orientation.scale, 'project-files');
   assert.equal(orientation.backAction, undefined);
   assert.equal(projection.mode, 'overview');
+  assert.equal(projection.systemSummary, undefined);
   assert.equal(projection.nodes.every((node) => node.kind === 'file'), true);
 
   const focused = focusFileNode(initial, 'src/analysis-result.ts');
@@ -350,6 +388,7 @@ test('web adapter preserves package direction and keeps renderer state out of an
     target: edge.targetNodeId,
   })));
   assert.equal(Object.hasOwn(source.graph, 'selectedNodeId'), false);
+  assert.equal(laidOut.mode, 'system');
   assert.ok(laidOut.nodes.every((node) => Number.isFinite(node.position.x) && Number.isFinite(node.position.y)));
 });
 
