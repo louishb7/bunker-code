@@ -1,0 +1,417 @@
+.graph-canvas {
+  position: relative;
+  min-height: 0;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 48%, rgb(62 93 108 / 10%), transparent 44%),
+    var(--color-canvas);
+}
+
+.graph-canvas::before {
+  position: absolute;
+  z-index: 1;
+  top: 16px;
+  left: 18px;
+  width: 28px;
+  height: 28px;
+  border-top: 1px solid rgb(113 207 194 / 35%);
+  border-left: 1px solid rgb(113 207 194 / 35%);
+  content: "";
+  pointer-events: none;
+}
+
+.graph-canvas::after {
+  position: absolute;
+  z-index: 1;
+  right: 18px;
+  bottom: 16px;
+  width: 28px;
+  height: 28px;
+  border-right: 1px solid rgb(113 207 194 / 22%);
+  border-bottom: 1px solid rgb(113 207 194 / 22%);
+  content: "";
+  pointer-events: none;
+}
+
+.graph-canvas .react-flow__background {
+  opacity: 0.45;
+}
+
+.graph-canvas .react-flow__attribution {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 4px 0 0;
+  color: var(--color-text-muted);
+  background: rgb(11 18 24 / 75%);
+  font-size: 8px;
+}
+
+.graph-canvas .react-flow__attribution a {
+  color: inherit;
+}
+
+.graph-status {
+  position: absolute;
+  z-index: 8;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  max-width: 320px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 9px 11px;
+  color: var(--color-text-secondary);
+  background: rgb(24 40 50 / 94%);
+  box-shadow: var(--shadow-card);
+  font-size: 11px;
+}
+
+.graph-status-pulse {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 4px rgb(113 207 194 / 13%);
+  animation: graph-status-pulse 1.4s ease-in-out infinite;
+}
+
+.graph-status-error {
+  border-color: var(--color-error);
+  color: #ffe0cf;
+}
+
+@keyframes graph-status-pulse {
+  50% { opacity: 0.42; }
+}
+
+.graph-canvas .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-quiet);
+  box-shadow: var(--shadow-card);
+}
+
+.graph-canvas .react-flow__controls-button {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  border: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  border-radius: 0;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-quiet);
+}
+
+.graph-canvas .react-flow__controls-button:hover {
+  color: var(--color-text);
+  background: var(--color-hover);
+}
+
+.graph-canvas .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.graph-node {
+  width: 218px;
+  min-height: 68px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  color: var(--color-text);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 2%), transparent 54%),
+    var(--color-surface);
+  box-shadow: 0 7px 18px rgb(0 0 0 / 18%);
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    opacity 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.graph-node:hover {
+  z-index: 10 !important;
+  border-color: #7892a0;
+  background-color: var(--color-surface-raised);
+  box-shadow: var(--shadow-card);
+}
+
+.graph-node-label,
+.graph-node-subtitle {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-node-label {
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: -0.01em;
+}
+
+.graph-node-subtitle {
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: 9px;
+}
+
+.graph-node-cues {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.graph-node-context,
+.graph-node-attention {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, currentColor 70%, transparent);
+  border-radius: var(--radius-technical);
+  padding: 2px 5px;
+  color: var(--color-text-secondary);
+  background: rgb(5 10 14 / 28%);
+  font-size: 8px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-node-attention {
+  color: var(--color-text);
+  font-weight: 750;
+}
+
+.graph-node-package {
+  position: absolute;
+  width: 280px;
+  height: 150px;
+  overflow: hidden;
+  border-width: 1px;
+  border-color: #536b79;
+  border-radius: var(--radius-card);
+  padding: 15px 16px 30px;
+  background:
+    linear-gradient(135deg, rgb(113 207 194 / 5%), transparent 42%),
+    var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.graph-node-package::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-accent), rgb(113 207 194 / 12%) 65%, transparent);
+  content: "";
+  opacity: 0.72;
+}
+
+.graph-node-package:hover {
+  border-color: #7893a0;
+  background-color: var(--color-surface-raised);
+}
+
+.graph-node-package > .graph-node-context,
+.graph-node-package > .graph-node-cues {
+  position: absolute;
+  right: 16px;
+  bottom: 10px;
+  left: 16px;
+  width: max-content;
+  margin-top: 0;
+}
+
+.part-node-name {
+  font-size: 15px;
+  font-weight: 740;
+}
+
+.part-node-type {
+  display: block;
+  margin-top: 5px;
+  color: var(--color-text-secondary);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+}
+
+.part-node-facts {
+  display: grid;
+  gap: 4px;
+  margin-top: 13px;
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 9px;
+}
+
+.part-file-count {
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.part-relationship-summary {
+  color: var(--color-text-muted);
+  font-size: 9px;
+}
+
+.graph-node-contextual {
+  border-left: 4px double var(--color-contextual);
+}
+
+.graph-node-external {
+  border-style: dashed;
+  border-color: var(--color-external);
+  background:
+    repeating-linear-gradient(135deg, transparent, transparent 10px, rgb(158 154 180 / 3%) 10px, rgb(158 154 180 / 3%) 20px),
+    var(--color-surface-quiet);
+}
+
+.graph-node-attention-selected {
+  border-color: var(--color-selected);
+  background-color: #22343f;
+}
+
+.graph-node-attention-direct {
+  opacity: 1;
+  border-width: 1.5px;
+}
+
+.graph-node-attention-additional-context {
+  opacity: 0.7;
+  background-color: #14212a;
+}
+
+.graph-node-attention-subdued {
+  opacity: 0.45;
+  border-color: #40535e;
+  background-color: #121e26;
+  box-shadow: none;
+}
+
+.graph-node-target {
+  opacity: 1;
+  border: 2px solid var(--color-anchor);
+  background:
+    linear-gradient(90deg, rgb(215 171 85 / 10%), transparent 46%),
+    var(--color-surface-raised);
+  box-shadow: 0 0 0 1px rgb(215 171 85 / 22%), 0 14px 32px rgb(0 0 0 / 34%);
+}
+
+.graph-node-target::before {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 5px;
+  width: 3px;
+  border-radius: 99px;
+  background: var(--color-anchor);
+  content: "";
+}
+
+.graph-node-target .graph-node-context,
+.graph-node-target .graph-node-attention {
+  border-color: color-mix(in srgb, var(--color-anchor) 68%, transparent);
+  color: #f2d391;
+  background: rgb(62 48 21 / 58%);
+}
+
+.graph-node-dependency {
+  border-color: var(--color-uses);
+  background:
+    linear-gradient(90deg, rgb(110 183 223 / 9%), transparent 52%),
+    var(--color-surface);
+  box-shadow: inset 3px 0 0 rgb(110 183 223 / 68%), var(--shadow-card);
+}
+
+.graph-node-dependent {
+  border-color: var(--color-used-by);
+  background:
+    linear-gradient(90deg, rgb(115 200 187 / 9%), transparent 52%),
+    var(--color-surface);
+  box-shadow: inset 3px 0 0 rgb(115 200 187 / 68%), var(--shadow-card);
+}
+
+.graph-node-selected {
+  z-index: 12 !important;
+  opacity: 1;
+  outline: 2px solid var(--color-selected);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgb(11 18 24 / 85%), var(--shadow-raised);
+}
+
+.react-flow__node.graph-node-attention-additional-context:hover,
+.react-flow__node.graph-node-attention-subdued:hover {
+  opacity: 0.88;
+}
+
+.react-flow__node.graph-node-attention-additional-context:focus,
+.react-flow__node.graph-node-attention-additional-context:focus-visible,
+.react-flow__node.graph-node-attention-subdued:focus,
+.react-flow__node.graph-node-attention-subdued:focus-visible,
+.react-flow__node.graph-node:focus,
+.react-flow__node.graph-node:focus-visible {
+  z-index: 20 !important;
+  /* Keyboard focus is a temporary inspection layer and must override de-emphasis. */
+  opacity: 1 !important;
+  outline: 3px solid var(--color-accent-strong);
+  outline-offset: 5px;
+  box-shadow: 0 0 0 2px var(--color-canvas), var(--shadow-raised);
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.graph-edge {
+  stroke: #8295a2;
+  stroke-width: 1.25;
+  transition: opacity 180ms ease, stroke 180ms ease, stroke-width 180ms ease;
+}
+
+.graph-edge-attention-direct {
+  opacity: 1;
+  stroke-width: 2.25;
+}
+
+.graph-edge-attention-direct.graph-edge-uses {
+  stroke: var(--color-uses);
+}
+
+.graph-edge-attention-direct.graph-edge-used-by {
+  stroke: var(--color-used-by);
+}
+
+.graph-edge-attention-selected-context {
+  opacity: 0.7;
+  stroke: #c5d1d8;
+  stroke-width: 1.65;
+}
+
+.graph-edge-attention-additional-context {
+  opacity: 0.34;
+  stroke: #536672;
+  stroke-width: 1.15;
+}
+
+.graph-edge-attention-subdued {
+  opacity: 0.18;
+  stroke: #536672;
+  stroke-width: 1;
+}
+
+.graph-edge-used-by {
+  stroke-dasharray: 6 4;
+}
+
+.react-flow__edge-textbg {
+  filter: drop-shadow(0 3px 6px rgb(0 0 0 / 35%));
+}

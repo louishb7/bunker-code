@@ -164,9 +164,9 @@ export async function layoutExplorerElements(elements: ExplorerElements): Promis
     id: 'explorer',
     layoutOptions: {
       'elk.algorithm': 'layered',
-      'elk.direction': isSystemMap ? 'DOWN' : 'RIGHT',
-      'elk.layered.spacing.nodeNodeBetweenLayers': isSystemMap ? '82' : elements.mode === 'overview' ? '54' : '64',
-      'elk.spacing.nodeNode': isSystemMap ? '40' : elements.mode === 'overview' ? '24' : '30',
+      'elk.direction': 'RIGHT',
+      'elk.layered.spacing.nodeNodeBetweenLayers': isSystemMap ? '72' : elements.mode === 'overview' ? '54' : '64',
+      'elk.spacing.nodeNode': isSystemMap ? '36' : elements.mode === 'overview' ? '24' : '30',
     },
     children: elements.nodes.map((node) => {
       const dimensions = node.data.kind === 'workspace-package' ? systemPartNodeDimensions : fileNodeDimensions;

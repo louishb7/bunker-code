@@ -143,3 +143,10 @@ unrelated visible context. File connections keeps its anchor as the structural
 center even while another item is selected, and one-more-step nodes are marked
 as additional context. File maps keep a readable fit floor and allow panning to
 remaining context instead of forcing every label into a microscopic overview.
+
+The production Explorer uses a restrained planning-room visual system across
+its orientation shell, map canvas, structural cards, details, and evidence.
+System parts are arranged left to right as one visible composition; responsive
+layouts keep the canvas primary on wide screens and deliberately stack map and
+details at 640 px. These are Web presentation choices only: analytical facts,
+direction, evidence, and navigation state remain unchanged.
