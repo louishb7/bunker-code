@@ -510,7 +510,7 @@ test('file exploration distinguishes external, anchor, inspected neighbor, and p
   assert.equal(external.usedBy[0]?.targetNodeId, externalNode.id);
   assert.equal(external.usedBy[0]?.occurrences[0]?.moduleSpecifier, 'ts-morph');
   assert.equal(external.usedBy[0]?.occurrences[0]?.evidence.location.filePath, anchorFileId);
-  assert.equal(external.usedBy[0]?.occurrences[0]?.confidence, 'exact');
+  assert.equal(external.usedBy[0]?.occurrences[0]?.confidence, 'inferred');
 
   const isolatedNode = { id: 'src/isolated.ts', kind: 'file' as const, path: 'src/isolated.ts' };
   const isolatedGraph = { nodes: [isolatedNode], edges: [], unresolvedDependencies: [] };
@@ -536,8 +536,8 @@ test('file exploration distinguishes external, anchor, inspected neighbor, and p
 
 test('file focus, expansion, and search retain their existing file-level behavior', () => {
   const source = createFileSource();
-  const focusedFileId = 'src/analysis-result.ts';
-  const expandedFileId = 'src/analyze-project.ts';
+  const focusedFileId = 'src/analyze-project.ts';
+  const expandedFileId = 'src/analysis-result.ts';
   const focused = createExplorerProjection(source, {
     scope: 'file-overview',
     selectedNodeId: focusedFileId,
@@ -552,22 +552,22 @@ test('file focus, expansion, and search retain their existing file-level behavio
   });
 
   assert.equal(focused.mode, 'focus');
-  assert.equal(focused.nodes.some((node) => node.id === 'external:@bunker-code/contracts'), true);
+  assert.equal(focused.nodes.some((node) => node.id === 'external:node:fs'), true);
   assert.equal(expanded.nodes.some((node) => node.id === 'external:node:fs'), true);
   const focusedElements = createExplorerElements(focused);
-  const externalRelationship = focusedElements.edges.find((edge) => edge.target === 'external:@bunker-code/contracts');
+  const externalRelationship = focusedElements.edges.find((edge) => edge.target === 'external:node:fs');
   assert.ok(externalRelationship);
   assert.equal(externalRelationship.source, focusedFileId);
-  assert.equal(externalRelationship.ariaLabel, 'analysis-result.ts uses @bunker-code/contracts');
+  assert.equal(externalRelationship.ariaLabel, 'analyze-project.ts uses node:fs');
   assert.equal(externalRelationship.markerEnd && typeof externalRelationship.markerEnd === 'object'
     ? externalRelationship.markerEnd.type
     : undefined, 'arrowclosed');
-  assert.equal(externalRelationship.data?.occurrenceCount, 2);
-  assert.equal(externalRelationship.data?.relations.length, 2);
+  assert.equal(externalRelationship.data?.occurrenceCount, 1);
+  assert.equal(externalRelationship.data?.relations.length, 1);
   assert.deepEqual(searchExplorerFiles(source.graph, 'analysis-result.ts'), [{
-    nodeId: focusedFileId,
+    nodeId: 'src/analysis-result.ts',
     fileName: 'analysis-result.ts',
-    path: focusedFileId,
+    path: 'src/analysis-result.ts',
   }]);
 });
 

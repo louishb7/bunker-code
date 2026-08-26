@@ -105,6 +105,7 @@ function recordDependency(params: {
   sourceFilePath: string;
   moduleSpecifier: string;
   matchesConfiguredPathAlias: boolean;
+  analyzedSourceFileIds: ReadonlySet<string>;
   targetSourceFile: SourceFile | undefined;
   evidence: DependencyEvidence;
   dependencies: ResolvedDependency[];
@@ -116,6 +117,7 @@ function recordDependency(params: {
     sourceFilePath,
     moduleSpecifier,
     matchesConfiguredPathAlias,
+    analyzedSourceFileIds,
     targetSourceFile,
     evidence,
     dependencies,
@@ -126,7 +128,7 @@ function recordDependency(params: {
   if (targetSourceFile) {
     const targetFileId = normalizeProjectPath(projectPath, targetSourceFile.getFilePath());
 
-    if (isPathInsideProject(targetFileId)) {
+    if (analyzedSourceFileIds.has(targetFileId)) {
       dependencies.push({
         sourceFileId: sourceFilePath,
         targetFileId,
@@ -222,6 +224,7 @@ function createAnalysisResult(
       path: sourceFilePath,
     })),
   );
+  const analyzedSourceFileIds = new Set(files.map((file) => file.id));
   const dependencies: ResolvedDependency[] = [];
   const unresolvedDependencies: UnresolvedDependency[] = [];
   const diagnostics: AnalysisDiagnostic[] = [];
@@ -242,6 +245,7 @@ function createAnalysisResult(
         sourceFilePath,
         moduleSpecifier,
         matchesConfiguredPathAlias: matchesConfiguredPathAlias(moduleSpecifier, configuredPathAliasPatterns),
+        analyzedSourceFileIds,
         targetSourceFile: importDeclaration.getModuleSpecifierSourceFile(),
         evidence,
         dependencies,
@@ -269,6 +273,7 @@ function createAnalysisResult(
         sourceFilePath,
         moduleSpecifier,
         matchesConfiguredPathAlias: matchesConfiguredPathAlias(moduleSpecifier, configuredPathAliasPatterns),
+        analyzedSourceFileIds,
         targetSourceFile: exportDeclaration.getModuleSpecifierSourceFile(),
         evidence,
         dependencies,

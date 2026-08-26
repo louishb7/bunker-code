@@ -170,6 +170,7 @@ export function createProjectDiagnostics(
   for (const node of fileNodes(graph)) {
     const dependents = getDependents(graph, node.id);
     const dependencies = getDependencies(graph, node.id);
+    const internalDependencies = dependencies.filter((edge) => edge.dependencyKind === 'internal');
 
     diagnostics.push({
       id: `fan-in:${node.id}`,
@@ -210,19 +211,19 @@ export function createProjectDiagnostics(
       });
     }
 
-    if (dependencies.length >= thresholds.manyDependencies) {
+    if (internalDependencies.length >= thresholds.manyDependencies) {
       diagnostics.push({
         id: `many-dependencies:${node.id}`,
         kind: 'many-dependencies',
         severity: 'warning',
         basis: 'heuristic',
-        confidence: aggregateConfidence(dependencies.map((edge) => edge.confidence)),
+        confidence: aggregateConfidence(internalDependencies.map((edge) => edge.confidence)),
         subject: { nodeId: node.id },
-        message: `${node.id} has ${dependencies.length} dependency edge(s), meeting the configured threshold ${thresholds.manyDependencies}.`,
-        evidence: edgeEvidence(dependencies),
+        message: `${node.id} has ${internalDependencies.length} internal dependency edge(s), meeting the configured threshold ${thresholds.manyDependencies}.`,
+        evidence: edgeEvidence(internalDependencies),
         threshold: {
           name: 'manyDependencies',
-          actual: dependencies.length,
+          actual: internalDependencies.length,
           minimum: thresholds.manyDependencies,
         },
       });

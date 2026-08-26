@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { analyzeProject } from '../packages/analyzer-typescript/src/index.js';
+import { buildProjectGraph, createProjectDiagnostics } from '../packages/graph-engine/src/index.js';
 
 const fixturePath = path.resolve('fixtures/simple-import');
 
@@ -68,6 +69,92 @@ test('analyze simple-import deterministically', () => {
   assert.equal(importEntry.evidence.location.column > 0, true);
   assert.deepEqual(first.unresolvedDependencies, []);
   assert.deepEqual(first.diagnostics, []);
+});
+
+test('classifies only analyzed source files as internal dependencies', (context) => {
+  const projectPath = createTempProject(context);
+
+  writeProjectFile(
+    projectPath,
+    'tsconfig.json',
+    JSON.stringify({
+      compilerOptions: {
+        target: 'ES2022',
+        module: 'ESNext',
+        moduleResolution: 'Bundler',
+        baseUrl: '.',
+        paths: {
+          '@internal/*': ['src/internal/*'],
+        },
+        strict: true,
+      },
+      include: ['src/**/*.ts'],
+    }),
+  );
+  writeProjectFile(
+    projectPath,
+    'src/main.ts',
+    [
+      "import { local } from './local';",
+      "import { aliased } from '@internal/aliased';",
+      "import { external } from 'fixture-external';",
+      "import { createHash } from 'node:crypto';",
+      '',
+      "export const value = `${local}${aliased}${external}${createHash('sha256').digest('hex')}`;",
+      '',
+    ].join('\n'),
+  );
+  writeProjectFile(projectPath, 'src/local.ts', "export const local = 'local';\n");
+  writeProjectFile(projectPath, 'src/internal/aliased.ts', "export const aliased = 'aliased';\n");
+  writeProjectFile(
+    projectPath,
+    'node_modules/fixture-external/package.json',
+    JSON.stringify({ types: 'index.d.ts' }),
+  );
+  writeProjectFile(projectPath, 'node_modules/fixture-external/index.d.ts', "export declare const external: 'external';\n");
+
+  const analysis = analyzeProject(projectPath);
+  const graph = buildProjectGraph(analysis);
+  const diagnostics = createProjectDiagnostics(graph);
+  const dependencyBySpecifier = new Map(analysis.dependencies.map((dependency) => [dependency.moduleSpecifier, dependency]));
+
+  assert.deepEqual(dependencyBySpecifier.get('./local'), {
+    sourceFileId: 'src/main.ts',
+    targetFileId: 'src/local.ts',
+    moduleSpecifier: './local',
+    kind: 'internal',
+    evidence: {
+      location: { filePath: 'src/main.ts', line: 1, column: 23 },
+    },
+    confidence: 'exact',
+  });
+  assert.deepEqual(dependencyBySpecifier.get('@internal/aliased'), {
+    sourceFileId: 'src/main.ts',
+    targetFileId: 'src/internal/aliased.ts',
+    moduleSpecifier: '@internal/aliased',
+    kind: 'internal',
+    evidence: {
+      location: { filePath: 'src/main.ts', line: 2, column: 25 },
+    },
+    confidence: 'exact',
+  });
+
+  for (const moduleSpecifier of ['fixture-external', 'node:crypto']) {
+    const dependency = dependencyBySpecifier.get(moduleSpecifier);
+    const edge = graph.edges.find((candidate) => candidate.moduleSpecifier === moduleSpecifier);
+
+    assert.ok(dependency);
+    assert.equal(dependency.kind, 'external');
+    assert.equal(dependency.targetFileId, undefined);
+    assert.ok(edge);
+    assert.equal(edge.dependencyKind, 'external');
+    assert.equal(graph.nodes.find((node) => node.id === edge.targetNodeId)?.kind, 'external');
+  }
+
+  assert.equal(
+    diagnostics.diagnostics.some((diagnostic) => diagnostic.kind === 'many-dependencies' && diagnostic.subject.nodeId === 'src/main.ts'),
+    false,
+  );
 });
 
 test('distinguishes external and unresolved dependencies', (context) => {

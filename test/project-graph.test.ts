@@ -303,14 +303,7 @@ test('creates evidence-backed project diagnostics from graph queries', () => {
     minimum: 1,
   });
 
-  assert.ok(manyDependencies);
-  assert.equal(manyDependencies.basis, 'heuristic');
-  assert.equal(manyDependencies.confidence, 'inferred');
-  assert.deepEqual(manyDependencies.threshold, {
-    name: 'manyDependencies',
-    actual: 2,
-    minimum: 2,
-  });
+  assert.equal(manyDependencies, undefined);
 
   assert.ok(isolatedFile);
   assert.equal(isolatedFile.confidence, 'exact');

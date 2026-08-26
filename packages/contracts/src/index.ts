@@ -61,7 +61,7 @@ export interface DependencyEvidence {
 
 export interface ResolvedDependency {
   sourceFileId: string;
-  /** Present only when the dependency resolves to a file inside the analyzed project. */
+  /** Present only when the dependency resolves to an analyzed source file. */
   targetFileId?: string;
   moduleSpecifier: string;
   kind: DependencyKind;
