@@ -8,6 +8,7 @@ import {
   createImpactReport,
   createProjectDiagnostics,
 } from '@bunker-code/graph-engine';
+import { resolveAnalysisTarget } from './project-discovery.js';
 
 export interface CliStreams {
   writeStdout(output: string): void;
@@ -56,7 +57,7 @@ function runAnalyze(argv: readonly string[], streams: CliStreams): number {
   }
 
   try {
-    const analysis = analyzeProject(projectPath);
+    const analysis = analyzeProject(resolveAnalysisTarget(projectPath));
     const graph = buildProjectGraph(analysis);
     const diagnostics = createProjectDiagnostics(graph);
     const structure = buildProjectStructure(analysis);
@@ -80,7 +81,7 @@ function runImpact(argv: readonly string[], streams: CliStreams): number {
   }
 
   try {
-    const analysis = analyzeProject(projectPath);
+    const analysis = analyzeProject(resolveAnalysisTarget(projectPath));
     const graph = buildProjectGraph(analysis);
     const report = createImpactReport(graph, normalizeRelativeFilePath(targetPath));
 
