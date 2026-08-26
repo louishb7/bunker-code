@@ -71,7 +71,11 @@ test('prints deterministic investigation JSON for a controlled project', () => {
     manyDependents: 2,
     manyDependencies: 3,
   });
-  assert.deepEqual(output.structure, {
+  assert.deepEqual({
+    packages: output.structure.packages,
+    fileMemberships: output.structure.fileMemberships,
+    unassignedFileIds: output.structure.unassignedFileIds,
+  }, {
     packages: [],
     fileMemberships: [],
     unassignedFileIds: ['src/main.ts', 'src/service.ts'],

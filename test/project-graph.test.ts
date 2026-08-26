@@ -78,11 +78,30 @@ const analysis: AnalysisResult = {
   diagnostics: [],
 };
 
+function analysisWithFiles(files: AnalysisResult['files']): AnalysisResult {
+  return {
+    schemaVersion: 1,
+    analyzer: { name: 'test-analyzer', language: 'typescript' },
+    projectPath: '.',
+    tsconfigPath: 'tsconfig.json',
+    files,
+    dependencies: [],
+    unresolvedDependencies: [],
+    diagnostics: [],
+  };
+}
+
 test('builds a deterministic project graph from analysis result', () => {
   const first = buildProjectGraph(analysis);
+  const serializedBeforeStructure = JSON.stringify(first);
+
+  buildProjectStructure(analysis);
+
   const second = buildProjectGraph(analysis);
 
+  assert.equal(JSON.stringify(second), serializedBeforeStructure);
   assert.deepEqual(first, second);
+  assert.deepEqual([...new Set(second.nodes.map((node) => node.kind))], ['external', 'file']);
   assert.deepEqual(first.nodes, [
     { id: 'external:external-package', kind: 'external', moduleSpecifier: 'external-package' },
     { id: 'src/a.ts', kind: 'file', path: 'src/a.ts' },
@@ -136,6 +155,166 @@ test('builds a deterministic project graph from analysis result', () => {
       confidence: 'exact',
     },
   ]);
+});
+
+test('builds an explicit analysis root for a project with only root files', () => {
+  const structure = buildProjectStructure(analysisWithFiles([
+    { id: 'main.ts', path: 'main.ts' },
+  ]));
+
+  assert.equal(structure.rootUnitId, 'analysis-root:.');
+  assert.deepEqual(structure.units, [{
+    id: 'analysis-root:.',
+    kind: 'analysis-root',
+    rootPath: '.',
+    source: 'analysis-target',
+  }]);
+  assert.deepEqual(structure.containments, [
+    {
+      parentUnitId: 'analysis-root:.',
+      child: { kind: 'file', fileId: 'main.ts' },
+      source: 'analysis-target',
+    },
+    {
+      parentUnitId: 'analysis-root:.',
+      child: { kind: 'file', fileId: 'main.ts' },
+      source: 'filesystem',
+    },
+  ]);
+  assert.deepEqual(structure.sourceReports, [
+    { source: 'analysis-target', status: 'reported' },
+    { source: 'filesystem', status: 'no-subdivision' },
+    { source: 'pnpm-workspace', status: 'not-reported' },
+  ]);
+  assert.deepEqual(structure.unassignedFileIds, ['main.ts']);
+});
+
+test('derives every nested directory and keeps a root file directly contained', () => {
+  const structure = buildProjectStructure(analysisWithFiles([
+    { id: 'test.ts', path: 'test.ts' },
+    { id: 'src/main.ts', path: 'src/main.ts' },
+    { id: 'src/auth/internal/token.ts', path: 'src/auth/internal/token.ts' },
+  ]));
+
+  assert.deepEqual(
+    structure.units
+      .filter((unit) => unit.kind === 'directory')
+      .map((unit) => unit.rootPath),
+    ['src', 'src/auth', 'src/auth/internal'],
+  );
+  assert.deepEqual(
+    structure.containments.filter((containment) => containment.source === 'filesystem'),
+    [
+      {
+        parentUnitId: 'analysis-root:.',
+        child: { kind: 'file', fileId: 'test.ts' },
+        source: 'filesystem',
+      },
+      {
+        parentUnitId: 'analysis-root:.',
+        child: { kind: 'structural-unit', structuralUnitId: 'directory:src' },
+        source: 'filesystem',
+      },
+      {
+        parentUnitId: 'directory:src',
+        child: { kind: 'file', fileId: 'src/main.ts' },
+        source: 'filesystem',
+      },
+      {
+        parentUnitId: 'directory:src',
+        child: { kind: 'structural-unit', structuralUnitId: 'directory:src/auth' },
+        source: 'filesystem',
+      },
+      {
+        parentUnitId: 'directory:src/auth',
+        child: { kind: 'structural-unit', structuralUnitId: 'directory:src/auth/internal' },
+        source: 'filesystem',
+      },
+      {
+        parentUnitId: 'directory:src/auth/internal',
+        child: { kind: 'file', fileId: 'src/auth/internal/token.ts' },
+        source: 'filesystem',
+      },
+    ],
+  );
+  assert.deepEqual(
+    structure.sourceReports.find((report) => report.source === 'filesystem'),
+    { source: 'filesystem', status: 'subdivision-detected' },
+  );
+});
+
+test('keeps a target-relative file outside the root on the analysis-target axis only', () => {
+  const structure = buildProjectStructure(analysisWithFiles([
+    { id: '../shared/source.ts', path: '../shared/source.ts' },
+    { id: 'src/main.ts', path: 'src/main.ts' },
+  ]));
+
+  assert.equal(
+    structure.containments.some((containment) => (
+      containment.source === 'analysis-target'
+      && containment.child.kind === 'file'
+      && containment.child.fileId === '../shared/source.ts'
+    )),
+    true,
+  );
+  assert.equal(
+    structure.containments.some((containment) => (
+      containment.source === 'filesystem'
+      && containment.child.kind === 'file'
+      && containment.child.fileId === '../shared/source.ts'
+    )),
+    false,
+  );
+  assert.equal(
+    structure.units.some((unit) => unit.kind === 'directory' && unit.rootPath.startsWith('..')),
+    false,
+  );
+});
+
+test('rejects malformed public paths instead of fabricating containment', () => {
+  assert.throws(
+    () => buildProjectStructure(analysisWithFiles([{ id: '/absolute.ts', path: '/absolute.ts' }])),
+    /Invalid project structure path: "\/absolute\.ts"/,
+  );
+  assert.throws(
+    () => buildProjectStructure(analysisWithFiles([{ id: 'src\\main.ts', path: 'src\\main.ts' }])),
+    /Invalid project structure path: "src\\main\.ts"/,
+  );
+});
+
+test('builds byte-equivalent generic filesystem structure from reordered files', () => {
+  const files = [
+    { id: 'src/z.ts', path: 'src/z.ts' },
+    { id: 'src/a.ts', path: 'src/a.ts' },
+    { id: 'root.ts', path: 'root.ts' },
+  ];
+
+  const first = buildProjectStructure(analysisWithFiles(files));
+  const second = buildProjectStructure(analysisWithFiles([...files].reverse()));
+
+  assert.equal(JSON.stringify(first), JSON.stringify(second));
+});
+
+test('distinguishes an empty reported workspace from workspace facts not reported', () => {
+  const withoutWorkspace = buildProjectStructure(analysisWithFiles([
+    { id: 'main.ts', path: 'main.ts' },
+  ]));
+  const withEmptyWorkspace = buildProjectStructure({
+    ...analysisWithFiles([{ id: 'main.ts', path: 'main.ts' }]),
+    structure: { packages: [], fileMemberships: [] },
+  });
+
+  assert.deepEqual(
+    withoutWorkspace.sourceReports.find((report) => report.source === 'pnpm-workspace'),
+    { source: 'pnpm-workspace', status: 'not-reported' },
+  );
+  assert.deepEqual(
+    withEmptyWorkspace.sourceReports.find((report) => report.source === 'pnpm-workspace'),
+    { source: 'pnpm-workspace', status: 'reported' },
+  );
+  assert.deepEqual(withEmptyWorkspace.packages, []);
+  assert.deepEqual(withEmptyWorkspace.fileMemberships, []);
+  assert.deepEqual(withEmptyWorkspace.unassignedFileIds, ['main.ts']);
 });
 
 test('detects PNPM workspace containment and aggregates evidence-backed package dependencies', () => {

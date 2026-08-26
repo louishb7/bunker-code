@@ -51,6 +51,19 @@ const contractsPackageId = 'workspace-package:packages/contracts';
 let fileSource: ExplorerSource | undefined;
 let workspaceSource: ExplorerSource | undefined;
 
+function structureForFiles(files: Array<{ id: string; path: string }>) {
+  return buildProjectStructure({
+    schemaVersion: 1,
+    analyzer: { name: 'explorer-test', language: 'typescript' },
+    projectPath: '.',
+    tsconfigPath: 'tsconfig.json',
+    files,
+    dependencies: [],
+    unresolvedDependencies: [],
+    diagnostics: [],
+  });
+}
+
 function createFileSource(): ExplorerSource {
   if (fileSource) return fileSource;
   const analysis = analyzeProject(fileDatasetPath);
@@ -514,7 +527,7 @@ test('file exploration distinguishes external, anchor, inspected neighbor, and p
 
   const isolatedNode = { id: 'src/isolated.ts', kind: 'file' as const, path: 'src/isolated.ts' };
   const isolatedGraph = { nodes: [isolatedNode], edges: [], unresolvedDependencies: [] };
-  const isolatedStructure = { packages: [], fileMemberships: [], unassignedFileIds: [isolatedNode.id] };
+  const isolatedStructure = structureForFiles([isolatedNode]);
   const projectState = createFileOverviewExplorerState();
   const isolated = createFileExploration(
     isolatedNode,
@@ -789,7 +802,7 @@ test('file-overview attention prioritizes selection and direct owned, contextual
   const isolatedNode = { id: 'src/isolated.ts', kind: 'file' as const, path: 'src/isolated.ts' };
   const isolatedSource: ExplorerSource = {
     graph: { nodes: [isolatedNode], edges: [], unresolvedDependencies: [] },
-    structure: { packages: [], fileMemberships: [], unassignedFileIds: [isolatedNode.id] },
+    structure: structureForFiles([isolatedNode]),
     packageDependencies: [],
   };
   const isolatedProjection = createExplorerProjection(isolatedSource, fallbackState);

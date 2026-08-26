@@ -40,5 +40,14 @@ export type {
   ProjectDiagnosticSeverity,
   ProjectDiagnosticThreshold,
 } from './project-diagnostics.js';
-export type { ProjectStructure } from './project-structure.js';
+export type {
+  AnalysisRootStructuralUnit,
+  DirectoryStructuralUnit,
+  ProjectStructure,
+  StructuralChildReference,
+  StructuralContainment,
+  StructuralSource,
+  StructuralSourceReport,
+  StructuralUnit,
+} from './project-structure.js';
 export type { PackageDependency } from './package-dependencies.js';
