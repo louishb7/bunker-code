@@ -333,6 +333,53 @@ test('orientation distinguishes inspection, drill-down, focused connections, exp
   assert.equal(hiddenSearchSelection.focusedNodeId, null);
 });
 
+// Phase 5 characterization boundary: preserve observable search, breadcrumb,
+// attention, inspector-evidence, focus, and navigation-target behavior. Do not
+// preserve the package-only scope names or package-card presentation.
+test('characterization preserves navigation callbacks, search, attention, and evidence contracts', () => {
+  const source = createWorkspaceSource();
+  const packageState = {
+    scope: 'workspace-package' as const,
+    packageId: workspacePackageId,
+    selectedNodeId: 'packages/analyzer-typescript/src/analysis-result.ts',
+    focusedNodeId: null,
+    expandedNodeIds: new Set<string>(),
+  };
+  const visibleProjection = createExplorerProjection(source, packageState);
+  const focusedState = focusFileNode(packageState, packageState.selectedNodeId);
+  const focusedProjection = createExplorerProjection(source, focusedState);
+  const orientation = createExplorerOrientation(focusedState, 'bunker-code', source.graph, source.structure);
+  const attention = createExplorerAttention(focusedProjection, focusedState);
+  const selectedFile = source.graph.nodes.find((node) => node.id === packageState.selectedNodeId);
+
+  assert.ok(selectedFile);
+  assert.equal(orientation.trail.at(-1)?.id, packageState.selectedNodeId);
+  assert.equal(orientation.trail.find((item) => item.id === packageState.packageId)?.target, 'files');
+  assert.equal(searchExplorerFiles(source.graph, 'analysis-result.ts').some((result) => (
+    result.nodeId === packageState.selectedNodeId && result.path === selectedFile.path
+  )), true);
+  assert.equal(attention.nodes.get(packageState.selectedNodeId)?.role, 'anchor');
+  assert.equal(attention.nodes.get(packageState.selectedNodeId)?.selected, true);
+
+  const exploration = createFileExploration(
+    selectedFile,
+    source.graph,
+    source.structure,
+    packageState,
+    visibleProjection.visibleNodeIds,
+  );
+  assert.equal(exploration.uses.every((relation) => relation.occurrences.every((edge) => (
+    edge.evidence.location.filePath.length > 0
+    && Number.isInteger(edge.evidence.location.line)
+    && Number.isInteger(edge.evidence.location.column)
+    && ['exact', 'inferred', 'uncertain'].includes(edge.confidence)
+  ))), true);
+
+  const hiddenResult = selectSearchResultFile(focusedState, 'packages/analyzer-typescript/src/pnpm-workspace.ts', false);
+  assert.equal(hiddenResult.focusedNodeId, null);
+  assert.equal(hiddenResult.selectedNodeId, 'packages/analyzer-typescript/src/pnpm-workspace.ts');
+});
+
 test('package scope keeps owned files internal and cross-package files contextual', () => {
   const source = createWorkspaceSource();
   const projection = createExplorerProjection(source, {
