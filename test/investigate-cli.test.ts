@@ -46,6 +46,7 @@ test('prints deterministic investigation JSON for a controlled project', () => {
   const output = JSON.parse(first.stdout) as CliOutput;
 
   assert.equal(output.analysis.schemaVersion, 1);
+  assert.equal(Object.hasOwn(output.analysis, 'structure'), false);
   assert.deepEqual(output.analysis.analyzer, {
     name: '@bunker-code/analyzer-typescript',
     language: 'typescript',
@@ -71,6 +72,53 @@ test('prints deterministic investigation JSON for a controlled project', () => {
     manyDependents: 2,
     manyDependencies: 3,
   });
+  assert.equal(output.structure.rootUnitId, 'analysis-root:.');
+  assert.deepEqual(output.structure.units, [
+    {
+      id: 'analysis-root:.',
+      kind: 'analysis-root',
+      rootPath: '.',
+      source: 'analysis-target',
+    },
+    {
+      id: 'directory:src',
+      kind: 'directory',
+      rootPath: 'src',
+      source: 'filesystem',
+    },
+  ]);
+  assert.deepEqual(output.structure.containments, [
+    {
+      parentUnitId: 'analysis-root:.',
+      child: { kind: 'file', fileId: 'src/main.ts' },
+      source: 'analysis-target',
+    },
+    {
+      parentUnitId: 'analysis-root:.',
+      child: { kind: 'file', fileId: 'src/service.ts' },
+      source: 'analysis-target',
+    },
+    {
+      parentUnitId: 'analysis-root:.',
+      child: { kind: 'structural-unit', structuralUnitId: 'directory:src' },
+      source: 'filesystem',
+    },
+    {
+      parentUnitId: 'directory:src',
+      child: { kind: 'file', fileId: 'src/main.ts' },
+      source: 'filesystem',
+    },
+    {
+      parentUnitId: 'directory:src',
+      child: { kind: 'file', fileId: 'src/service.ts' },
+      source: 'filesystem',
+    },
+  ]);
+  assert.deepEqual(output.structure.sourceReports, [
+    { source: 'analysis-target', status: 'reported' },
+    { source: 'filesystem', status: 'subdivision-detected' },
+    { source: 'pnpm-workspace', status: 'not-reported' },
+  ]);
   assert.deepEqual({
     packages: output.structure.packages,
     fileMemberships: output.structure.fileMemberships,
@@ -80,6 +128,7 @@ test('prints deterministic investigation JSON for a controlled project', () => {
     fileMemberships: [],
     unassignedFileIds: ['src/main.ts', 'src/service.ts'],
   });
+  assert.deepEqual(JSON.parse(JSON.stringify(output.structure)), output.structure);
   assert.deepEqual(output.packageDependencies, []);
   assert.deepEqual(
     output.diagnostics.diagnostics.map(({ id, kind, basis, confidence }) => ({
@@ -107,7 +156,23 @@ test('includes structural facts in the enriched analyze result for a PNPM worksp
 
   assert.equal(output.analysis.tsconfigPath, undefined);
   assert.equal(output.analysis.workspaceConfigurationPath, 'pnpm-workspace.yaml');
+  assert.deepEqual(Object.keys(output.analysis.structure ?? {}).sort(), [
+    'fileMemberships',
+    'packages',
+  ]);
   assert.equal(output.structure.packages.length, 4);
+  assert.equal(
+    output.structure.units.some((unit) => unit.kind === 'directory'),
+    true,
+  );
+  assert.equal(
+    output.structure.units.filter((unit) => unit.kind === 'workspace-package').length,
+    output.structure.packages.length,
+  );
+  assert.deepEqual(
+    output.structure.sourceReports.find((report) => report.source === 'pnpm-workspace'),
+    { source: 'pnpm-workspace', status: 'reported' },
+  );
   assert.deepEqual(output.packageDependencies.map((dependency) => ({
     sourcePackageId: dependency.sourcePackageId,
     targetPackageId: dependency.targetPackageId,

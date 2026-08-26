@@ -62,14 +62,6 @@ function normalizedPathSegments(
   relativePath: string,
   options: { allowRoot: boolean; allowOutside: boolean },
 ): string[] | undefined {
-  if (relativePath === '..' || relativePath.startsWith('../')) {
-    if (options.allowOutside) {
-      return undefined;
-    }
-
-    throw new Error(`Invalid project structure path: "${relativePath}".`);
-  }
-
   if (
     relativePath.length === 0
     || relativePath.startsWith('/')
@@ -84,6 +76,16 @@ function normalizedPathSegments(
   }
 
   const segments = relativePath.split('/');
+
+  if (relativePath === '..' || relativePath.startsWith('../')) {
+    if (!options.allowOutside || segments.slice(1).some((segment) => (
+      segment.length === 0 || segment === '.' || segment === '..'
+    ))) {
+      throw new Error(`Invalid project structure path: "${relativePath}".`);
+    }
+
+    return undefined;
+  }
 
   if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
     throw new Error(`Invalid project structure path: "${relativePath}".`);

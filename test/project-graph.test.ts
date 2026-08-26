@@ -284,6 +284,21 @@ test('rejects malformed public paths instead of fabricating containment', () => 
   );
 });
 
+test('rejects malformed target-relative paths outside the analysis root', () => {
+  assert.throws(
+    () => buildProjectStructure(analysisWithFiles([{ id: '../shared\\source.ts', path: '../shared\\source.ts' }])),
+    /Invalid project structure path: "\.\.\/shared\\source\.ts"/,
+  );
+  assert.throws(
+    () => buildProjectStructure(analysisWithFiles([{ id: '../shared/./source.ts', path: '../shared/./source.ts' }])),
+    /Invalid project structure path: "\.\.\/shared\/\.\/source\.ts"/,
+  );
+  assert.throws(
+    () => buildProjectStructure(analysisWithFiles([{ id: '../shared//source.ts', path: '../shared//source.ts' }])),
+    /Invalid project structure path: "\.\.\/shared\/\/source\.ts"/,
+  );
+});
+
 test('builds byte-equivalent generic filesystem structure from reordered files', () => {
   const files = [
     { id: 'src/z.ts', path: 'src/z.ts' },

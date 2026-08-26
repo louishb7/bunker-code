@@ -89,13 +89,17 @@ test('system projection renders every detected workspace package and uses only a
   const analyzedFileCount = source.graph.nodes.filter((node) => node.kind === 'file').length;
   const elements = createExplorerElements(projection);
 
+  assert.equal(source.structure.units.some((unit) => unit.kind === 'directory'), true);
+  assert.equal(createInitialExplorerState(source.structure).scope, 'system');
   assert.equal(projection.mode, 'system');
   assert.equal(projection.systemSummary?.detectedPartCount, source.structure.packages.length);
   assert.equal(projection.systemSummary?.analyzedFileCount, analyzedFileCount);
   assert.deepEqual(projection.nodes.map((node) => node.id), source.structure.packages.map((workspacePackage) => workspacePackage.id));
   assert.equal(projection.nodes.every((node) => node.kind === 'workspace-package'), true);
+  assert.equal(projection.nodes.some((node) => node.id.startsWith('directory:')), false);
   assert.equal(projection.nodes.some((node) => node.id === contractsPackageId), true);
   assert.equal(projection.nodes.every((node) => node.kind !== 'external'), true);
+  assert.equal(projection.edges.every((edge) => edge.kind === 'package-dependency'), true);
   assert.equal(elements.nodes.length, source.structure.packages.length);
   assert.equal(elements.nodes.some((node) => node.data.kind !== 'workspace-package'), false);
   assert.equal(elements.nodes.some((node) => node.id.startsWith('filesystem-group:')), false);
@@ -611,12 +615,18 @@ test('snapshots without workspace structure preserve the file-level overview fal
   assert.equal(runtime.kind, 'ready');
   if (runtime.kind !== 'ready') return;
   assert.equal(runtime.projectLabel, 'Analyzed project');
+  assert.equal(runtime.structure.units.some((unit) => unit.kind === 'directory'), true);
+  assert.deepEqual(
+    runtime.structure.sourceReports.find((report) => report.source === 'pnpm-workspace'),
+    { source: 'pnpm-workspace', status: 'not-reported' },
+  );
   assert.equal(initial.scope, 'file-overview');
   assert.equal(orientation.scale, 'project-files');
   assert.equal(orientation.backAction, undefined);
   assert.equal(projection.mode, 'overview');
   assert.equal(projection.systemSummary, undefined);
   assert.equal(projection.nodes.every((node) => node.kind === 'file'), true);
+  assert.equal(projection.nodes.some((node) => node.id.startsWith('directory:')), false);
 
   const focused = focusFileNode(initial, 'src/analysis-result.ts');
   const focusOrientation = createExplorerOrientation(focused, 'analyzer-typescript', source.graph, source.structure);
