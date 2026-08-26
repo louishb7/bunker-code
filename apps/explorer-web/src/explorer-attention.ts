@@ -1,5 +1,5 @@
 import type { ExplorerProjection, ExplorerProjectionEdge } from './explorer-projection.js';
-import type { ExplorerState } from './explorer-state.js';
+import type { ExplorerLocation } from './explorer-state.js';
 import { relationshipRole, type RelativeRelationshipRole } from './relationship-language.js';
 
 export type NodeAttentionRole = 'baseline' | 'selected' | 'anchor' | 'direct' | 'additional-context' | 'subdued';
@@ -24,10 +24,10 @@ export interface ExplorerAttention {
 
 export function createExplorerAttention(
   projection: ExplorerProjection,
-  state: ExplorerState,
+  location: ExplorerLocation,
 ): ExplorerAttention {
-  const selectedNodeId = state.scope === 'system' ? state.selectedPackageId : state.selectedNodeId;
-  const anchorNodeId = state.scope === 'system' ? null : state.focusedNodeId;
+  const selectedNodeId = location.selectedItemId;
+  const anchorNodeId = location.focusedFileId;
   const nodes = new Map<string, ExplorerNodeAttention>();
 
   for (const node of projection.nodes) {

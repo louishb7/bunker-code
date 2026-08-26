@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@xyflow/react/dist/style.css';
-import { getFilesInWorkspacePackage } from '@bunker-code/graph-engine';
 import type { PackageDependency, ProjectGraph, ProjectStructure } from '@bunker-code/graph-engine';
 import snapshot from './generated/analyzer-typescript.snapshot.json';
 import {
@@ -20,18 +19,17 @@ import {
 } from './explorer-projection.js';
 import { createExplorerRuntime, type ExplorerRuntimeState } from './explorer-runtime.js';
 import {
-  createInitialExplorerState,
-  expandFileNode,
-  focusFileNode,
-  openSelectedWorkspacePackage,
-  returnToFileOverview as returnToFileOverviewState,
-  returnToSystem,
-  selectFileNode,
-  selectSearchResultFile,
-  selectWorkspacePackage,
-  type ExplorerState,
+  createInitialExplorerLocation,
+  expandExplorerItem,
+  focusExplorerFile,
+  navigateToDestination,
+  navigateToStructuralPath,
+  navigateToTerritory,
+  selectExplorerItem,
+  type ExplorerLocation,
 } from './explorer-state.js';
-import { searchExplorerFiles } from './explorer-search.js';
+import { resolveExplorerSearchDestination, searchExplorerFiles } from './explorer-search.js';
+import { createExplorerTerritoryProjection } from './explorer-territory-projection.js';
 import { createFileExploration } from './file-exploration.js';
 import {
   createExplorerAttention,
@@ -97,31 +95,29 @@ function Explorer({
     () => ({ graph, structure, packageDependencies }),
     [graph, structure, packageDependencies],
   );
-  const [state, setState] = useState<ExplorerState>(() => createInitialExplorerState(structure));
+  const territories = useMemo(() => createExplorerTerritoryProjection(
+    structure,
+    graph.nodes.filter((node): node is Extract<typeof node, { kind: 'file' }> => node.kind === 'file'),
+  ), [graph.nodes, structure]);
+  const [location, setLocation] = useState<ExplorerLocation>(() => createInitialExplorerLocation(territories));
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingCenterNodeId, setPendingCenterNodeId] = useState<string | null>(null);
   const [reactFlow, setReactFlow] = useState<ExplorerReactFlowInstance | null>(null);
   const [layoutState, setLayoutState] = useState<'loading' | 'ready' | 'error'>('loading');
   const orientation = useMemo(
-    () => createExplorerOrientation(state, projectLabel, graph, structure),
-    [state, projectLabel, graph, structure],
+    () => createExplorerOrientation(location, territories, projectLabel, graph),
+    [location, territories, projectLabel, graph],
   );
-  const fileScope = state.scope === 'system' ? null : state;
-  const projection = useMemo(() => createExplorerProjection(source, state), [
+  const fileScope = location.currentTerritoryId === null ? null : location;
+  const projection = useMemo(() => createExplorerProjection(source, location), [
     source,
-    state.scope,
-    state.scope === 'workspace-package' ? state.packageId : null,
-    fileScope?.focusedNodeId,
-    fileScope?.expandedNodeIds,
+    location,
   ]);
   const projectedElements = useMemo(() => createExplorerElements(projection), [projection]);
   const [elements, setElements] = useState<ExplorerElements>(projectedElements);
-  const searchableFileIds = useMemo(() => fileScope?.scope === 'workspace-package'
-    ? new Set(getFilesInWorkspacePackage(structure, fileScope.packageId))
-    : undefined, [fileScope, structure]);
   const searchResults = useMemo(
-    () => fileScope ? searchExplorerFiles(graph, searchQuery, searchableFileIds) : [],
-    [fileScope, graph, searchQuery, searchableFileIds],
+    () => fileScope ? searchExplorerFiles(graph, searchQuery) : [],
+    [fileScope, graph, searchQuery],
   );
 
   useEffect(() => {
@@ -169,15 +165,15 @@ function Explorer({
     });
   }, [elements.nodes, pendingCenterNodeId, reactFlow]);
 
-  const selectedNodeId = fileScope?.selectedNodeId ?? null;
+  const selectedNodeId = location.selectedItemId;
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId);
   const systemParts = useMemo(() => projection.nodes.filter(
     (node): node is ExplorerWorkspacePackageProjectionNode => node.kind === 'workspace-package',
   ), [projection.nodes]);
-  const selectedPart = state.scope === 'system' && state.selectedPackageId
-    ? systemParts.find((node) => node.id === state.selectedPackageId)
+  const selectedPart = location.currentTerritoryId === null && location.selectedItemId
+    ? systemParts.find((node) => node.id === location.selectedItemId)
     : undefined;
-  const attention = useMemo(() => createExplorerAttention(projection, state), [projection, state]);
+  const attention = useMemo(() => createExplorerAttention(projection, location), [projection, location]);
   const flowNodes = useMemo(
     () => elements.nodes.map((node) => attentionFlowNode(node, attention.nodes.get(node.id))),
     [elements.nodes, attention.nodes],
@@ -189,15 +185,15 @@ function Explorer({
     [elements.edges, attention.edges],
   );
   const fileExploration = useMemo(() => selectedNode && fileScope
-    ? createFileExploration(selectedNode, graph, structure, fileScope, projection.visibleNodeIds)
-    : undefined, [selectedNode, fileScope, graph, structure, projection.visibleNodeIds]);
+    ? createFileExploration(selectedNode, graph, structure, location, projection.visibleNodeIds)
+    : undefined, [selectedNode, fileScope, graph, structure, location, projection.visibleNodeIds]);
 
   function focusSelectedFile(): void {
     if (!fileExploration?.canFocus || !selectedNode || !fileScope) {
       return;
     }
 
-    setState(focusFileNode(fileScope, selectedNode.id));
+    setLocation(focusExplorerFile(location, selectedNode.id));
     setPendingCenterNodeId(selectedNode.id);
   }
 
@@ -206,7 +202,7 @@ function Explorer({
       return;
     }
 
-    setState(expandFileNode(fileScope, selectedNode.id));
+    setLocation(expandExplorerItem(location, selectedNode.id));
   }
 
   function returnToFileOverview(): void {
@@ -214,38 +210,34 @@ function Explorer({
       return;
     }
 
-    setState(returnToFileOverviewState(fileScope));
+    setLocation({ ...location, focusedFileId: null, expandedItemIds: new Set() });
   }
 
   function returnToSystemOverview(): void {
-    if (state.scope !== 'workspace-package') {
-      return;
-    }
-
-    setState(returnToSystem(state));
+    setLocation(navigateToStructuralPath(location, territories.system.structuralPath, null));
     setSearchQuery('');
   }
 
   function selectSearchResult(nodeId: string): void {
-    if (!fileScope) {
+    const result = searchResults.find((candidate) => candidate.nodeId === nodeId);
+    if (!result) {
       return;
     }
-
-    setState(selectSearchResultFile(fileScope, nodeId, projection.visibleNodeIds.has(nodeId)));
+    const destination = resolveExplorerSearchDestination(result, territories);
+    if (!destination) {
+      return;
+    }
+    setLocation(navigateToDestination(location, destination));
     setPendingCenterNodeId(nodeId);
     setSearchQuery('');
   }
 
   function openSelectedPackage(): void {
-    if (state.scope !== 'system') {
+    const territory = location.selectedItemId ? territories.territoriesById.get(location.selectedItemId) : undefined;
+    if (!territory) {
       return;
     }
-
-    const packageState = openSelectedWorkspacePackage(state);
-
-    if (packageState) {
-      setState(packageState);
-    }
+    setLocation(navigateToTerritory(location, territory.id, territory.structuralPath));
   }
 
   function fitCurrentGraph(): void {
@@ -290,18 +282,10 @@ function Explorer({
           layoutState={layoutState}
           onInit={setReactFlow}
           onNodeClick={(nodeId) => {
-            if (state.scope === 'system') {
-              setState(selectWorkspacePackage(state, nodeId));
-            } else {
-              setState(selectFileNode(state, nodeId));
-            }
+            setLocation(selectExplorerItem(location, nodeId));
           }}
           onPaneClick={() => {
-            if (state.scope === 'system') {
-              setState(selectWorkspacePackage(state, null));
-            } else {
-              setState(selectFileNode(state, null));
-            }
+            setLocation(selectExplorerItem(location, null));
           }}
         />
         <aside className="details-panel" aria-live="polite">

@@ -1,113 +1,95 @@
-import type { ProjectStructure } from '@bunker-code/graph-engine';
+import type { ExplorerTerritoryProjection } from './explorer-territory-projection.js';
 
-export interface SystemExplorerState {
-  scope: 'system';
-  selectedPackageId: string | null;
+export interface ExplorerLocation {
+  structuralPath: string[];
+  currentTerritoryId: string | null;
+  selectedItemId: string | null;
+  focusedFileId: string | null;
+  expandedItemIds: ReadonlySet<string>;
 }
 
-export interface FileOverviewExplorerState {
-  scope: 'file-overview';
-  selectedNodeId: string | null;
-  focusedNodeId: string | null;
-  expandedNodeIds: ReadonlySet<string>;
+export interface ExplorerDestination {
+  territoryId: string | null;
+  structuralPath: string[];
+  itemId: string;
+  focusFileId?: string;
 }
 
-export interface WorkspacePackageExplorerState {
-  scope: 'workspace-package';
-  packageId: string;
-  selectedNodeId: string | null;
-  focusedNodeId: string | null;
-  expandedNodeIds: ReadonlySet<string>;
-}
-
-export type ExplorerState = SystemExplorerState | FileOverviewExplorerState | WorkspacePackageExplorerState;
-
-export function createInitialExplorerState(structure: ProjectStructure): ExplorerState {
-  return structure.packages.length > 0
-    ? { scope: 'system', selectedPackageId: null }
-    : createFileOverviewExplorerState();
-}
-
-export function createFileOverviewExplorerState(): FileOverviewExplorerState {
+export function createInitialExplorerLocation(projection: ExplorerTerritoryProjection): ExplorerLocation {
   return {
-    scope: 'file-overview',
-    selectedNodeId: null,
-    focusedNodeId: null,
-    expandedNodeIds: new Set(),
+    structuralPath: [...projection.system.structuralPath],
+    currentTerritoryId: null,
+    selectedItemId: null,
+    focusedFileId: null,
+    expandedItemIds: new Set(),
   };
 }
 
-export function selectWorkspacePackage(
-  state: SystemExplorerState,
-  packageId: string | null,
-): SystemExplorerState {
-  return { ...state, selectedPackageId: packageId };
+export function navigateToTerritory(
+  location: ExplorerLocation,
+  territoryId: string,
+  structuralPath: string[],
+): ExplorerLocation {
+  return navigateToStructuralPath(location, structuralPath, territoryId);
 }
 
-export function openSelectedWorkspacePackage(
-  state: SystemExplorerState,
-): WorkspacePackageExplorerState | null {
-  if (!state.selectedPackageId) {
-    return null;
+export function navigateToStructuralPath(
+  location: ExplorerLocation,
+  structuralPath: string[],
+  territoryId: string | null,
+): ExplorerLocation {
+  const nextPath = [...structuralPath];
+
+  if (sameStructuralPath(location.structuralPath, nextPath)) {
+    return { ...location, currentTerritoryId: territoryId, structuralPath: nextPath };
   }
 
   return {
-    scope: 'workspace-package',
-    packageId: state.selectedPackageId,
-    selectedNodeId: null,
-    focusedNodeId: null,
-    expandedNodeIds: new Set(),
+    structuralPath: nextPath,
+    currentTerritoryId: territoryId,
+    selectedItemId: null,
+    focusedFileId: null,
+    expandedItemIds: new Set(),
   };
 }
 
-export function returnToSystem(state: WorkspacePackageExplorerState): SystemExplorerState {
-  return { scope: 'system', selectedPackageId: state.packageId };
-}
-
-export function selectFileNode<TState extends FileOverviewExplorerState | WorkspacePackageExplorerState>(
-  state: TState,
-  nodeId: string | null,
-): TState {
-  return { ...state, selectedNodeId: nodeId };
-}
-
-export function focusFileNode<TState extends FileOverviewExplorerState | WorkspacePackageExplorerState>(
-  state: TState,
-  nodeId: string,
-): TState {
+export function navigateToDestination(location: ExplorerLocation, destination: ExplorerDestination): ExplorerLocation {
+  const navigated = navigateToStructuralPath(location, destination.structuralPath, destination.territoryId);
   return {
-    ...state,
-    selectedNodeId: nodeId,
-    focusedNodeId: nodeId,
-    expandedNodeIds: new Set(),
+    ...navigated,
+    selectedItemId: destination.itemId,
+    focusedFileId: destination.focusFileId ?? null,
+    expandedItemIds: destination.focusFileId ? new Set() : navigated.expandedItemIds,
   };
 }
 
-export function expandFileNode<TState extends FileOverviewExplorerState | WorkspacePackageExplorerState>(
-  state: TState,
-  nodeId: string,
-): TState {
-  return { ...state, expandedNodeIds: new Set([...state.expandedNodeIds, nodeId]) };
+export function selectExplorerItem(location: ExplorerLocation, itemId: string | null): ExplorerLocation {
+  return { ...location, selectedItemId: itemId };
 }
 
-export function returnToFileOverview<TState extends FileOverviewExplorerState | WorkspacePackageExplorerState>(
-  state: TState,
-): TState {
+export function focusExplorerFile(location: ExplorerLocation, fileId: string): ExplorerLocation {
   return {
-    ...state,
-    selectedNodeId: state.focusedNodeId ?? state.selectedNodeId,
-    focusedNodeId: null,
-    expandedNodeIds: new Set(),
+    ...location,
+    selectedItemId: fileId,
+    focusedFileId: fileId,
+    expandedItemIds: new Set(),
   };
 }
 
-export function selectSearchResultFile<
-  TState extends FileOverviewExplorerState | WorkspacePackageExplorerState,
->(
-  state: TState,
-  nodeId: string,
-  isVisible: boolean,
-): TState {
-  const visibleState = isVisible ? state : returnToFileOverview(state);
-  return selectFileNode(visibleState, nodeId);
+export function expandExplorerItem(location: ExplorerLocation, itemId: string): ExplorerLocation {
+  return { ...location, expandedItemIds: new Set([...location.expandedItemIds, itemId]) };
+}
+
+export function workspacePackageIdForLocation(
+  projection: ExplorerTerritoryProjection,
+  location: ExplorerLocation,
+): string | null {
+  const territory = location.currentTerritoryId
+    ? projection.territoriesById.get(location.currentTerritoryId)
+    : projection.system;
+  return territory?.kind === 'workspace-package' ? territory.id : null;
+}
+
+function sameStructuralPath(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((segment, index) => segment === right[index]);
 }

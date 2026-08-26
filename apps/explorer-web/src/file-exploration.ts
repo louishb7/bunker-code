@@ -13,7 +13,7 @@ import type {
 } from '@bunker-code/graph-engine';
 import { workspacePackagePresentationLabels } from './explorer-projection.js';
 import { fileNameFromPath } from './explorer-search.js';
-import type { FileOverviewExplorerState, WorkspacePackageExplorerState } from './explorer-state.js';
+import type { ExplorerLocation } from './explorer-state.js';
 
 export type FileExplorationKind = 'owned-file' | 'contextual-file' | 'project-file' | 'external-module';
 
@@ -59,30 +59,33 @@ export function createFileExploration(
   node: ProjectGraphNode,
   graph: ProjectGraph,
   structure: ProjectStructure,
-  state: FileOverviewExplorerState | WorkspacePackageExplorerState,
+  location: ExplorerLocation,
   visibleNodeIds: ReadonlySet<string>,
 ): FileExploration {
   const nodesById = new Map(graph.nodes.map((graphNode) => [graphNode.id, graphNode] as const));
   const dependencies = getDependencies(graph, node.id);
   const dependents = getDependents(graph, node.id);
   const packageLabels = workspacePackagePresentationLabels(structure.packages);
-  const ownership = fileOwnership(node, structure, state, packageLabels);
-  const ownedFileIds = state.scope === 'workspace-package'
-    ? new Set(getFilesInWorkspacePackage(structure, state.packageId))
+  const ownership = fileOwnership(node, structure, location, packageLabels);
+  const currentPackageId = location.currentTerritoryId && getWorkspacePackage(structure, location.currentTerritoryId)
+    ? location.currentTerritoryId
+    : null;
+  const ownedFileIds = currentPackageId
+    ? new Set(getFilesInWorkspacePackage(structure, currentPackageId))
     : undefined;
   const isOwnedByScope = node.kind === 'file' && (!ownedFileIds || ownedFileIds.has(node.id));
-  const anchorNode = state.focusedNodeId ? nodesById.get(state.focusedNodeId) : undefined;
-  const canFocus = isOwnedByScope && state.focusedNodeId !== node.id;
+  const anchorNode = location.focusedFileId ? nodesById.get(location.focusedFileId) : undefined;
+  const canFocus = isOwnedByScope && location.focusedFileId !== node.id;
   const canExpand = isOwnedByScope
-    && state.focusedNodeId !== null
+    && location.focusedFileId !== null
     && visibleNodeIds.has(node.id)
-    && !state.expandedNodeIds.has(node.id)
+    && !location.expandedItemIds.has(node.id)
     && hasHiddenDirectContext(graph, node.id, visibleNodeIds);
 
   return {
     ...ownership,
-    uses: groupRelationships(dependencies, 'uses', nodesById, structure, state, packageLabels),
-    usedBy: groupRelationships(dependents, 'used-by', nodesById, structure, state, packageLabels),
+    uses: groupRelationships(dependencies, 'uses', nodesById, structure, location, packageLabels),
+    usedBy: groupRelationships(dependents, 'used-by', nodesById, structure, location, packageLabels),
     usesEmptyMessage: node.kind === 'external'
       ? 'No detected outgoing connections from this external module.'
       : 'No detected outgoing connections.',
@@ -99,7 +102,7 @@ export function createFileExploration(
         ? 'This module can be inspected here, but it is not an internal file that can anchor a file-connections view.'
         : !isOwnedByScope
           ? 'This file remains context for the current part, so it cannot anchor a file-connections view here.'
-          : state.focusedNodeId === node.id
+          : location.focusedFileId === node.id
             ? 'This file is already the connection anchor.'
             : undefined,
     anchor: anchorNode ? {
@@ -113,7 +116,7 @@ export function createFileExploration(
 function fileOwnership(
   node: ProjectGraphNode,
   structure: ProjectStructure,
-  state: FileOverviewExplorerState | WorkspacePackageExplorerState,
+  location: ExplorerLocation,
   packageLabels: ReadonlyMap<string, string>,
 ): Pick<FileExploration,
   'kind' | 'presentationLabel' | 'contextLabel' | 'contextExplanation' | 'ownerPartLabel' | 'location' | 'technicalIdentity' | 'technicalKind'> {
@@ -130,7 +133,11 @@ function fileOwnership(
 
   const owner = getWorkspacePackageForFile(structure, node.id);
 
-  if (state.scope === 'file-overview') {
+  const currentPackageId = location.currentTerritoryId && getWorkspacePackage(structure, location.currentTerritoryId)
+    ? location.currentTerritoryId
+    : null;
+
+  if (!currentPackageId) {
     return {
       kind: 'project-file',
       presentationLabel: fileNameFromPath(node.path),
@@ -141,8 +148,8 @@ function fileOwnership(
     };
   }
 
-  const currentPart = getWorkspacePackage(structure, state.packageId);
-  const contextual = owner?.id !== state.packageId;
+  const currentPart = getWorkspacePackage(structure, currentPackageId);
+  const contextual = owner?.id !== currentPackageId;
 
   return {
     kind: contextual ? 'contextual-file' : 'owned-file',
@@ -171,7 +178,7 @@ function groupRelationships(
   direction: 'uses' | 'used-by',
   nodesById: ReadonlyMap<string, ProjectGraphNode>,
   structure: ProjectStructure,
-  state: FileOverviewExplorerState | WorkspacePackageExplorerState,
+  location: ExplorerLocation,
   packageLabels: ReadonlyMap<string, string>,
 ): FileExplorationRelation[] {
   const groups = new Map<string, ProjectGraphEdge[]>();
@@ -202,7 +209,7 @@ function groupRelationships(
       relatedNodeId,
       relatedLabel: relatedNode ? graphNodeLabel(relatedNode) : relatedNodeId,
       relatedContextLabel: relatedNode
-        ? relatedNodeContextLabel(relatedNode, structure, state, packageLabels)
+        ? relatedNodeContextLabel(relatedNode, structure, location, packageLabels)
         : 'Analytical item',
       sourceNodeId: firstOccurrence.sourceNodeId,
       sourceLabel: sourceNode ? graphNodeLabel(sourceNode) : firstOccurrence.sourceNodeId,
@@ -216,19 +223,22 @@ function groupRelationships(
 function relatedNodeContextLabel(
   node: ProjectGraphNode,
   structure: ProjectStructure,
-  state: FileOverviewExplorerState | WorkspacePackageExplorerState,
+  location: ExplorerLocation,
   packageLabels: ReadonlyMap<string, string>,
 ): string {
   if (node.kind === 'external') {
     return 'Outside this analyzed system';
   }
 
-  if (state.scope === 'file-overview') {
+  const currentPackageId = location.currentTerritoryId && getWorkspacePackage(structure, location.currentTerritoryId)
+    ? location.currentTerritoryId
+    : null;
+  if (!currentPackageId) {
     return 'Analyzed file';
   }
 
   const owner = getWorkspacePackageForFile(structure, node.id);
-  return owner?.id === state.packageId
+  return owner?.id === currentPackageId
     ? 'File in this part'
     : owner
       ? `From ${packageLabels.get(owner.id) ?? owner.name ?? owner.rootPath}`

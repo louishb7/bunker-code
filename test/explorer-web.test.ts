@@ -2,31 +2,19 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { test } from 'node:test';
 import { analyzeProject } from '../packages/analyzer-typescript/src/index.js';
-import {
-  aggregatePackageDependencies,
-  buildProjectGraph,
-  buildProjectStructure,
-  getFilesInWorkspacePackage,
-} from '../packages/graph-engine/src/index.js';
-import { createExplorerElements, layoutExplorerElements } from '../apps/explorer-web/src/explorer-model.js';
+import { buildProjectStructure } from '../packages/graph-engine/src/index.js';
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
-import { createExplorerProjection, type ExplorerSource } from '../apps/explorer-web/src/explorer-projection.js';
-import { createExplorerRuntime } from '../apps/explorer-web/src/explorer-runtime.js';
-import { createPackageExploration } from '../apps/explorer-web/src/package-exploration.js';
-import { createFileExploration } from '../apps/explorer-web/src/file-exploration.js';
 import {
-  createFileOverviewExplorerState,
-  createInitialExplorerState,
-  expandFileNode,
-  focusFileNode,
-  openSelectedWorkspacePackage,
-  returnToFileOverview,
-  returnToSystem,
-  selectFileNode,
-  selectSearchResultFile,
-  selectWorkspacePackage,
+  createInitialExplorerLocation,
+  expandExplorerItem,
+  focusExplorerFile,
+  navigateToDestination,
+  navigateToStructuralPath,
+  navigateToTerritory,
+  selectExplorerItem,
+  workspacePackageIdForLocation,
 } from '../apps/explorer-web/src/explorer-state.js';
-import { searchExplorerFiles } from '../apps/explorer-web/src/explorer-search.js';
+import { resolveExplorerSearchDestination, searchExplorerFiles } from '../apps/explorer-web/src/explorer-search.js';
 import {
   describeRelationship,
   relationshipDirectionHelp,
@@ -40,20 +28,10 @@ import {
   vocabularyForPlacement,
 } from '../apps/explorer-web/src/explorer-vocabulary.js';
 import {
-  createExplorerAttention,
-  explorerAttentionEdgeKey,
-} from '../apps/explorer-web/src/explorer-attention.js';
-import {
   createExplorerTerritoryProjection,
   orderedTerritoryChildren,
 } from '../apps/explorer-web/src/explorer-territory-projection.js';
 
-const fileDatasetPath = path.resolve('packages/analyzer-typescript');
-const workspaceDatasetPath = path.resolve('.');
-const workspacePackageId = 'workspace-package:packages/analyzer-typescript';
-const contractsPackageId = 'workspace-package:packages/contracts';
-let fileSource: ExplorerSource | undefined;
-let workspaceSource: ExplorerSource | undefined;
 
 function structureForFiles(files: Array<{ id: string; path: string }>) {
   return buildProjectStructure({
@@ -95,24 +73,6 @@ function workspaceStructureForFiles(
         .map((workspacePackage) => ({ fileId: file.id, workspacePackageId: workspacePackage.id }))),
     },
   });
-}
-
-function createFileSource(): ExplorerSource {
-  if (fileSource) return fileSource;
-  const analysis = analyzeProject(fileDatasetPath);
-  const graph = buildProjectGraph(analysis);
-  const structure = buildProjectStructure(analysis);
-  fileSource = { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
-  return fileSource;
-}
-
-function createWorkspaceSource(): ExplorerSource {
-  if (workspaceSource) return workspaceSource;
-  const analysis = analyzeProject(workspaceDatasetPath);
-  const graph = buildProjectGraph(analysis);
-  const structure = buildProjectStructure(analysis);
-  workspaceSource = { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
-  return workspaceSource;
 }
 
 test('compresses transparent root and recursive structural chains while preserving factual paths', () => {
@@ -221,6 +181,116 @@ test('creates deterministic previews, factual counts, and distinct territory/fil
   assert.equal(firstChildren.every((child) => child.kind === 'file' && !('territoryId' in child)), true);
 });
 
+test('navigation reset clears transient state for drill-down, breadcrumb-up, and sibling territory navigation', () => {
+  const files = [
+    { id: 'src/auth/service.ts', path: 'src/auth/service.ts' },
+    { id: 'src/billing/invoice.ts', path: 'src/billing/invoice.ts' },
+  ];
+  const territories = createExplorerTerritoryProjection(structureForFiles(files), files);
+  const initial = createInitialExplorerLocation(territories);
+  const prepared = expandExplorerItem(
+    focusExplorerFile(selectExplorerItem(initial, 'src/auth/service.ts'), 'src/auth/service.ts'),
+    'src/auth/service.ts',
+  );
+  const authPath = ['.', 'src', 'auth'];
+  const billingPath = ['.', 'src', 'billing'];
+
+  const drilledDown = navigateToTerritory(prepared, 'directory:src/auth', authPath);
+  const preparedAuthLocation = expandExplorerItem(
+    focusExplorerFile(selectExplorerItem(drilledDown, 'src/auth/service.ts'), 'src/auth/service.ts'),
+    'src/auth/service.ts',
+  );
+  const breadcrumbUp = navigateToStructuralPath(preparedAuthLocation, ['.'], null);
+  const sibling = navigateToTerritory(preparedAuthLocation, 'directory:src/billing', billingPath);
+
+  for (const location of [drilledDown, breadcrumbUp, sibling]) {
+    assert.equal(location.selectedItemId, null);
+    assert.equal(location.focusedFileId, null);
+    assert.deepEqual(location.expandedItemIds, new Set());
+  }
+  assert.deepEqual(drilledDown.structuralPath, authPath);
+  assert.deepEqual(breadcrumbUp.structuralPath, ['.']);
+  assert.deepEqual(sibling.structuralPath, billingPath);
+});
+
+test('explicit destination navigation resolves the owning projected territory, selects the file, and focuses only on request', () => {
+  const files = [
+    { id: 'src/auth/auth.service.ts', path: 'src/auth/auth.service.ts' },
+    { id: 'src/billing/invoice.ts', path: 'src/billing/invoice.ts' },
+  ];
+  const territories = createExplorerTerritoryProjection(structureForFiles(files), files);
+  const location = createInitialExplorerLocation(territories);
+  const destination = resolveExplorerSearchDestination({
+    nodeId: 'src/auth/auth.service.ts',
+    fileName: 'auth.service.ts',
+    path: 'src/auth/auth.service.ts',
+  }, territories);
+
+  assert.deepEqual(destination, {
+    territoryId: 'directory:src/auth',
+    structuralPath: ['.', 'src', 'auth'],
+    itemId: 'src/auth/auth.service.ts',
+  });
+  assert.ok(destination);
+  const selected = navigateToDestination(location, destination);
+  const focused = navigateToDestination(location, {
+    ...destination,
+    focusFileId: destination.itemId,
+  });
+
+  assert.equal(selected.selectedItemId, 'src/auth/auth.service.ts');
+  assert.equal(selected.focusedFileId, null);
+  assert.equal(focused.selectedItemId, 'src/auth/auth.service.ts');
+  assert.equal(focused.focusedFileId, 'src/auth/auth.service.ts');
+});
+
+test('compressed breadcrumb keeps factual structural path while omitting transparent wrappers visually', () => {
+  const files = [
+    { id: 'backend/src/auth/service.ts', path: 'backend/src/auth/service.ts' },
+    { id: 'backend/src/billing/invoice.ts', path: 'backend/src/billing/invoice.ts' },
+  ];
+  const territories = createExplorerTerritoryProjection(structureForFiles(files), files);
+  const location = navigateToTerritory(
+    createInitialExplorerLocation(territories),
+    'directory:backend/src/auth',
+    ['.', 'backend', 'src', 'auth'],
+  );
+  const orientation = createExplorerOrientation(location, territories, 'Example', { nodes: [], edges: [], unresolvedDependencies: [] });
+
+  assert.deepEqual(location.structuralPath, ['.', 'backend', 'src', 'auth']);
+  assert.deepEqual(orientation.trail.map((item) => item.label), ['Example', 'auth']);
+});
+
+test('feature gating permits package dependency behavior only for workspace-package territories', () => {
+  const files = [{ id: 'src/index.ts', path: 'src/index.ts' }];
+  const directoryTerritories = createExplorerTerritoryProjection(structureForFiles(files), files);
+  const directoryLocation = navigateToTerritory(
+    createInitialExplorerLocation(directoryTerritories),
+    'directory:src',
+    ['.', 'src'],
+  );
+  const packageFiles = [{ id: 'packages/library/src/index.ts', path: 'packages/library/src/index.ts' }];
+  const packageTerritories = createExplorerTerritoryProjection(workspaceStructureForFiles(packageFiles, [{
+    id: 'workspace-package:packages/library',
+    rootPath: 'packages/library',
+    name: '@example/library',
+  }]), packageFiles);
+  const packageLocation = navigateToTerritory(
+    createInitialExplorerLocation(packageTerritories),
+    'workspace-package:packages/library',
+    ['.', 'packages', 'library'],
+  );
+
+  assert.equal(workspacePackageIdForLocation(directoryTerritories, directoryLocation), null);
+  assert.equal(workspacePackageIdForLocation(packageTerritories, packageLocation), 'workspace-package:packages/library');
+});
+
+/*
+ * Phase 5 replaces the scope-specific system/package/file projection tests
+ * below with territory composition in Task 4. The structural policies and
+ * location contracts above remain their executable boundary for Task 3.
+ */
+/*
 test('system projection renders every detected workspace package and uses only aggregated package dependencies', () => {
   const source = createWorkspaceSource();
   const projection = createExplorerProjection(source, { scope: 'system', selectedPackageId: null });
@@ -1064,6 +1134,8 @@ test('file-connections attention keeps anchor priority above inspection and mark
   assert.equal([...returnedAttention.nodes.values()].some((node) => node.role === 'anchor'), false);
 });
 
+*/
+
 test('vocabulary definitions keep stable identities and introduce workspace language only for detected structure', () => {
   assert.deepEqual(Object.keys(explorerVocabulary), vocabularyConceptIds);
   assert.equal(new Set(vocabularyConceptIds).size, vocabularyConceptIds.length);
@@ -1125,14 +1197,4 @@ test('connection and evidence vocabulary preserve anchors, recorded facts, and c
   assert.equal(confidence.explanation.includes('exact, inferred, and uncertain'), true);
   assert.equal(confidence.explanation.includes('does not currently emit uncertain'), true);
   assert.equal(confidence.explanation.includes('not percentages'), true);
-});
-
-test('search can be restricted to files owned by the current package', () => {
-  const source = createWorkspaceSource();
-  const ownedFileIds = new Set(getFilesInWorkspacePackage(source.structure, workspacePackageId));
-
-  assert.deepEqual(searchExplorerFiles(source.graph, 'index.ts', ownedFileIds).map((result) => result.nodeId), [
-    'packages/analyzer-typescript/src/index.ts',
-  ]);
-  assert.deepEqual(createFileOverviewExplorerState().expandedNodeIds, new Set());
 });

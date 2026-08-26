@@ -14,7 +14,7 @@ import type {
   ProjectStructure,
 } from '@bunker-code/graph-engine';
 import type { WorkspacePackage } from '@bunker-code/contracts';
-import type { ExplorerState, FileOverviewExplorerState, WorkspacePackageExplorerState } from './explorer-state.js';
+import type { ExplorerLocation } from './explorer-state.js';
 
 export interface ExplorerSource {
   graph: ProjectGraph;
@@ -83,16 +83,16 @@ export interface ExplorerProjection {
 }
 
 /** Derives either the declared-workspace system map or the existing file-level map. */
-export function createExplorerProjection(source: ExplorerSource, state: ExplorerState): ExplorerProjection {
-  if (state.scope === 'system') {
+export function createExplorerProjection(source: ExplorerSource, location: ExplorerLocation): ExplorerProjection {
+  if (!location.currentTerritoryId) {
     return systemProjection(source);
   }
 
-  if (state.scope === 'workspace-package') {
-    return workspacePackageProjection(source, state);
+  if (getWorkspacePackage(source.structure, location.currentTerritoryId)) {
+    return workspacePackageProjection(source, location);
   }
 
-  return fileProjection(source, state, new Set(
+  return fileProjection(source, location, new Set(
     source.graph.nodes.filter((node): node is FileGraphNode => node.kind === 'file').map((node) => node.id),
   ));
 }
@@ -139,38 +139,42 @@ function systemProjection(source: ExplorerSource): ExplorerProjection {
   };
 }
 
-function workspacePackageProjection(source: ExplorerSource, state: WorkspacePackageExplorerState): ExplorerProjection {
-  if (!getWorkspacePackage(source.structure, state.packageId)) {
-    throw new Error(`Workspace package not found in project structure: ${state.packageId}`);
+function workspacePackageProjection(source: ExplorerSource, location: ExplorerLocation): ExplorerProjection {
+  if (!location.currentTerritoryId || !getWorkspacePackage(source.structure, location.currentTerritoryId)) {
+    throw new Error(`Workspace package not found in project structure: ${location.currentTerritoryId ?? 'root'}`);
   }
 
-  const ownedFileIds = new Set(getFilesInWorkspacePackage(source.structure, state.packageId));
-  return fileProjection(source, state, ownedFileIds);
+  const ownedFileIds = new Set(getFilesInWorkspacePackage(source.structure, location.currentTerritoryId));
+  return fileProjection(source, location, ownedFileIds);
 }
 
 function fileProjection(
   source: ExplorerSource,
-  state: FileOverviewExplorerState | WorkspacePackageExplorerState,
+  location: ExplorerLocation,
   ownedFileIds: ReadonlySet<string>,
 ): ExplorerProjection {
-  if (!state.focusedNodeId) {
+  const currentPackageId = location.currentTerritoryId && getWorkspacePackage(source.structure, location.currentTerritoryId)
+    ? location.currentTerritoryId
+    : null;
+
+  if (!location.focusedFileId) {
     const visibleNodeIds = new Set(ownedFileIds);
 
-    if (state.scope === 'workspace-package') {
-      addCrossPackageFileContext(source, state.packageId, visibleNodeIds);
+    if (currentPackageId) {
+      addCrossPackageFileContext(source, currentPackageId, visibleNodeIds);
     }
 
-    return projectionFromVisibleNodeIds(source, 'overview', visibleNodeIds, state.scope === 'workspace-package' ? state.packageId : null);
+    return projectionFromVisibleNodeIds(source, 'overview', visibleNodeIds, currentPackageId);
   }
 
-  if (!ownedFileIds.has(state.focusedNodeId)) {
-    throw new Error(`Focus target file is outside the current file scope: ${state.focusedNodeId}`);
+  if (!ownedFileIds.has(location.focusedFileId)) {
+    throw new Error(`Focus target file is outside the current territory: ${location.focusedFileId}`);
   }
 
-  const visibleNodeIds = new Set<string>([state.focusedNodeId]);
-  addDirectContext(source.graph, state.focusedNodeId, visibleNodeIds);
+  const visibleNodeIds = new Set<string>([location.focusedFileId]);
+  addDirectContext(source.graph, location.focusedFileId, visibleNodeIds);
 
-  for (const expandedNodeId of [...state.expandedNodeIds].sort()) {
+  for (const expandedNodeId of [...location.expandedItemIds].sort()) {
     if (ownedFileIds.has(expandedNodeId)) {
       addDirectContext(source.graph, expandedNodeId, visibleNodeIds);
     }
@@ -180,7 +184,7 @@ function fileProjection(
     source,
     'focus',
     visibleNodeIds,
-    state.scope === 'workspace-package' ? state.packageId : null,
+    currentPackageId,
   );
 }
 

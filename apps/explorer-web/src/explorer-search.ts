@@ -1,4 +1,6 @@
 import type { FileGraphNode, ProjectGraph } from '@bunker-code/graph-engine';
+import type { ExplorerTerritoryProjection } from './explorer-territory-projection.js';
+import type { ExplorerDestination } from './explorer-state.js';
 
 export interface ExplorerSearchResult {
   nodeId: string;
@@ -28,4 +30,28 @@ export function searchExplorerFiles(
 
 export function fileNameFromPath(path: string): string {
   return path.split('/').at(-1) ?? path;
+}
+
+export function resolveExplorerSearchDestination(
+  result: ExplorerSearchResult,
+  territories: ExplorerTerritoryProjection,
+): ExplorerDestination | null {
+  const filePath = ['.', ...result.path.split('/')];
+  const owner = [...territories.territoriesById.values()]
+    .filter((territory) => territory.kind !== 'system' && isStructuralAncestor(territory.structuralPath, filePath))
+    .sort((left, right) => right.structuralPath.length - left.structuralPath.length || left.id.localeCompare(right.id))[0];
+
+  if (!owner) {
+    return null;
+  }
+
+  return {
+    territoryId: owner.id,
+    structuralPath: [...owner.structuralPath],
+    itemId: result.nodeId,
+  };
+}
+
+function isStructuralAncestor(ancestor: readonly string[], descendant: readonly string[]): boolean {
+  return ancestor.length <= descendant.length && ancestor.every((segment, index) => segment === descendant[index]);
 }
