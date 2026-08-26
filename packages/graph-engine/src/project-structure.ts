@@ -243,6 +243,24 @@ export function buildProjectStructure(analysis: AnalysisResult): ProjectStructur
   const directoryUnits = createDirectoryUnits(analysis, packages);
   const analysisTargetContainments = createAnalysisTargetContainments(analysis);
   const filesystemContainments = createFilesystemContainments(analysis, directoryUnits);
+  const pnpmContainments: StructuralContainment[] = [
+    ...packages.map((workspacePackage) => ({
+      parentUnitId: ANALYSIS_ROOT_ID,
+      child: {
+        kind: 'structural-unit' as const,
+        structuralUnitId: workspacePackage.id,
+      },
+      source: 'pnpm-workspace' as const,
+    })),
+    ...fileMemberships.map((membership) => ({
+      parentUnitId: membership.workspacePackageId,
+      child: {
+        kind: 'file' as const,
+        fileId: membership.fileId,
+      },
+      source: 'pnpm-workspace' as const,
+    })),
+  ];
   const analysisRoot: AnalysisRootStructuralUnit = {
     id: ANALYSIS_ROOT_ID,
     kind: 'analysis-root',
@@ -266,8 +284,12 @@ export function buildProjectStructure(analysis: AnalysisResult): ProjectStructur
     .sort();
   const structure: ProjectStructure = {
     rootUnitId: ANALYSIS_ROOT_ID,
-    units: [analysisRoot, ...directoryUnits].sort(compareStructuralUnits),
-    containments: [...analysisTargetContainments, ...filesystemContainments].sort(compareContainments),
+    units: [analysisRoot, ...directoryUnits, ...packages].sort(compareStructuralUnits),
+    containments: [
+      ...analysisTargetContainments,
+      ...filesystemContainments,
+      ...pnpmContainments,
+    ].sort(compareContainments),
     sourceReports,
     packages,
     fileMemberships,

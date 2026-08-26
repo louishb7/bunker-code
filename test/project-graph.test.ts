@@ -13,6 +13,8 @@ import {
   getDependents,
   getFilesInWorkspacePackage,
   getIsolatedFileNodes,
+  getWorkspacePackage,
+  getWorkspacePackages,
   getWorkspacePackageForFile,
   getTransitiveDependents,
 } from '../packages/graph-engine/src/index.js';
@@ -342,6 +344,70 @@ test('detects PNPM workspace containment and aggregates evidence-backed package 
   ]);
   assert.equal(structure.packages.some((workspacePackage) => workspacePackage.rootPath === 'packages/excluded-package'), false);
   assert.equal(structure.packages.some((workspacePackage) => workspacePackage.rootPath === 'packages/no-manifest'), false);
+  const directoryPaths = structure.units
+    .filter((unit) => unit.kind === 'directory')
+    .map((unit) => unit.rootPath);
+  const workspaceUnits = structure.units.filter((unit) => unit.kind === 'workspace-package');
+  const pnpmContainments = structure.containments.filter((containment) => (
+    containment.source === 'pnpm-workspace'
+  ));
+
+  assert.deepEqual(directoryPaths, [
+    'apps',
+    'apps/application',
+    'apps/application/src',
+    'packages',
+    'packages/empty',
+    'packages/isolated',
+    'packages/isolated/src',
+    'packages/library',
+    'packages/library/src',
+  ]);
+  assert.deepEqual(workspaceUnits, structure.packages);
+  assert.equal(
+    structure.units.some((unit) => unit.id === 'directory:packages/empty'),
+    true,
+  );
+  assert.equal(
+    structure.units.some((unit) => unit.id === 'workspace-package:packages/empty'),
+    true,
+  );
+  assert.equal(
+    structure.units.filter((unit) => unit.rootPath === 'packages/library').length,
+    2,
+  );
+  assert.equal(
+    pnpmContainments.some((containment) => (
+      containment.parentUnitId === 'workspace-package:packages/library'
+      && containment.child.kind === 'file'
+      && containment.child.fileId === 'packages/library/src/first.ts'
+    )),
+    true,
+  );
+  assert.equal(
+    pnpmContainments.some((containment) => (
+      containment.parentUnitId.startsWith('workspace-package:')
+      && containment.child.kind === 'structural-unit'
+      && containment.child.structuralUnitId.startsWith('directory:')
+    )),
+    false,
+  );
+  assert.deepEqual(
+    structure.sourceReports.find((report) => report.source === 'pnpm-workspace'),
+    { source: 'pnpm-workspace', status: 'reported' },
+  );
+  assert.ok(first.structure);
+  const reorderedStructure = buildProjectStructure({
+    ...first,
+    files: [...first.files].reverse(),
+    structure: {
+      packages: [...first.structure.packages].reverse(),
+      fileMemberships: [...first.structure.fileMemberships].reverse(),
+    },
+  });
+  assert.equal(JSON.stringify(reorderedStructure), JSON.stringify(structure));
+  assert.deepEqual(getWorkspacePackages(structure), structure.packages);
+  assert.equal(getWorkspacePackage(structure, applicationPackageId)?.id, applicationPackageId);
   assert.equal(getWorkspacePackageForFile(structure, 'apps/application/src/main.ts')?.id, applicationPackageId);
   assert.equal(getWorkspacePackageForFile(structure, 'orphan.ts'), undefined);
   assert.deepEqual(getFilesInWorkspacePackage(structure, libraryPackageId), [
@@ -400,8 +466,46 @@ test('keeps containment queries tolerant of inconsistent structural snapshot mem
   assert.deepEqual(structure.fileMemberships, [
     { fileId: 'src/a.ts', workspacePackageId: 'workspace-package:packages/example' },
   ]);
+  assert.deepEqual(
+    structure.containments
+      .filter((containment) => containment.source === 'pnpm-workspace')
+      .filter((containment) => containment.child.kind === 'file'),
+    [{
+      parentUnitId: 'workspace-package:packages/example',
+      child: { kind: 'file', fileId: 'src/a.ts' },
+      source: 'pnpm-workspace',
+    }],
+  );
+  assert.deepEqual(structure.unassignedFileIds, ['src/b.ts', 'src/c.ts', 'src/isolated.ts']);
   assert.equal(getWorkspacePackageForFile(structure, 'src/a.ts')?.id, 'workspace-package:packages/example');
   assert.equal(getWorkspacePackageForFile(structure, 'src/b.ts'), undefined);
+});
+
+test('keeps a root workspace package distinct from the analysis root', () => {
+  const workspacePackage = {
+    id: 'workspace-package:.',
+    kind: 'workspace-package' as const,
+    origin: 'detected' as const,
+    rootPath: '.',
+    evidence: [],
+  };
+  const structure = buildProjectStructure({
+    ...analysisWithFiles([{ id: 'main.ts', path: 'main.ts' }]),
+    structure: { packages: [workspacePackage], fileMemberships: [] },
+  });
+
+  assert.equal(structure.units.some((unit) => unit.id === 'analysis-root:.'), true);
+  assert.equal(structure.units.some((unit) => unit.id === 'workspace-package:.'), true);
+  assert.equal(structure.units.some((unit) => unit.id === 'directory:.'), false);
+  assert.equal(
+    structure.containments.some((containment) => (
+      containment.source === 'pnpm-workspace'
+      && containment.parentUnitId === 'analysis-root:.'
+      && containment.child.kind === 'structural-unit'
+      && containment.child.structuralUnitId === 'workspace-package:.'
+    )),
+    true,
+  );
 });
 
 test('queries dependencies, dependents, isolated files and cycles', () => {
