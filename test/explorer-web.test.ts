@@ -43,6 +43,10 @@ import {
   createExplorerAttention,
   explorerAttentionEdgeKey,
 } from '../apps/explorer-web/src/explorer-attention.js';
+import {
+  createExplorerTerritoryProjection,
+  orderedTerritoryChildren,
+} from '../apps/explorer-web/src/explorer-territory-projection.js';
 
 const fileDatasetPath = path.resolve('packages/analyzer-typescript');
 const workspaceDatasetPath = path.resolve('.');
@@ -64,6 +68,35 @@ function structureForFiles(files: Array<{ id: string; path: string }>) {
   });
 }
 
+function workspaceStructureForFiles(
+  files: Array<{ id: string; path: string }>,
+  packages: Array<{ id: string; rootPath: string; name?: string }>,
+) {
+  return buildProjectStructure({
+    schemaVersion: 1,
+    analyzer: { name: 'explorer-test', language: 'typescript' },
+    projectPath: '.',
+    workspaceConfigurationPath: 'pnpm-workspace.yaml',
+    files,
+    dependencies: [],
+    unresolvedDependencies: [],
+    diagnostics: [],
+    structure: {
+      packages: packages.map((workspacePackage) => ({
+        ...workspacePackage,
+        kind: 'workspace-package' as const,
+        origin: 'detected' as const,
+        evidence: [],
+      })),
+      fileMemberships: files.flatMap((file) => packages
+        .filter((workspacePackage) => (
+          workspacePackage.rootPath === '.' || file.path.startsWith(`${workspacePackage.rootPath}/`)
+        ))
+        .map((workspacePackage) => ({ fileId: file.id, workspacePackageId: workspacePackage.id }))),
+    },
+  });
+}
+
 function createFileSource(): ExplorerSource {
   if (fileSource) return fileSource;
   const analysis = analyzeProject(fileDatasetPath);
@@ -81,6 +114,112 @@ function createWorkspaceSource(): ExplorerSource {
   workspaceSource = { graph, structure, packageDependencies: aggregatePackageDependencies(graph, structure) };
   return workspaceSource;
 }
+
+test('compresses transparent root and recursive structural chains while preserving factual paths', () => {
+  const rootChainFiles = [
+    { id: 'backend/src/auth/auth.ts', path: 'backend/src/auth/auth.ts' },
+    { id: 'backend/src/cases/case.ts', path: 'backend/src/cases/case.ts' },
+    { id: 'backend/src/users/user.ts', path: 'backend/src/users/user.ts' },
+  ];
+  const rootChain = createExplorerTerritoryProjection(structureForFiles(rootChainFiles), rootChainFiles);
+
+  assert.deepEqual(orderedTerritoryChildren(rootChain, null), [
+    { kind: 'territory', territoryId: 'directory:backend/src/auth', structuralPath: ['.', 'backend', 'src', 'auth'], label: 'auth', isDrillable: true },
+    { kind: 'territory', territoryId: 'directory:backend/src/cases', structuralPath: ['.', 'backend', 'src', 'cases'], label: 'cases', isDrillable: true },
+    { kind: 'territory', territoryId: 'directory:backend/src/users', structuralPath: ['.', 'backend', 'src', 'users'], label: 'users', isDrillable: true },
+  ]);
+  assert.equal(rootChain.system.analyzedFileCount, 3);
+  assert.equal(rootChain.system.directChildTerritoryCount, 3);
+  assert.equal(rootChain.system.isDrillable, true);
+
+  const recursiveFiles = [
+    { id: 'api/internal/src/auth/auth.ts', path: 'api/internal/src/auth/auth.ts' },
+    { id: 'api/internal/src/users/user.ts', path: 'api/internal/src/users/user.ts' },
+  ];
+  const recursive = createExplorerTerritoryProjection(structureForFiles(recursiveFiles), recursiveFiles);
+  assert.deepEqual(orderedTerritoryChildren(recursive, null).map((child) => child.structuralPath), [
+    ['.', 'api', 'internal', 'src', 'auth'],
+    ['.', 'api', 'internal', 'src', 'users'],
+  ]);
+
+  const blockedFiles = [
+    { id: 'backend/src/index.ts', path: 'backend/src/index.ts' },
+    { id: 'backend/src/auth/auth.ts', path: 'backend/src/auth/auth.ts' },
+  ];
+  const blocked = createExplorerTerritoryProjection(structureForFiles(blockedFiles), blockedFiles);
+  assert.deepEqual(orderedTerritoryChildren(blocked, null).map((child) => child.territoryId), [
+    'directory:backend/src',
+  ]);
+  assert.deepEqual(orderedTerritoryChildren(blocked, 'directory:backend/src').map((child) => child.kind), [
+    'territory',
+    'file',
+  ]);
+});
+
+test('uses workspace-package precedence without replacing System or creating a package-directory child', () => {
+  const packageFiles = [{ id: 'packages/library/src/index.ts', path: 'packages/library/src/index.ts' }];
+  const libraryPackageId = 'workspace-package:packages/library';
+  const precedence = createExplorerTerritoryProjection(workspaceStructureForFiles(packageFiles, [{
+    id: libraryPackageId,
+    rootPath: 'packages/library',
+    name: '@example/library',
+  }]), packageFiles);
+
+  assert.deepEqual(orderedTerritoryChildren(precedence, null), [{
+    kind: 'territory',
+    territoryId: libraryPackageId,
+    structuralPath: ['.', 'packages', 'library'],
+    label: '@example/library',
+    isDrillable: true,
+  }]);
+  assert.equal(orderedTerritoryChildren(precedence, libraryPackageId).some((child) => (
+    child.kind === 'territory' && child.territoryId === 'directory:packages/library'
+  )), false);
+
+  const rootPackage = createExplorerTerritoryProjection(workspaceStructureForFiles(packageFiles, [{
+    id: 'workspace-package:.',
+    rootPath: '.',
+    name: '@example/root',
+  }]), packageFiles);
+  assert.equal(rootPackage.system.id, 'analysis-root:.');
+  assert.equal(rootPackage.system.kind, 'system');
+  assert.equal(rootPackage.territoriesById.has('workspace-package:.'), false);
+});
+
+test('creates deterministic previews, factual counts, and distinct territory/file children', () => {
+  const files = ['z', 'a', 'f', 'b', 'e', 'c'].map((name) => ({
+    id: `src/${name}.ts`,
+    path: `src/${name}.ts`,
+  }));
+  const first = createExplorerTerritoryProjection(structureForFiles(files), files);
+  const second = createExplorerTerritoryProjection(structureForFiles([...files].reverse()), [...files].reverse());
+  const srcId = 'directory:src';
+  const firstChildren = orderedTerritoryChildren(first, srcId);
+  const secondChildren = orderedTerritoryChildren(second, srcId);
+  const src = first.territoriesById.get(srcId);
+
+  assert.ok(src);
+  assert.deepEqual(firstChildren, secondChildren);
+  assert.deepEqual(firstChildren.map((child) => child.fileId), [
+    'src/a.ts',
+    'src/b.ts',
+    'src/c.ts',
+    'src/e.ts',
+    'src/f.ts',
+    'src/z.ts',
+  ]);
+  assert.deepEqual(src.previewItems.map((item) => item.fileId), [
+    'src/a.ts',
+    'src/b.ts',
+    'src/c.ts',
+    'src/e.ts',
+  ]);
+  assert.equal(src.omittedPreviewItemCount, 2);
+  assert.equal(src.analyzedFileCount, 6);
+  assert.equal(src.directChildTerritoryCount, 0);
+  assert.equal(src.isDrillable, true);
+  assert.equal(firstChildren.every((child) => child.kind === 'file' && !('territoryId' in child)), true);
+});
 
 test('system projection renders every detected workspace package and uses only aggregated package dependencies', () => {
   const source = createWorkspaceSource();
