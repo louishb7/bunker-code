@@ -1,6 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { Project, type SourceFile } from 'ts-morph';
+import type { Project, SourceFile } from 'ts-morph';
 import { ANALYSIS_SCHEMA_VERSION } from './analysis-result.js';
 import { detectPnpmWorkspace, type DetectedPnpmWorkspace } from './pnpm-workspace.js';
 import type {
@@ -11,6 +11,7 @@ import type {
   ResolvedDependency,
   UnresolvedDependency,
 } from './analysis-result.js';
+import { createTypeScriptAnalysisSession } from './typescript-analysis-session.js';
 
 function normalizeProjectPath(projectPath: string, filePath: string): string {
   return path.relative(projectPath, filePath).replaceAll('\\', '/');
@@ -29,14 +30,6 @@ interface PathAliasPattern {
   prefix: string;
   suffix: string;
   hasWildcard: boolean;
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function sortByPath<T extends { path: string }>(items: T[]): T[] {
-  return [...items].sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function sortByDependency<
@@ -199,31 +192,9 @@ function createAnalysisResult(
   includeSourceFile: (sourceFilePath: string) => boolean,
   configuration: { tsconfigPath?: string; workspaceConfigurationPath?: string },
 ): AnalysisResult {
-  const projects = tsconfigPaths.map((tsconfigPath) => {
-    try {
-      return new Project({ tsConfigFilePath: tsconfigPath });
-    } catch (error) {
-      throw new Error(`Invalid TypeScript project configuration: ${getErrorMessage(error)}`);
-    }
-  });
-  const sourceFiles = new Map<string, SourceFile>();
-
-  for (const project of projects) {
-    for (const sourceFile of project.getSourceFiles()) {
-      const sourceFilePath = normalizeProjectPath(projectPath, sourceFile.getFilePath());
-
-      if (includeSourceFile(sourceFilePath)) {
-        sourceFiles.set(sourceFilePath, sourceFile);
-      }
-    }
-  }
-
-  const files: AnalyzedFile[] = sortByPath(
-    [...sourceFiles.entries()].map(([sourceFilePath]) => ({
-      id: sourceFilePath,
-      path: sourceFilePath,
-    })),
-  );
+  const session = createTypeScriptAnalysisSession(projectPath, tsconfigPaths, includeSourceFile);
+  const sourceFiles = session.sourceFiles;
+  const files: AnalyzedFile[] = session.files;
   const analyzedSourceFileIds = new Set(files.map((file) => file.id));
   const dependencies: ResolvedDependency[] = [];
   const unresolvedDependencies: UnresolvedDependency[] = [];

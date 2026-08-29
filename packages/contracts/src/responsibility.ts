@@ -1,4 +1,4 @@
-import type { AnalysisAnalyzerMetadata, SourceLocation } from './index.js';
+import type { AnalysisAnalyzerMetadata, SourceLocation } from './analysis.js';
 
 export const RESPONSIBILITY_TAXONOMY = [
   { family: 'interface', responsibility: 'http-entry-point' },
@@ -28,6 +28,7 @@ export interface FileResponsibilitySubject {
   id: string;
   kind: 'file';
   fileId: string;
+  location: SourceLocation;
 }
 
 export interface SymbolResponsibilitySubject {
@@ -38,6 +39,7 @@ export interface SymbolResponsibilitySubject {
   symbolId: string;
   fileId: string;
   name: string;
+  location: SourceLocation;
 }
 
 export type ResponsibilitySubject = FileResponsibilitySubject | SymbolResponsibilitySubject;
@@ -57,10 +59,15 @@ export interface ResponsibilityEvidence {
   id: string;
   kind: ResponsibilityEvidenceKind;
   /** Concrete technology observed by the detector, never a canonical responsibility. */
-  technology: string;
+  technology: ResponsibilityTechnology;
   /** Concrete source-level signal observed by the detector. */
   signal: string;
   location: SourceLocation;
+}
+
+export interface ResponsibilityTechnology {
+  id: string;
+  displayName: string;
 }
 
 export interface ResponsibilityProvenance {
@@ -89,7 +96,7 @@ export type ResponsibilityEvaluationStatus =
 export type ResponsibilityEvaluationScope =
   | { kind: 'project' }
   | { kind: 'file'; fileId: string }
-  | { kind: 'subject'; subject: ResponsibilitySubject };
+  | { kind: 'subject'; subjectId: string; fileId: string };
 
 export interface ResponsibilityLimitation {
   /** Stable analyzer-defined identity for this coverage limitation. */
@@ -106,41 +113,42 @@ export interface ResponsibilityEvaluationFailure {
   evidence?: ResponsibilityEvidence[];
 }
 
-interface ResponsibilityEvaluationBase {
-  limitationIds?: string[];
-}
-
 export type ResponsibilityEvaluation =
-  | (ResponsibilityEvaluationBase & {
-    status: Exclude<ResponsibilityEvaluationStatus, 'failed'>;
-  })
-  | (ResponsibilityEvaluationBase & {
-    status: 'failed';
-    failure: ResponsibilityEvaluationFailure;
-  });
+  | { status: 'evaluated'; limitationIds: string[] }
+  | { status: 'partially-evaluated'; limitationIds: [string, ...string[]] }
+  | { status: 'not-evaluated' }
+  | { status: 'unsupported' }
+  | { status: 'failed'; failure: ResponsibilityEvaluationFailure; limitationIds: string[] };
 
 export type ResponsibilityCoverage = ResponsibilityEvaluation & {
   capability: Responsibility;
   scope: ResponsibilityEvaluationScope;
 };
 
-export type DetectorExecutionStatus = ResponsibilityEvaluationStatus | 'not-applicable';
+export type DetectorExecutionStatus =
+  | 'evaluated'
+  | 'partially-evaluated'
+  | 'not-evaluated'
+  | 'not-applicable'
+  | 'failed';
 
 export interface DetectorIdentity {
   id: string;
   version: string;
 }
 
-export type DetectorExecution = (ResponsibilityEvaluation | {
-  status: 'not-applicable';
-}) & {
+export type DetectorExecution = (
+  | { status: 'evaluated'; findingIds: string[]; limitationIds: string[] }
+  | { status: 'partially-evaluated'; findingIds: string[]; limitationIds: [string, ...string[]] }
+  | { status: 'not-evaluated' }
+  | { status: 'not-applicable' }
+  | { status: 'failed'; failure: ResponsibilityEvaluationFailure; findingIds: string[]; limitationIds: string[] }
+) & {
   /** Stable analyzer-defined identity for this detector execution. */
   id: string;
   detector: DetectorIdentity;
   capability: Responsibility;
   scope: ResponsibilityEvaluationScope;
-  findingIds?: string[];
-  limitationIds?: string[];
 };
 
 export const RESPONSIBILITY_ANALYSIS_SCHEMA_VERSION = 1;
