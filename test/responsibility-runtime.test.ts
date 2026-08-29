@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import type { ResponsibilityDetector } from '../packages/analyzer-typescript/src/responsibility-detectors/detector.js';
 import { analyzeResponsibilitiesWithSession } from '../packages/analyzer-typescript/src/responsibility-detectors/runtime.js';
 import { createTypeScriptAnalysisSession } from '../packages/analyzer-typescript/src/typescript-analysis-session.js';
-import { analyzeTypeScriptTarget } from '../packages/analyzer-typescript/src/index.js';
+import { analyzeProject, analyzeTypeScriptTarget } from '../packages/analyzer-typescript/src/index.js';
 
 const fixturePath = path.resolve('fixtures/simple-import');
 
@@ -54,6 +54,23 @@ test('aggregates deterministic detector outcomes without reparsing the TypeScrip
   assert.equal(httpExecution?.findingIds[0], 'finding:http');
 });
 
+test('preserves every deterministic failure cause when no detector evaluates a capability', () => {
+  const session = createTypeScriptAnalysisSession(fixturePath, [path.join(fixturePath, 'tsconfig.json')], () => true);
+  const detectors: ResponsibilityDetector[] = [
+    { detector: { id: 'test.failure-a', version: '1' }, capability: 'rpc-entry-point', analyze: () => ({ status: 'failed', findings: [], limitations: [], failure: { code: 'a', message: 'Failure A.' } }) },
+    { detector: { id: 'test.failure-b', version: '1' }, capability: 'rpc-entry-point', analyze: () => ({ status: 'failed', findings: [], limitations: [], failure: { code: 'b', message: 'Failure B.' } }) },
+  ];
+  const first = analyzeResponsibilitiesWithSession(session, detectors);
+  const reversed = analyzeResponsibilitiesWithSession(session, [...detectors].reverse());
+  const coverage = first.coverage.find((item) => item.capability === 'rpc-entry-point');
+
+  assert.deepEqual(first, reversed);
+  assert.equal(coverage?.status, 'failed');
+  assert.equal(first.limitations.filter((limitation) => limitation.code === 'detector-failed').length, 2);
+  assert.equal(first.limitations.some((limitation) => limitation.message.includes('Failure A.')), true);
+  assert.equal(first.limitations.some((limitation) => limitation.message.includes('Failure B.')), true);
+});
+
 test('detects NestJS decorators through imported aliases without a NestJS dependency', (context) => {
   const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-nest-'));
   context.after(() => rmSync(projectPath, { recursive: true, force: true }));
@@ -65,9 +82,53 @@ test('detects NestJS decorators through imported aliases without a NestJS depend
   const responsibilities = first.responsibilities.findings.map((finding) => finding.responsibility).sort();
 
   assert.deepEqual(first, second);
-  assert.deepEqual(first.analysis, analyzeTypeScriptTarget(projectPath).analysis);
+  assert.deepEqual(first.analysis, analyzeProject(projectPath));
   assert.deepEqual(responsibilities, ['access-control', 'access-control', 'framework-wiring', 'http-entry-point']);
   assert.equal(first.responsibilities.findings.find((finding) => finding.responsibility === 'http-entry-point')?.evidence[0]?.technology.id, 'nestjs');
+});
+
+test('keeps combined analysis equivalent for a PNPM workspace target', () => {
+  const workspacePath = path.resolve('fixtures/pnpm-workspace-structure');
+  const first = analyzeTypeScriptTarget(workspacePath);
+  const second = analyzeTypeScriptTarget(workspacePath);
+
+  assert.deepEqual(first.analysis, analyzeProject(workspacePath));
+  assert.deepEqual(first, second);
+});
+
+test('does not infer NestJS responsibilities from names, local decorators, or other packages', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-nest-negative-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', experimentalDecorators: true }, include: ['src/**/*.ts'] }));
+  mkdirSync(path.join(projectPath, 'src'));
+  writeFileSync(path.join(projectPath, 'src/users.controller.ts'), "function Controller(): ClassDecorator { return () => {}; } function Get(): MethodDecorator { return () => {}; } function UseGuards(): ClassDecorator { return () => {}; } function Module(): ClassDecorator { return () => {}; } @Controller() class UsersController { @Get() list() {} } @UseGuards() class AuthGuard {} @Module() class UsersModule {}\n");
+  writeFileSync(path.join(projectPath, 'src/other.ts'), "import { Controller, Get, UseGuards, Module } from 'other-package'; @Controller() class Other { @Get() list() {} @UseGuards() secure() {} } @Module() class OtherModule {}\n");
+  const result = analyzeTypeScriptTarget(projectPath).responsibilities;
+  assert.deepEqual(result.findings, []);
+  assert.equal(result.detectorExecutions.every((execution) => execution.status === 'not-applicable'), true);
+});
+
+test('keeps NestJS capabilities evaluated with zero findings when supported signals are absent', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-nest-zero-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', experimentalDecorators: true }, include: ['src/**/*.ts'] }));
+  mkdirSync(path.join(projectPath, 'src'));
+  writeFileSync(path.join(projectPath, 'src/main.ts'), "import { Controller } from '@nestjs/common'; @Controller() class Users {}\n");
+  const result = analyzeTypeScriptTarget(projectPath).responsibilities;
+  const coverage = new Map(result.coverage.map((item) => [item.capability, item]));
+  assert.equal(result.findings.length, 0);
+  assert.equal(coverage.get('http-entry-point')?.status, 'evaluated');
+  assert.equal(coverage.get('access-control')?.status, 'evaluated');
+  assert.equal(coverage.get('framework-wiring')?.status, 'evaluated');
+});
+
+test('supports NestJS namespace imports', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-nest-namespace-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', experimentalDecorators: true }, include: ['src/**/*.ts'] }));
+  mkdirSync(path.join(projectPath, 'src'));
+  writeFileSync(path.join(projectPath, 'src/main.ts'), "import * as Nest from '@nestjs/common'; @Nest.Controller() class Users { @Nest.Get() list() {} }\n");
+  assert.equal(analyzeTypeScriptTarget(projectPath).responsibilities.findings.some((finding) => finding.responsibility === 'http-entry-point'), true);
 });
 
 // @ts-expect-error Failed detector outcomes cannot produce factual findings.

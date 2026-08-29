@@ -275,14 +275,7 @@ function createAnalysisResult(
   };
 }
 
-function analyzePnpmWorkspace(workspace: DetectedPnpmWorkspace): AnalysisResult {
-  const tsconfigPaths = workspace.packages
-    .map((workspacePackage) => path.join(workspace.rootPath, workspacePackage.rootPath, 'tsconfig.json'))
-    .filter((tsconfigPath) => existsSync(tsconfigPath))
-    .sort();
-  const analysis = createAnalysisResult(workspace.rootPath, tsconfigPaths, isPathInsideProject, {
-    workspaceConfigurationPath: normalizeProjectPath(workspace.rootPath, workspace.configurationPath),
-  });
+function withWorkspaceStructure(analysis: AnalysisResult, workspace: DetectedPnpmWorkspace): AnalysisResult {
   const packageByFileId = new Map<string, string>();
 
   for (const file of analysis.files) {
@@ -306,6 +299,29 @@ function analyzePnpmWorkspace(workspace: DetectedPnpmWorkspace): AnalysisResult 
   };
 }
 
+interface LoadedTarget {
+  projectPath: string;
+  session: TypeScriptAnalysisSession;
+  configuration: { tsconfigPath?: string; workspaceConfigurationPath?: string };
+  workspace?: DetectedPnpmWorkspace;
+}
+
+function loadTarget(inputPath: string): LoadedTarget {
+  const projectPath = path.resolve(inputPath);
+  if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) throw new Error(`Project directory not found: ${projectPath}`);
+  const tsconfigPath = path.join(projectPath, 'tsconfig.json');
+  if (existsSync(tsconfigPath)) return { projectPath, session: createTypeScriptAnalysisSession(projectPath, [tsconfigPath], () => true), configuration: { tsconfigPath: normalizeProjectPath(projectPath, tsconfigPath) } };
+  const workspace = detectPnpmWorkspace(projectPath);
+  if (!workspace || workspace.rootPath !== projectPath) throw new Error(`tsconfig.json not found: ${tsconfigPath}`);
+  const tsconfigPaths = workspace.packages.map((item) => path.join(workspace.rootPath, item.rootPath, 'tsconfig.json')).filter((item) => existsSync(item)).sort();
+  return { projectPath, session: createTypeScriptAnalysisSession(projectPath, tsconfigPaths, isPathInsideProject), configuration: { workspaceConfigurationPath: normalizeProjectPath(projectPath, workspace.configurationPath) }, workspace };
+}
+
+function analysisForTarget(target: LoadedTarget): AnalysisResult {
+  const analysis = createAnalysisResult(target.projectPath, [], () => true, target.configuration, target.session);
+  return target.workspace ? withWorkspaceStructure(analysis, target.workspace) : analysis;
+}
+
 /**
  * Analyzes either a TypeScript project root with `tsconfig.json` or a PNPM
  * workspace root declared by `pnpm-workspace.yaml`.
@@ -316,27 +332,7 @@ function analyzePnpmWorkspace(workspace: DetectedPnpmWorkspace): AnalysisResult 
  * directory or its required configuration cannot be found.
  */
 export function analyzeProject(inputPath: string): AnalysisResult {
-  const projectPath = path.resolve(inputPath);
-
-  if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
-    throw new Error(`Project directory not found: ${projectPath}`);
-  }
-
-  const tsconfigPath = path.join(projectPath, 'tsconfig.json');
-
-  if (!existsSync(tsconfigPath)) {
-    const workspace = detectPnpmWorkspace(projectPath);
-
-    if (workspace && workspace.rootPath === projectPath) {
-      return analyzePnpmWorkspace(workspace);
-    }
-
-    throw new Error(`tsconfig.json not found: ${tsconfigPath}`);
-  }
-
-  return createAnalysisResult(projectPath, [tsconfigPath], () => true, {
-    tsconfigPath: normalizeProjectPath(projectPath, tsconfigPath),
-  });
+  return analysisForTarget(loadTarget(inputPath));
 }
 
 export interface TypeScriptTargetAnalysis {
@@ -345,15 +341,9 @@ export interface TypeScriptTargetAnalysis {
 }
 
 export function analyzeTypeScriptTarget(inputPath: string): TypeScriptTargetAnalysis {
-  const projectPath = path.resolve(inputPath);
-  const tsconfigPath = path.join(projectPath, 'tsconfig.json');
-
-  if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) throw new Error(`Project directory not found: ${projectPath}`);
-  if (!existsSync(tsconfigPath)) throw new Error(`tsconfig.json not found: ${tsconfigPath}`);
-
-  const session = createTypeScriptAnalysisSession(projectPath, [tsconfigPath], () => true);
+  const target = loadTarget(inputPath);
   return {
-    analysis: createAnalysisResult(projectPath, [tsconfigPath], () => true, { tsconfigPath: normalizeProjectPath(projectPath, tsconfigPath) }, session),
-    responsibilities: analyzeResponsibilitiesWithSession(session, responsibilityDetectors),
+    analysis: analysisForTarget(target),
+    responsibilities: analyzeResponsibilitiesWithSession(target.session, responsibilityDetectors),
   };
 }

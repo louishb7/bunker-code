@@ -45,7 +45,13 @@ function coverageFor(capability: ResponsibilityCoverage['capability'], execution
   const valid = applicable.filter((execution) => execution.status === 'evaluated' || execution.status === 'partially-evaluated');
   if (valid.length === 0 && failed.length > 0) {
     const first = failed[0]!;
-    return { coverage: { capability, scope, status: 'failed', failure: first.failure, limitationIds: first.limitationIds }, limitations: [] };
+    const limitations = failed.map((execution) => ({
+      id: responsibilityLimitationId(`project:${capability}`, 'detector-failed', execution.detector.id, execution.detector.version),
+      scope,
+      code: 'detector-failed',
+      message: `Detector ${execution.detector.id}@${execution.detector.version} failed: ${execution.failure.message}`,
+    }));
+    return { coverage: { capability, scope, status: 'failed', failure: first.failure, limitationIds: limitations.map((limitation) => limitation.id).sort() }, limitations };
   }
   const partialIds = applicable.flatMap((execution) => execution.status === 'partially-evaluated' ? execution.limitationIds : []).sort();
   const failureLimitations = failed.map((execution) => ({

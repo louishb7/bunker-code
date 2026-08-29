@@ -1,7 +1,7 @@
-import { SyntaxKind, type ClassDeclaration, type Decorator, type MethodDeclaration, type SourceFile } from 'ts-morph';
-import type { ResponsibilityEvidence, ResponsibilityFinding, ResponsibilityLimitation, ResponsibilitySubject } from '@bunker-code/contracts';
+import type { ClassDeclaration, Decorator, MethodDeclaration, SourceFile } from 'ts-morph';
+import type { ResponsibilityEvidence, ResponsibilityFinding, ResponsibilitySubject } from '@bunker-code/contracts';
 import type { TypeScriptAnalysisSession } from '../typescript-analysis-session.js';
-import { responsibilityEvidenceId, responsibilityFindingId, responsibilityLimitationId, responsibilitySubjectId } from './identities.js';
+import { responsibilityEvidenceId, responsibilityFindingId, responsibilitySubjectId } from './identities.js';
 
 export const NESTJS_TECHNOLOGY = { id: 'nestjs', displayName: 'NestJS' };
 
@@ -10,12 +10,18 @@ export function nestAliases(sourceFile: SourceFile): ReadonlyMap<string, string>
   for (const declaration of sourceFile.getImportDeclarations()) {
     if (declaration.getModuleSpecifierValue() !== '@nestjs/common') continue;
     for (const item of declaration.getNamedImports()) aliases.set(item.getAliasNode()?.getText() ?? item.getName(), item.getName());
+    const namespace = declaration.getNamespaceImport()?.getText();
+    if (namespace) for (const name of ['Controller', 'Get', 'Post', 'Put', 'Patch', 'Delete', 'Options', 'Head', 'All', 'UseGuards', 'Module']) aliases.set(`${namespace}.${name}`, name);
   }
   return aliases;
 }
 
 export function decoratorFor(node: ClassDeclaration | MethodDeclaration, aliases: ReadonlyMap<string, string>, name: string): Decorator | undefined {
-  return node.getDecorators().find((decorator) => aliases.get(decorator.getName()) === name);
+  return node.getDecorators().find((decorator) => aliases.get(decoratorKey(decorator)) === name);
+}
+
+export function decoratorKey(decorator: Decorator): string {
+  return decorator.getText().slice(1).split('(')[0]!.trim();
 }
 
 export function subjectFor(session: TypeScriptAnalysisSession, node: ClassDeclaration | MethodDeclaration): ResponsibilitySubject {
@@ -38,21 +44,4 @@ export function findingFor(subject: ResponsibilitySubject, responsibility: Respo
 
 export function nestApplicable(session: TypeScriptAnalysisSession): boolean {
   return [...session.sourceFiles.values()].some((sourceFile) => sourceFile.getImportDeclarations().some((item) => item.getModuleSpecifierValue() === '@nestjs/common'));
-}
-
-export function unsupportedAccessLimitations(session: TypeScriptAnalysisSession, detector: { id: string; version: string }): ResponsibilityLimitation[] {
-  const limitations: ResponsibilityLimitation[] = [];
-  for (const sourceFile of session.sourceFiles.values()) {
-    const usesGlobal = sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression).find((node) => node.getName() === 'useGlobalGuards');
-    if (usesGlobal) {
-      const location = session.locationFor(usesGlobal);
-      limitations.push({ id: responsibilityLimitationId(`file:${location.filePath}`, 'nestjs-use-global-guards', detector.id, detector.version), scope: { kind: 'file', fileId: location.filePath }, code: 'nestjs-use-global-guards', message: 'NestJS useGlobalGuards is observed but not classified in V1.' });
-    }
-    const appGuard = sourceFile.getImportDeclarations().find((item) => item.getModuleSpecifierValue() === '@nestjs/core')?.getNamedImports().find((item) => item.getName() === 'APP_GUARD');
-    if (appGuard) {
-      const location = session.locationFor(appGuard);
-      limitations.push({ id: responsibilityLimitationId(`file:${location.filePath}`, 'nestjs-app-guard', detector.id, detector.version), scope: { kind: 'file', fileId: location.filePath }, code: 'nestjs-app-guard', message: 'NestJS APP_GUARD is observed but not classified in V1.' });
-    }
-  }
-  return limitations.sort((left, right) => left.id.localeCompare(right.id));
 }
