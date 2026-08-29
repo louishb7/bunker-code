@@ -11,6 +11,7 @@ import type { TypeScriptAnalysisSession } from '../typescript-analysis-session.j
 import { detectorExecutionId, responsibilityLimitationId } from './identities.js';
 import type { DetectorOutcome, ResponsibilityDetector } from './detector.js';
 import { nestjsAccessDetector, nestjsHttpDetector, nestjsWiringDetector } from './nestjs.js';
+import { prismaPersistenceDetector } from './prisma-persistence.js';
 
 const ANALYZER = { name: '@bunker-code/analyzer-typescript', language: 'typescript' };
 
@@ -91,4 +92,4 @@ export function analyzeResponsibilitiesWithSession(
   };
 }
 
-export const responsibilityDetectors: readonly ResponsibilityDetector[] = [nestjsHttpDetector, nestjsAccessDetector, nestjsWiringDetector];
+export const responsibilityDetectors: readonly ResponsibilityDetector[] = [nestjsHttpDetector, nestjsAccessDetector, nestjsWiringDetector, prismaPersistenceDetector];

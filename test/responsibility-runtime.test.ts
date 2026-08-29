@@ -131,6 +131,120 @@ test('supports NestJS namespace imports', (context) => {
   assert.equal(analyzeTypeScriptTarget(projectPath).responsibilities.findings.some((finding) => finding.responsibility === 'http-entry-point'), true);
 });
 
+test('detects direct PrismaClient operations once per function subject with ordered evidence', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-prisma-direct-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022' }, include: ['src/**/*.ts'] }));
+  mkdirSync(path.join(projectPath, 'src'));
+  writeFileSync(path.join(projectPath, 'src/main.ts'), "import { PrismaClient as Client } from '@prisma/client'; const prisma = new Client(); async function listUsers() { await prisma.user.findMany(); return prisma.order.create({ data: {} }); } prisma.user.count(); prisma.user.customThing();\n");
+
+  const first = analyzeTypeScriptTarget(projectPath);
+  const second = analyzeTypeScriptTarget(projectPath);
+  const findings = first.responsibilities.findings.filter((finding) => finding.responsibility === 'persistence-interaction');
+  const listUsers = findings.find((finding) => finding.subject.kind === 'function' && finding.subject.name === 'listUsers');
+
+  assert.deepEqual(first, second);
+  assert.deepEqual(first.analysis, analyzeProject(projectPath));
+  assert.equal(findings.length, 2);
+  assert.equal(listUsers?.confidence, 'exact');
+  assert.deepEqual(listUsers?.provenance, { detector: { id: 'prisma.persistence', version: '1' }, ruleId: 'prisma-client-operation', ruleVersion: '1' });
+  assert.equal(listUsers?.evidence.every((evidence) => evidence.technology.id === 'prisma'), true);
+  assert.deepEqual(listUsers?.evidence.filter((evidence) => evidence.kind === 'call').map((evidence) => evidence.signal), ['prisma.order.create({ data: {} })', 'prisma.user.findMany()']);
+  assert.equal(findings.some((finding) => finding.evidence.some((evidence) => evidence.signal.includes('customThing'))), false);
+  assert.equal(findings.some((finding) => finding.subject.kind === 'file'), true);
+});
+
+test('detects PrismaClient typed bindings, namespace imports, and direct local Prisma subclasses', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-prisma-bindings-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', experimentalDecorators: true }, include: ['src/**/*.ts'] }));
+  mkdirSync(path.join(projectPath, 'src'));
+  writeFileSync(path.join(projectPath, 'src/main.ts'), "import * as Prisma from '@prisma/client'; import { PrismaClient as Client } from '@prisma/client'; import { Controller, Get } from '@nestjs/common'; const namespaceClient = new Prisma.PrismaClient(); function namespaceLoad() { return namespaceClient.user.findMany(); } function load(client: Prisma.PrismaClient) { return client.user.findFirst(); } class PrismaService extends Client {} class TypedService { private readonly direct: Prisma.PrismaClient; listDirect() { return this.direct.user.count(); } } class UsersService { constructor(private readonly prisma: PrismaService) {} list() { return this.prisma.user.findMany(); } remove() { return this.prisma.user.delete({ where: { id: 1 } }); } } @Controller() class UsersController { @Get() list() {} }\n");
+
+  const result = analyzeTypeScriptTarget(projectPath).responsibilities;
+  const persistence = result.findings.filter((finding) => finding.responsibility === 'persistence-interaction');
+
+  assert.deepEqual(persistence.map((finding) => finding.subject.kind === 'file' ? finding.subject.fileId : finding.subject.name).sort(), ['list', 'listDirect', 'load', 'namespaceLoad', 'remove']);
+  assert.equal(persistence.every((finding) => finding.evidence.some((evidence) => evidence.signal.includes('PrismaClient'))), true);
+  assert.equal(persistence.every((finding) => finding.evidence.some((evidence) => evidence.kind === 'call')), true);
+  assert.equal(result.findings.some((finding) => finding.responsibility === 'http-entry-point'), true);
+});
+
+test('detects supported Prisma mutations and client operations from proved bindings', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-prisma-operations-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022' }, include: ['src/**/*.ts'] }));
+  mkdirSync(path.join(projectPath, 'src'));
+  writeFileSync(path.join(projectPath, 'src/main.ts'), "import { PrismaClient } from '@prisma/client'; const client = new PrismaClient(); function mutate() { client.user.update({}); client.user.delete({}); client.$transaction([]); client.$queryRaw('SELECT 1'); }\n");
+
+  const finding = analyzeTypeScriptTarget(projectPath).responsibilities.findings.find((item) => item.responsibility === 'persistence-interaction' && item.subject.kind === 'function' && item.subject.name === 'mutate');
+
+  assert.ok(finding);
+  assert.deepEqual(finding.evidence.filter((evidence) => evidence.kind === 'call').map((evidence) => evidence.signal), ["client.$queryRaw('SELECT 1')", 'client.$transaction([])', 'client.user.delete({})', 'client.user.update({})']);
+});
+
+test('does not infer Prisma persistence from names, shapes, other packages, or imports without operations', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-prisma-negative-'));
+  const noPrismaProjectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-prisma-none-'));
+  context.after(() => { rmSync(projectPath, { recursive: true, force: true }); rmSync(noPrismaProjectPath, { recursive: true, force: true }); });
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022' }, include: ['src/**/*.ts'] }));
+  mkdirSync(path.join(projectPath, 'src'));
+  writeFileSync(path.join(projectPath, 'src/prisma.service.ts'), "import { PrismaClient } from '@prisma/client'; import { PrismaClient as OtherClient } from 'other-package'; import type { Prisma } from '@prisma/client'; class PrismaService {} class LocalClient {} const prisma = {}; const fake = { user: { findMany() {} } }; const other = new OtherClient(); const available = new PrismaClient(); function use(prisma: PrismaService) { prisma.user.findMany(); fake.user.findMany(); other.user.findMany(); }\n");
+  writeFileSync(path.join(noPrismaProjectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022' }, include: ['src/**/*.ts'] }));
+  mkdirSync(path.join(noPrismaProjectPath, 'src'));
+  writeFileSync(path.join(noPrismaProjectPath, 'src/database.ts'), "import type { Prisma } from '@prisma/client'; class PrismaClient {} const prisma = new PrismaClient(); prisma.user.findMany();\n");
+
+  const result = analyzeTypeScriptTarget(projectPath).responsibilities;
+  const noPrismaResult = analyzeTypeScriptTarget(noPrismaProjectPath).responsibilities;
+  const persistenceExecution = result.detectorExecutions.find((execution) => execution.detector.id === 'prisma.persistence');
+  const noPrismaExecution = noPrismaResult.detectorExecutions.find((execution) => execution.detector.id === 'prisma.persistence');
+
+  assert.deepEqual(result.findings.filter((finding) => finding.responsibility === 'persistence-interaction'), []);
+  assert.equal(persistenceExecution?.status, 'evaluated');
+  assert.equal(noPrismaExecution?.status, 'not-applicable');
+  assert.equal(noPrismaResult.coverage.find((item) => item.capability === 'persistence-interaction')?.status, 'unsupported');
+});
+
+test('detects exported direct PrismaService bindings across files without coupling NestJS responsibility', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-prisma-cross-file-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', experimentalDecorators: true }, include: ['src/**/*.ts'] }));
+  mkdirSync(path.join(projectPath, 'src'));
+  writeFileSync(path.join(projectPath, 'src/prisma.service.ts'), "import { PrismaClient } from '@prisma/client'; export class PrismaService extends PrismaClient {}\n");
+  writeFileSync(path.join(projectPath, 'src/users.service.ts'), "import { PrismaService } from './prisma.service'; export class UsersService { constructor(private readonly prisma: PrismaService) {} list() { return this.prisma.user.findMany(); } }\n");
+  writeFileSync(path.join(projectPath, 'src/orders.service.ts'), "import { PrismaService as Database } from './prisma.service'; export class OrdersService { constructor(private readonly db: Database) {} create() { return this.db.order.create({ data: {} }); } }\n");
+  writeFileSync(path.join(projectPath, 'src/users.controller.ts'), "import { Controller, Get } from '@nestjs/common'; @Controller('users') export class UsersController { @Get() list() {} }\n");
+
+  const first = analyzeTypeScriptTarget(projectPath);
+  const second = analyzeTypeScriptTarget(projectPath);
+  const persistence = first.responsibilities.findings.filter((finding) => finding.responsibility === 'persistence-interaction');
+
+  assert.deepEqual(first, second);
+  assert.deepEqual(first.analysis, analyzeProject(projectPath));
+  assert.deepEqual(persistence.map((finding) => `${finding.subject.fileId}:${finding.subject.kind === 'file' ? '' : finding.subject.name}`).sort(), ['src/orders.service.ts:create', 'src/users.service.ts:list']);
+  assert.equal(persistence.every((finding) => finding.confidence === 'exact'), true);
+  assert.equal(persistence.every((finding) => finding.evidence.some((evidence) => evidence.signal.includes('PrismaClient')) && finding.evidence.some((evidence) => evidence.kind === 'call')), true);
+  assert.equal(first.responsibilities.findings.some((finding) => finding.responsibility === 'http-entry-point' && finding.subject.fileId === 'src/users.controller.ts'), true);
+});
+
+test('does not infer cross-file Prisma bindings without a resolved direct PrismaClient subclass', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-prisma-cross-file-negative-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022' }, include: ['src/**/*.ts'] }));
+  mkdirSync(path.join(projectPath, 'src'));
+  writeFileSync(path.join(projectPath, 'src/prisma.service.ts'), "import { PrismaClient } from '@prisma/client'; export class PrismaService extends PrismaClient {}\n");
+  writeFileSync(path.join(projectPath, 'src/not-prisma.service.ts'), 'export class PrismaService {}\n');
+  writeFileSync(path.join(projectPath, 'src/other-prisma.service.ts'), "import { PrismaClient } from 'other-package'; export class PrismaService extends PrismaClient {}\n");
+  writeFileSync(path.join(projectPath, 'src/fake.ts'), 'export const db = { user: { findMany() {} } };\n');
+  writeFileSync(path.join(projectPath, 'src/consumers.ts'), "import { PrismaService as NotPrisma } from './not-prisma.service'; import { PrismaService as OtherPrisma } from './other-prisma.service'; import { db } from './fake'; import { PrismaService as Missing } from './missing'; import { PrismaService as RealPrisma } from './prisma.service'; class Consumers { constructor(private readonly notPrisma: NotPrisma, private readonly otherPrisma: OtherPrisma, private readonly missing: Missing, private readonly realPrisma: RealPrisma) {} noBase() { return this.notPrisma.user.findMany(); } otherPackage() { return this.otherPrisma.user.findMany(); } unresolved() { return this.missing.user.findMany(); } realWithoutOperation() { return this.realPrisma.user.customThing(); } fakeShape() { return db.user.findMany(); } }\n");
+
+  const result = analyzeTypeScriptTarget(projectPath).responsibilities;
+  const execution = result.detectorExecutions.find((item) => item.detector.id === 'prisma.persistence');
+
+  assert.deepEqual(result.findings.filter((finding) => finding.responsibility === 'persistence-interaction'), []);
+  assert.equal(execution?.status, 'evaluated');
+});
+
 // @ts-expect-error Failed detector outcomes cannot produce factual findings.
 const failedWithFinding: ReturnType<ResponsibilityDetector['analyze']> = { status: 'failed', findings: [{}], limitations: [], failure: { code: 'failed', message: 'Failure.' } };
 void failedWithFinding;
