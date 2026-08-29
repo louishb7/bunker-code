@@ -112,9 +112,15 @@ Source code remains the source of truth; regenerate the snapshot after analyzer
 changes rather than treating it as persisted Explorer data. Its Web delivery
 payload carries the `AnalysisResult` and the separate
 `ResponsibilityAnalysisResult`. ProjectGraph relationships are rebuilt only
-from analysis; Responsibility is validated at runtime but has no visual
-composition yet. Package-dependency presentation data is no longer delivered
-to the Explorer.
+from analysis. A presentation-independent Responsibility projection now
+composes original factual findings by canonical family and responsibility with
+their deepest factual Territory context. Its perspective eligibility is
+deterministic: any Interface, Security, Data, Integration, or Async Processing
+finding can begin in Responsibility; Framework Wiring alone and zero findings
+fall back to Territory. Partial coverage remains explicit and may still
+qualify when a factual behavioral finding exists. This composition creates no
+responsibility relationships and has no visual map or perspective switch yet.
+Package-dependency presentation data is no longer delivered to the Explorer.
 
 The Explorer searches internal files by path or name. A result resolves to its
 deepest factual owning Territory, then selects the file in that context. Files

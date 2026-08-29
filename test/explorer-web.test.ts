@@ -1,13 +1,27 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { analyzeProject, analyzeTypeScriptTarget } from '../packages/analyzer-typescript/src/index.js';
+import {
+  RESPONSIBILITY_ANALYSIS_SCHEMA_VERSION,
+  type Responsibility,
+  type ResponsibilityAnalysisResult,
+  type ResponsibilityCoverage,
+  type ResponsibilityFinding,
+} from '../packages/contracts/src/index.js';
 import { buildProjectGraph, buildProjectStructure } from '../packages/graph-engine/src/index.js';
 import { createExplorerAttention } from '../apps/explorer-web/src/explorer-attention.js';
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
 import { createExplorerProjection } from '../apps/explorer-web/src/explorer-projection.js';
 import { createExplorerRuntime } from '../apps/explorer-web/src/explorer-runtime.js';
+import {
+  chooseInitialExplorerPerspective,
+  createExplorerResponsibilityProjection,
+  resolveOwningTerritory,
+  type ExplorerPerspective,
+} from '../apps/explorer-web/src/explorer-responsibility-projection.js';
 import { resolveExplorerSearchDestination } from '../apps/explorer-web/src/explorer-search.js';
 import {
   createInitialExplorerLocation,
@@ -34,6 +48,51 @@ function workspaceSource() {
   return { graph, structure, territories };
 }
 
+function responsibilityFinding(
+  responsibility: Responsibility,
+  fileId: string,
+  options: {
+    id?: string;
+    kind?: 'file' | 'class' | 'method' | 'function';
+    confidence?: 'exact' | 'inferred';
+    line?: number;
+  } = {},
+): ResponsibilityFinding {
+  const kind = options.kind ?? 'method';
+  const line = options.line ?? 1;
+  const subject = kind === 'file'
+    ? { id: `subject:${fileId}`, kind, fileId, location: { filePath: fileId, line, column: 1 } }
+    : { id: `subject:${fileId}:${kind}:subject`, kind, fileId, symbolId: `${kind}:subject`, name: 'subject', location: { filePath: fileId, line, column: 1 } };
+
+  return {
+    id: options.id ?? `finding:${responsibility}:${fileId}:${line}`,
+    subject,
+    responsibility,
+    confidence: options.confidence ?? 'exact',
+    provenance: { detector: { id: 'test.detector', version: '1' }, ruleId: 'test-rule', ruleVersion: '1' },
+    evidence: [{ id: `evidence:${responsibility}:${fileId}:${line}`, kind: 'declaration', technology: { id: 'test', displayName: 'Test' }, signal: 'test', location: { filePath: fileId, line, column: 1 } }],
+  };
+}
+
+function responsibilityResult(
+  findings: ResponsibilityFinding[],
+  coverage: ResponsibilityCoverage[] = [],
+): ResponsibilityAnalysisResult {
+  return {
+    schemaVersion: RESPONSIBILITY_ANALYSIS_SCHEMA_VERSION,
+    analyzer: { name: 'test', language: 'typescript' },
+    projectPath: '.',
+    findings,
+    coverage,
+    detectorExecutions: [],
+    limitations: [],
+  };
+}
+
+function perspectiveFor(result: ResponsibilityAnalysisResult): ExplorerPerspective {
+  return chooseInitialExplorerPerspective(result);
+}
+
 test('runtime requires ResponsibilityAnalysisResult but keeps it outside territory projection', () => {
   const target = analyzeTypeScriptTarget(path.resolve('fixtures/simple-import'));
   const snapshot = { analysis: target.analysis, responsibilities: target.responsibilities, projectLabel: 'fixture' };
@@ -49,6 +108,147 @@ test('runtime requires ResponsibilityAnalysisResult but keeps it outside territo
   );
   const projection = createExplorerProjection({ graph: runtime.graph, structure: runtime.structure, territories }, createInitialExplorerLocation(territories));
   assert.equal(projection.nodes.some((node) => node.kind === 'responsibility'), false);
+});
+
+test('responsibility projection keeps zero findings empty and chooses Territory', () => {
+  const source = workspaceSource();
+  const result = responsibilityResult([]);
+  const projection = createExplorerResponsibilityProjection(result, source.territories);
+
+  assert.deepEqual(projection.groups, []);
+  assert.equal(projection.coverageSummary.hasFindings, false);
+  assert.equal(projection.coverageSummary.findingCount, 0);
+  assert.equal(perspectiveFor(result), 'territory');
+});
+
+test('only behavioral factual responsibility families qualify the initial perspective', () => {
+  const cases: Array<{ finding: ResponsibilityFinding; expected: ExplorerPerspective }> = [
+    { finding: responsibilityFinding('framework-wiring', 'apps/application/src/main.ts'), expected: 'territory' },
+    { finding: responsibilityFinding('http-entry-point', 'apps/application/src/main.ts'), expected: 'responsibility' },
+    { finding: responsibilityFinding('persistence-interaction', 'apps/application/src/main.ts'), expected: 'responsibility' },
+    { finding: responsibilityFinding('access-control', 'apps/application/src/main.ts'), expected: 'responsibility' },
+    { finding: responsibilityFinding('external-service-interaction', 'apps/application/src/main.ts'), expected: 'responsibility' },
+    { finding: responsibilityFinding('queue-consumer', 'apps/application/src/main.ts'), expected: 'responsibility' },
+  ];
+
+  for (const { finding, expected } of cases) {
+    assert.equal(perspectiveFor(responsibilityResult([finding])), expected);
+  }
+});
+
+test('coverage incompleteness remains explicit without becoming an absence claim', () => {
+  const partialFinding = responsibilityFinding('http-entry-point', 'apps/application/src/main.ts');
+  const partial = responsibilityResult([partialFinding], [
+    { capability: 'http-entry-point', scope: { kind: 'project' }, status: 'partially-evaluated', limitationIds: ['limitation:http'] },
+  ]);
+  const partialProjection = createExplorerResponsibilityProjection(partial, workspaceSource().territories);
+
+  assert.equal(perspectiveFor(partial), 'responsibility');
+  assert.equal(partialProjection.coverageSummary.hasPartialCoverage, true);
+  assert.equal(partialProjection.coverageSummary.hasFailures, false);
+  assert.equal(partialProjection.coverageSummary.hasUnsupportedCapabilities, false);
+
+  const incompleteWithoutQualifyingFinding = responsibilityResult([responsibilityFinding('framework-wiring', 'apps/application/src/main.ts')], [
+    { capability: 'framework-wiring', scope: { kind: 'project' }, status: 'partially-evaluated', limitationIds: ['limitation:wiring'] },
+    { capability: 'access-control', scope: { kind: 'project' }, status: 'failed', failure: { code: 'detector-failed', message: 'Failure.' }, limitationIds: [] },
+    { capability: 'cache-interaction', scope: { kind: 'project' }, status: 'unsupported' },
+  ]);
+  const incompleteProjection = createExplorerResponsibilityProjection(incompleteWithoutQualifyingFinding, workspaceSource().territories);
+
+  assert.equal(perspectiveFor(incompleteWithoutQualifyingFinding), 'territory');
+  assert.equal(incompleteProjection.coverageSummary.hasPartialCoverage, true);
+  assert.equal(incompleteProjection.coverageSummary.hasFailures, true);
+  assert.equal(incompleteProjection.coverageSummary.hasUnsupportedCapabilities, true);
+  assert.equal(incompleteProjection.coverageSummary.hasFindings, true);
+
+  const notEvaluated = responsibilityResult([], [
+    { capability: 'scheduled-job', scope: { kind: 'project' }, status: 'not-evaluated' },
+  ]);
+  const notEvaluatedProjection = createExplorerResponsibilityProjection(notEvaluated, workspaceSource().territories);
+  assert.equal(notEvaluatedProjection.coverageSummary.hasNotEvaluatedCoverage, true);
+  assert.equal(notEvaluatedProjection.coverageSummary.hasFindings, false);
+  assert.equal(perspectiveFor(notEvaluated), 'territory');
+});
+
+test('responsibility composition preserves original subjects, findings, confidence, and multiple roles', () => {
+  const source = workspaceSource();
+  const http = responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http', kind: 'method', line: 4 });
+  const access = responsibilityFinding('access-control', 'apps/application/src/main.ts', { id: 'finding:access', kind: 'method', confidence: 'inferred', line: 4 });
+  const persistence = responsibilityFinding('persistence-interaction', 'packages/library/src/first.ts', { id: 'finding:persistence', kind: 'function', line: 8 });
+  const persistenceClass = responsibilityFinding('persistence-interaction', 'packages/library/src/first.ts', { id: 'finding:persistence-class', kind: 'class', line: 9 });
+  const result = responsibilityResult([persistenceClass, persistence, access, http]);
+  const projection = createExplorerResponsibilityProjection(result, source.territories);
+
+  assert.deepEqual(projection.groups.map((group) => group.family), ['interface', 'security', 'data']);
+  assert.deepEqual(projection.groups.flatMap((group) => group.responsibilities.map((item) => item.responsibility)), ['http-entry-point', 'access-control', 'persistence-interaction']);
+  assert.equal(projection.groups[0]?.responsibilities[0]?.findings[0], http);
+  assert.equal(projection.groups[1]?.responsibilities[0]?.findings[0], access);
+  assert.equal(projection.groups[1]?.responsibilities[0]?.findings[0]?.confidence, 'inferred');
+  assert.equal(projection.groups[2]?.responsibilities[0]?.findings[0]?.subject.kind, 'function');
+  assert.equal(projection.groups[2]?.responsibilities[0]?.findings[1]?.subject.kind, 'class');
+  assert.deepEqual(Object.keys(projection.groups[2]?.responsibilities[0] ?? {}).sort(), ['findings', 'responsibility', 'subjectCount', 'territoryIds']);
+  assert.equal(projection.groups.flatMap((group) => group.responsibilities).some((item) => 'primaryResponsibility' in item), false);
+});
+
+test('responsibility ownership uses factual file containment and rejects inferred or unknown paths', () => {
+  const source = workspaceSource();
+
+  assert.equal(resolveOwningTerritory('packages/library/src/first.ts', source.territories)?.id, 'directory:packages/library/src');
+  assert.equal(resolveOwningTerritory('orphan.ts', source.territories)?.id, 'analysis-root:.');
+  assert.throws(
+    () => resolveOwningTerritory('missing.ts', source.territories),
+    /Responsibility finding file is not present in Explorer territory containment: missing\.ts/,
+  );
+  assert.throws(
+    () => resolveOwningTerritory('packages/library/src/not-in-projection.ts', source.territories),
+    /Responsibility finding file is not present in Explorer territory containment: packages\/library\/src\/not-in-projection\.ts/,
+  );
+});
+
+test('responsibility aggregation resolves deepest owning Territories and preserves independent findings', () => {
+  const source = workspaceSource();
+  const first = responsibilityFinding('persistence-interaction', 'packages/library/src/first.ts', { id: 'finding:second', line: 20 });
+  const second = responsibilityFinding('persistence-interaction', 'packages/library/src/first.ts', { id: 'finding:first', kind: 'class', line: 3 });
+  const third = responsibilityFinding('persistence-interaction', 'apps/application/src/main.ts', { id: 'finding:third', line: 2 });
+  const projection = createExplorerResponsibilityProjection(responsibilityResult([first, third, second]), source.territories);
+  const persistence = projection.groups[0]?.responsibilities[0];
+
+  assert.deepEqual(persistence?.findings, [third, second, first]);
+  assert.equal(persistence?.subjectCount, 3);
+  assert.deepEqual(persistence?.territoryIds, ['directory:apps/application/src', 'directory:packages/library/src']);
+});
+
+test('responsibility composition is deterministic and leaves ExplorerLocation unchanged', () => {
+  const source = workspaceSource();
+  const findings = [
+    responsibilityFinding('access-control', 'apps/application/src/main.ts', { id: 'finding:b', line: 8 }),
+    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:a', line: 9 }),
+  ];
+  const location = createInitialExplorerLocation(source.territories);
+
+  assert.deepEqual(
+    createExplorerResponsibilityProjection(responsibilityResult(findings), source.territories),
+    createExplorerResponsibilityProjection(responsibilityResult([...findings].reverse()), source.territories),
+  );
+  assert.deepEqual(location, createInitialExplorerLocation(source.territories));
+  assert.equal('perspective' in location, false);
+});
+
+test('real NestJS and Prisma analysis composes factual findings with Territory context', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-explorer-responsibility-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', experimentalDecorators: true }, include: ['src/**/*.ts'] }));
+  mkdirSync(path.join(projectPath, 'src'));
+  writeFileSync(path.join(projectPath, 'src/users.ts'), "import { Controller, Get, UseGuards } from '@nestjs/common'; import { PrismaClient } from '@prisma/client'; const prisma = new PrismaClient(); class AuthGuard {} @Controller() class Users { @Get() @UseGuards(AuthGuard) async list() { return prisma.user.findMany(); } }\n");
+
+  const target = analyzeTypeScriptTarget(projectPath);
+  const graph = buildProjectGraph(target.analysis);
+  const territories = createExplorerTerritoryProjection(buildProjectStructure(target.analysis), graph.nodes.filter((node): node is Extract<typeof node, { kind: 'file' }> => node.kind === 'file'));
+  const projection = createExplorerResponsibilityProjection(target.responsibilities, territories);
+
+  assert.equal(perspectiveFor(target.responsibilities), 'responsibility');
+  assert.deepEqual(projection.groups.map((group) => group.family), ['interface', 'security', 'data']);
+  assert.equal(projection.groups.every((group) => group.responsibilities.every((item) => item.territoryIds.includes('directory:src'))), true);
 });
 
 test('root projection contains direct factual territory children in canonical order', () => {
