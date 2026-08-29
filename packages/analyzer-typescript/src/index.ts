@@ -1,4 +1,5 @@
-export { analyzeProject } from './analyze-project.js';
+export { analyzeProject, analyzeTypeScriptTarget } from './analyze-project.js';
+export type { TypeScriptTargetAnalysis } from './analyze-project.js';
 export { ANALYSIS_SCHEMA_VERSION } from './analysis-result.js';
 export type {
   AnalysisDiagnostic,

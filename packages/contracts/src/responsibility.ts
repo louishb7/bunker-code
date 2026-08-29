@@ -114,7 +114,7 @@ export interface ResponsibilityEvaluationFailure {
 }
 
 export type ResponsibilityEvaluation =
-  | { status: 'evaluated'; limitationIds: string[] }
+  | { status: 'evaluated'; limitationIds: [] }
   | { status: 'partially-evaluated'; limitationIds: [string, ...string[]] }
   | { status: 'not-evaluated' }
   | { status: 'unsupported' }
@@ -138,7 +138,7 @@ export interface DetectorIdentity {
 }
 
 export type DetectorExecution = (
-  | { status: 'evaluated'; findingIds: string[]; limitationIds: string[] }
+  | { status: 'evaluated'; findingIds: string[]; limitationIds: [] }
   | { status: 'partially-evaluated'; findingIds: string[]; limitationIds: [string, ...string[]] }
   | { status: 'not-evaluated' }
   | { status: 'not-applicable' }

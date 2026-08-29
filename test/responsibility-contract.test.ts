@@ -51,7 +51,7 @@ test('keeps responsibility facts serializable, framework-neutral, and separate f
   ];
   const executions: DetectorExecution[] = [
     { id: 'detector-execution:typescript.decorators:http', detector, capability: 'http-entry-point', scope: { kind: 'project' }, status: 'not-applicable' },
-    { id: 'detector-execution:typescript.routes:http', detector: { id: 'typescript.routes', version: '1' }, capability: 'http-entry-point', scope: { kind: 'project' }, status: 'evaluated', findingIds: ['responsibility-finding:users-list-http'], limitationIds: ['responsibility-limitation:graphql-decorator-metadata'] },
+    { id: 'detector-execution:typescript.routes:http', detector: { id: 'typescript.routes', version: '1' }, capability: 'http-entry-point', scope: { kind: 'project' }, status: 'partially-evaluated', findingIds: ['responsibility-finding:users-list-http'], limitationIds: ['responsibility-limitation:graphql-decorator-metadata'] },
   ];
   const result: ResponsibilityAnalysisResult = {
     schemaVersion: RESPONSIBILITY_ANALYSIS_SCHEMA_VERSION,
@@ -83,11 +83,11 @@ test('keeps responsibility facts serializable, framework-neutral, and separate f
   assert.equal(findings[0]?.id, 'responsibility-finding:users-list-http');
   assert.deepEqual(findings[0]?.evidence[0]?.technology, { id: 'nestjs', displayName: 'NestJS' });
   assert.equal(findings[0]?.evidence[0]?.signal, '@Get()');
-  const evaluatedExecution = executions.find(
-    (execution): execution is Extract<DetectorExecution, { status: 'evaluated' }> => execution.status === 'evaluated',
+  const partialExecution = executions.find(
+    (execution): execution is Extract<DetectorExecution, { status: 'partially-evaluated' }> => execution.status === 'partially-evaluated',
   );
-  assert.equal(evaluatedExecution?.findingIds[0], findings[0]?.id);
-  assert.equal(evaluatedExecution?.limitationIds[0], limitations[0]?.id);
+  assert.equal(partialExecution?.findingIds[0], findings[0]?.id);
+  assert.equal(partialExecution?.limitationIds[0], limitations[0]?.id);
   assert.equal(findings.some((finding) => 'primaryResponsibility' in finding), false);
   assert.doesNotMatch(JSON.stringify(RESPONSIBILITY_TAXONOMY), /nest|prisma/i);
   assert.deepEqual(JSON.parse(JSON.stringify(result)), result);

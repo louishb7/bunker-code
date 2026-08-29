@@ -11,7 +11,9 @@ import type {
   ResolvedDependency,
   UnresolvedDependency,
 } from './analysis-result.js';
-import { createTypeScriptAnalysisSession } from './typescript-analysis-session.js';
+import { createTypeScriptAnalysisSession, type TypeScriptAnalysisSession } from './typescript-analysis-session.js';
+import { analyzeResponsibilitiesWithSession, responsibilityDetectors } from './responsibility-detectors/runtime.js';
+import type { ResponsibilityAnalysisResult } from '@bunker-code/contracts';
 
 function normalizeProjectPath(projectPath: string, filePath: string): string {
   return path.relative(projectPath, filePath).replaceAll('\\', '/');
@@ -191,8 +193,9 @@ function createAnalysisResult(
   tsconfigPaths: readonly string[],
   includeSourceFile: (sourceFilePath: string) => boolean,
   configuration: { tsconfigPath?: string; workspaceConfigurationPath?: string },
+  existingSession?: TypeScriptAnalysisSession,
 ): AnalysisResult {
-  const session = createTypeScriptAnalysisSession(projectPath, tsconfigPaths, includeSourceFile);
+  const session = existingSession ?? createTypeScriptAnalysisSession(projectPath, tsconfigPaths, includeSourceFile);
   const sourceFiles = session.sourceFiles;
   const files: AnalyzedFile[] = session.files;
   const analyzedSourceFileIds = new Set(files.map((file) => file.id));
@@ -334,4 +337,23 @@ export function analyzeProject(inputPath: string): AnalysisResult {
   return createAnalysisResult(projectPath, [tsconfigPath], () => true, {
     tsconfigPath: normalizeProjectPath(projectPath, tsconfigPath),
   });
+}
+
+export interface TypeScriptTargetAnalysis {
+  analysis: AnalysisResult;
+  responsibilities: ResponsibilityAnalysisResult;
+}
+
+export function analyzeTypeScriptTarget(inputPath: string): TypeScriptTargetAnalysis {
+  const projectPath = path.resolve(inputPath);
+  const tsconfigPath = path.join(projectPath, 'tsconfig.json');
+
+  if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) throw new Error(`Project directory not found: ${projectPath}`);
+  if (!existsSync(tsconfigPath)) throw new Error(`tsconfig.json not found: ${tsconfigPath}`);
+
+  const session = createTypeScriptAnalysisSession(projectPath, [tsconfigPath], () => true);
+  return {
+    analysis: createAnalysisResult(projectPath, [tsconfigPath], () => true, { tsconfigPath: normalizeProjectPath(projectPath, tsconfigPath) }, session),
+    responsibilities: analyzeResponsibilitiesWithSession(session, responsibilityDetectors),
+  };
 }
