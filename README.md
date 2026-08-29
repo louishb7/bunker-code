@@ -118,16 +118,21 @@ their deepest factual Territory context. Its perspective eligibility is
 deterministic: any Interface, Security, Data, Integration, or Async Processing
 finding can begin in Responsibility; Framework Wiring alone and zero findings
 fall back to Territory. Partial coverage remains explicit and may still
-qualify when a factual behavioral finding exists. This composition creates no
-responsibility relationships and has no visual map or perspective switch yet.
+qualify when a factual behavioral finding exists. The Explorer now renders this
+as a real Responsibility perspective beside Territory: families provide visual
+regions, responsibilities are the primary landmarks, and progressive subject
+details can locate their factual file in its owning Territory without changing
+the meaning of `ExplorerLocation`. Coverage limitations and evidence/provenance
+remain progressively disclosed. This composition creates no responsibility
+relationships.
 Package-dependency presentation data is no longer delivered to the Explorer.
 
 The Explorer searches internal files by path or name. A result resolves to its
 deepest factual owning Territory, then selects the file in that context. Files
 from outside the focused file's Territory can appear only as direct factual
 relationship context. Returning from File connections preserves its anchor as
-the selected file. Trace, semantic Impact, and the Responsibility perspective
-remain outside the current Explorer phase.
+the selected file. Switching Responsibility and Territory preserves structural
+location; Trace and semantic Impact remain outside the current Explorer phase.
 
 Selecting a file now presents its filename before its full path and distinguishes
 a file in the current Territory, a file shown as relationship context, and a module

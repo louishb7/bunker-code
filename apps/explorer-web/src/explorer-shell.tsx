@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { ExplorerOrientation, ExplorerNavigationTarget } from './explorer-orientation.js';
 import type { ExplorerRootSummary } from './explorer-projection.js';
 import type { ExplorerSearchResult } from './explorer-search.js';
@@ -13,7 +14,9 @@ export function ExplorerHeader({
   searchQuery,
   searchResults,
   showSearch,
+  showGraphTools,
   showCenterSelected,
+  perspectiveControl,
   onNavigate,
   onSearchQueryChange,
   onSelectSearchResult,
@@ -24,7 +27,9 @@ export function ExplorerHeader({
   searchQuery: string;
   searchResults: ExplorerSearchResult[];
   showSearch: boolean;
+  showGraphTools: boolean;
   showCenterSelected: boolean;
+  perspectiveControl: ReactNode;
   onNavigate(target: ExplorerNavigationTarget): void;
   onSearchQueryChange(query: string): void;
   onSelectSearchResult(nodeId: string): void;
@@ -35,6 +40,7 @@ export function ExplorerHeader({
     <header className="explorer-header">
       <OrientationHeader orientation={orientation} onNavigate={onNavigate} />
       <div className="explorer-header-actions" aria-label="Map tools">
+        {perspectiveControl}
         {showSearch ? (
           <label className="search-control">
             <span>Find file</span>
@@ -49,8 +55,8 @@ export function ExplorerHeader({
             ) : null}
           </label>
         ) : null}
-        <button className="button-utility" type="button" onClick={onFitGraph}>Fit graph</button>
-        {showCenterSelected ? (
+        {showGraphTools ? <button className="button-utility" type="button" onClick={onFitGraph}>Fit graph</button> : null}
+        {showGraphTools && showCenterSelected ? (
           <button className="button-utility" type="button" onClick={onCenterSelected}>Center selected</button>
         ) : null}
       </div>
@@ -136,10 +142,10 @@ function OrientationHeader({
         <p className="product-wordmark"><span aria-hidden="true">B</span>BunkerCode</p>
         <p
           className="scale-indicator"
-          aria-label={`Current view: ${orientation.scaleLabel}`}
+          aria-label={`Structural context: ${orientation.scaleLabel}`}
           data-explorer-scale={orientation.scale}
         >
-          <span>Current view</span>
+          <span>Structural context</span>
           <strong>{orientation.scaleLabel}</strong>
         </p>
       </div>

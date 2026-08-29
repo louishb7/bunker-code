@@ -1,14 +1,95 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
 const repoRoot = path.resolve('.');
 const appRoot = path.join(repoRoot, 'apps', 'explorer-web');
 const firefoxExecutablePath = process.env.BUNKERCODE_BROWSER_EXECUTABLE ?? '/usr/bin/firefox';
+
+test('Explorer presents a factual Responsibility-first flow in a real browser', { timeout: 90000 }, async (t) => {
+  if (process.env.BUNKERCODE_BROWSER_TEST !== '1') {
+    t.skip('Set BUNKERCODE_BROWSER_TEST=1 to run the Firefox Explorer smoke test.');
+    return;
+  }
+  if (!existsSync(firefoxExecutablePath)) throw new Error(`Firefox executable not found: ${firefoxExecutablePath}`);
+
+  const harnessRoot = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-responsibility-browser-'));
+  t.after(() => rmSync(harnessRoot, { recursive: true, force: true }));
+  const distDirectory = await buildResponsibilityHarness(harnessRoot);
+  const server = previewServer(distDirectory);
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Responsibility harness did not expose a TCP address.');
+  const browser = await puppeteer.launch({ browser: 'firefox', executablePath: firefoxExecutablePath, headless: true });
+
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1440, height: 900 });
+    await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('[data-responsibility-map]', { timeout: 15000 });
+
+    assert.equal(await page.$eval('[data-perspective="responsibility"]', (element) => element.getAttribute('aria-pressed')), 'true');
+    assert.equal(await page.$eval('[data-responsibility-family="interface"]', (element) => element.textContent?.includes('Interface')), true);
+    assert.ok(await page.$('[data-responsibility="http-entry-point"]'));
+    assert.equal(await page.$('.responsibility-map .react-flow__edge'), null);
+    assert.equal(await page.$eval('[data-responsibility-coverage-notice]', (element) => element.textContent?.includes('coverage is incomplete')), true);
+
+    await page.focus('[data-responsibility="http-entry-point"]');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-responsibility-subject="finding:http"]', { timeout: 5000 });
+    assert.equal(await page.$eval('[data-responsibility-details]', (element) => element.textContent?.includes('UsersController.list') && element.textContent.includes('1 subject')), true);
+    if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
+      await page.screenshot({ path: '/tmp/bunkercode-responsibility-1440.png', fullPage: true });
+    }
+    await page.click('[data-responsibility-subject="finding:http"]');
+    assert.equal(await page.$eval('[data-selected-responsibility-subject]', (element) => element.textContent?.includes('src/users.controller.ts:8:3')), true);
+    assert.equal(await page.$eval('[data-disclosure="responsibility-evidence"]', (element) => element instanceof HTMLDetailsElement && !element.open), true);
+    await page.click('[data-disclosure="responsibility-evidence"] summary');
+    assert.equal(await page.$eval('[data-disclosure="responsibility-evidence"]', (element) => {
+      const text = element.textContent ?? '';
+      return text.includes('test.nestjs') && text.includes('route') && text.includes('@Get()') && text.includes('exact');
+    }), true);
+    await page.click('[data-disclosure="responsibility-coverage"] summary');
+    assert.equal(await page.$eval('[data-disclosure="responsibility-coverage"]', (element) => {
+      const text = element.textContent ?? '';
+      return text.includes('Evaluated') && text.includes('Partially evaluated') && text.includes('Not evaluated') && text.includes('Unsupported') && text.includes('Failed');
+    }), true);
+
+    await clickButton(page, 'Locate in Territory');
+    await page.waitForSelector('[data-perspective="territory"][aria-pressed="true"]', { timeout: 5000 });
+    await page.waitForSelector('[data-explorer-scale="territory"]', { timeout: 5000 });
+    assert.ok(await page.$('.react-flow__node[data-id="src/users.controller.ts"].graph-node-selected'));
+    assert.equal(await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent?.includes('src')), true);
+
+    const territoryLocation = await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent);
+    await page.focus('[data-perspective="responsibility"]');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-responsibility-map]', { timeout: 5000 });
+    assert.equal(await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent), territoryLocation);
+    await page.click('[data-perspective="territory"]');
+    await page.waitForSelector('.react-flow__node[data-id="src/users.controller.ts"].graph-node-selected', { timeout: 5000 });
+
+    await page.click('[data-perspective="responsibility"]');
+    await page.click('[data-responsibility="access-control"]');
+    assert.ok(await page.$('[data-responsibility-subject="finding:access"]'));
+    assert.equal(await page.$eval('[data-responsibility-subject="finding:access"]', (element) => element.textContent?.includes('UsersController.list')), true);
+
+    await page.setViewport({ width: 640, height: 900 });
+    await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
+    if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
+      await page.screenshot({ path: '/tmp/bunkercode-responsibility-640.png', fullPage: true });
+    }
+  } finally {
+    await browser.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
 
 test('Explorer navigates factual territories and focused file relationships in a real browser', { timeout: 90000 }, async (t) => {
   if (process.env.BUNKERCODE_BROWSER_TEST !== '1') {
@@ -32,6 +113,8 @@ test('Explorer navigates factual territories and focused file relationships in a
     await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('[data-explorer-scale="root"]', { timeout: 15000 });
     await page.waitForFunction(() => !document.body.textContent?.includes('Arranging visible graph...'), { timeout: 5000 });
+    assert.equal(await page.$eval('[data-perspective="territory"]', (element) => element.getAttribute('aria-pressed')), 'true');
+    assert.equal(await page.$eval('[data-perspective="responsibility"]', (element) => (element as HTMLButtonElement).disabled), true);
     assert.equal(await page.$('.graph-node-package'), null);
     assert.ok(await page.$('.react-flow__node[data-id="directory:packages"].graph-node-territory'));
     assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => Number((element as HTMLElement).dataset.analyzedFileCount)), snapshot.analysis.files.length);
@@ -157,4 +240,105 @@ async function readExplorerUiState(page: import('puppeteer-core').Page) {
     selected: document.querySelector('.graph-node-selected')?.getAttribute('data-id'),
     viewport: (document.querySelector('.react-flow__viewport') as HTMLElement | null)?.style.transform,
   }));
+}
+
+async function buildResponsibilityHarness(harnessRoot: string): Promise<string> {
+  const entryPath = path.join(harnessRoot, 'entry.tsx');
+  const distDirectory = path.join(harnessRoot, 'dist');
+  const explorerModule = path.join(appRoot, 'src', 'explorer-app.tsx');
+  const runtimeModule = path.join(appRoot, 'src', 'explorer-runtime.ts');
+  const reactFlowStyles = path.join(appRoot, 'node_modules', '@xyflow', 'react', 'dist', 'style.css');
+  const explorerStyles = path.join(appRoot, 'src', 'styles.css');
+  const controlledSnapshot = responsibilityBrowserSnapshot();
+
+  writeFileSync(entryPath, `
+    import { createRoot } from 'react-dom/client';
+    import { Explorer } from ${JSON.stringify(explorerModule)};
+    import { createExplorerRuntime } from ${JSON.stringify(runtimeModule)};
+    import ${JSON.stringify(reactFlowStyles)};
+    import ${JSON.stringify(explorerStyles)};
+
+    const runtime = createExplorerRuntime(${JSON.stringify(controlledSnapshot)});
+    if (runtime.kind !== 'ready') throw new Error('Controlled Explorer runtime is not ready.');
+    const root = document.getElementById('root');
+    if (!root) throw new Error('Harness root not found.');
+    createRoot(root).render(<Explorer graph={runtime.graph} structure={runtime.structure} responsibilities={runtime.responsibilities} projectLabel={runtime.projectLabel} />);
+  `);
+
+  await build({
+    absWorkingDir: repoRoot,
+    entryPoints: [entryPath],
+    outdir: distDirectory,
+    bundle: true,
+    format: 'esm',
+    platform: 'browser',
+    jsx: 'automatic',
+    nodePaths: [path.join(appRoot, 'node_modules')],
+    logLevel: 'silent',
+  });
+  writeFileSync(path.join(distDirectory, 'index.html'), '<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/entry.css"></head><body><div id="root"></div><script type="module" src="/entry.js"></script></body></html>');
+  return distDirectory;
+}
+
+function responsibilityBrowserSnapshot() {
+  const methodSubject = {
+    id: 'subject:src/users.controller.ts:UsersController.list',
+    kind: 'method',
+    fileId: 'src/users.controller.ts',
+    symbolId: 'UsersController.list',
+    name: 'UsersController.list',
+    location: { filePath: 'src/users.controller.ts', line: 8, column: 3 },
+  } as const;
+  const persistenceSubject = {
+    id: 'subject:src/prisma.service.ts:PrismaService',
+    kind: 'class',
+    fileId: 'src/prisma.service.ts',
+    symbolId: 'PrismaService',
+    name: 'PrismaService',
+    location: { filePath: 'src/prisma.service.ts', line: 3, column: 1 },
+  } as const;
+  const provenance = { detector: { id: 'test.nestjs', version: '1' }, ruleId: 'route', ruleVersion: '1' };
+  const evidence = (id: string, signal: string, location: typeof methodSubject.location) => [{
+    id,
+    kind: 'annotation',
+    technology: { id: 'nestjs', displayName: 'NestJS' },
+    signal,
+    location,
+  }];
+
+  return {
+    projectLabel: 'Responsibility fixture',
+    analysis: {
+      schemaVersion: 1,
+      analyzer: { name: 'browser-fixture', language: 'typescript' },
+      projectPath: '.',
+      files: [
+        { id: 'src/prisma.service.ts', path: 'src/prisma.service.ts' },
+        { id: 'src/users.controller.ts', path: 'src/users.controller.ts' },
+      ],
+      dependencies: [],
+      unresolvedDependencies: [],
+      diagnostics: [],
+    },
+    responsibilities: {
+      schemaVersion: 1,
+      analyzer: { name: 'browser-fixture', language: 'typescript' },
+      projectPath: '.',
+      findings: [
+        { id: 'finding:http', subject: methodSubject, responsibility: 'http-entry-point', confidence: 'exact', provenance, evidence: evidence('evidence:http', '@Get()', methodSubject.location) },
+        { id: 'finding:access', subject: methodSubject, responsibility: 'access-control', confidence: 'inferred', provenance: { ...provenance, ruleId: 'guard' }, evidence: evidence('evidence:access', '@UseGuards()', methodSubject.location) },
+        { id: 'finding:persistence', subject: persistenceSubject, responsibility: 'persistence-interaction', confidence: 'exact', provenance: { ...provenance, detector: { id: 'test.prisma', version: '1' }, ruleId: 'client' }, evidence: evidence('evidence:persistence', 'PrismaClient', persistenceSubject.location) },
+      ],
+      coverage: [
+        { capability: 'http-entry-point', scope: { kind: 'project' }, status: 'partially-evaluated', limitationIds: ['limitation:http'] },
+        { capability: 'access-control', scope: { kind: 'project' }, status: 'evaluated', limitationIds: [] },
+        { capability: 'persistence-interaction', scope: { kind: 'project' }, status: 'evaluated', limitationIds: [] },
+        { capability: 'external-service-interaction', scope: { kind: 'project' }, status: 'not-evaluated' },
+        { capability: 'queue-consumer', scope: { kind: 'project' }, status: 'unsupported' },
+        { capability: 'scheduled-job', scope: { kind: 'project' }, status: 'failed', failure: { code: 'fixture-failure', message: 'Controlled failure.' }, limitationIds: [] },
+      ],
+      detectorExecutions: [],
+      limitations: [{ id: 'limitation:http', scope: { kind: 'project' }, code: 'partial-fixture', message: 'Controlled partial coverage.' }],
+    },
+  };
 }

@@ -31,6 +31,12 @@ import {
   selectExplorerItem,
 } from '../apps/explorer-web/src/explorer-state.js';
 import {
+  createInitialExplorerViewState,
+  locateResponsibilityFinding,
+  selectExplorerResponsibility,
+  switchExplorerPerspective,
+} from '../apps/explorer-web/src/explorer-view-state.js';
+import {
   createExplorerTerritoryProjection,
   orderedTerritoryChildren,
   parentExplorerTerritory,
@@ -232,6 +238,51 @@ test('responsibility composition is deterministic and leaves ExplorerLocation un
   );
   assert.deepEqual(location, createInitialExplorerLocation(source.territories));
   assert.equal('perspective' in location, false);
+});
+
+test('Explorer view state chooses its initial perspective through D3 eligibility', () => {
+  const territories = workspaceSource().territories;
+  const qualifying = responsibilityResult([
+    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts'),
+  ]);
+  const wiringOnly = responsibilityResult([
+    responsibilityFinding('framework-wiring', 'apps/application/src/main.ts'),
+  ]);
+
+  assert.equal(createInitialExplorerViewState(qualifying, territories).perspective, 'responsibility');
+  assert.equal(createInitialExplorerViewState(wiringOnly, territories).perspective, 'territory');
+  assert.equal(createInitialExplorerViewState(responsibilityResult([]), territories).perspective, 'territory');
+});
+
+test('perspective and Responsibility selection preserve structural location until factual Locate', () => {
+  const territories = workspaceSource().territories;
+  const finding = responsibilityFinding('http-entry-point', 'packages/library/src/first.ts');
+  const responsibilities = responsibilityResult([finding]);
+  const initial = createInitialExplorerViewState(responsibilities, territories);
+  const territory = territories.territoriesById.get('directory:apps/application/src');
+  assert.ok(territory);
+  if (!territory) return;
+  const locatedElsewhere = {
+    ...initial,
+    location: navigateToTerritory(initial.location, territory.id, territory.structuralPath),
+  };
+
+  const selected = selectExplorerResponsibility(locatedElsewhere, 'http-entry-point');
+  assert.equal(selected.location, locatedElsewhere.location);
+  assert.equal(selected.location.currentTerritoryId, 'directory:apps/application/src');
+
+  const switched = switchExplorerPerspective(selected, 'territory');
+  const switchedBack = switchExplorerPerspective(switched, 'responsibility');
+  assert.equal(switched.location, selected.location);
+  assert.equal(switchedBack.location, selected.location);
+  assert.equal(switchedBack.selectedResponsibility, 'http-entry-point');
+
+  const located = locateResponsibilityFinding(switchedBack, finding, territories);
+  assert.equal(located.perspective, 'territory');
+  assert.equal(located.location.currentTerritoryId, 'directory:packages/library/src');
+  assert.deepEqual(located.location.structuralPath, ['.', 'packages', 'library', 'src']);
+  assert.equal(located.location.selectedItemId, 'packages/library/src/first.ts');
+  assert.equal(located.selectedResponsibility, 'http-entry-point');
 });
 
 test('real NestJS and Prisma analysis composes factual findings with Territory context', (context) => {
