@@ -40,17 +40,18 @@ import {
   relationshipFlowEdge,
   type ExplorerReactFlowInstance,
 } from './explorer-graph.js';
-import {
-  ExplorerEmptyDetails,
-  ExplorerHeader,
-  SystemMapSummary,
-} from './explorer-shell.js';
+import { ExplorerHeader } from './explorer-shell.js';
 import { FileDetails, TerritoryDetails } from './explorer-details.js';
 import { ExplorerPerspectiveControl } from './explorer-perspective-control.js';
 import { ResponsibilityDetails } from './explorer-responsibility-details.js';
 import { ResponsibilityMap } from './explorer-responsibility-map.js';
 import { createExplorerResponsibilityProjection } from './explorer-responsibility-projection.js';
 import {
+  createSpatialTerritoryMapModel,
+  SpatialTerritoryMap,
+} from './explorer-spatial-territory-map.js';
+import {
+  clearExplorerResponsibilitySelection,
   createInitialExplorerViewState,
   locateResponsibilityFinding,
   selectExplorerResponsibility,
@@ -89,11 +90,20 @@ export function Explorer({
     [location, territories, projectLabel, graph],
   );
   const projection = useMemo(() => createExplorerProjection(source, location), [source, location]);
-  const projectedElements = useMemo(() => createExplorerElements(projection), [projection]);
-  const [elements, setElements] = useState<ExplorerElements>(projectedElements);
+  const projectedElements = useMemo(
+    () => projection.mode === 'focus' ? createExplorerElements(projection) : null,
+    [projection],
+  );
+  const [elements, setElements] = useState<ExplorerElements | null>(projectedElements);
   const searchResults = useMemo(() => searchExplorerFiles(graph, searchQuery), [graph, searchQuery]);
 
   useEffect(() => {
+    if (!projectedElements) {
+      setElements(null);
+      setLayoutState('ready');
+      return;
+    }
+
     let active = true;
     setLayoutState('loading');
 
@@ -109,39 +119,38 @@ export function Explorer({
   }, [projectedElements, reactFlow]);
 
   useEffect(() => {
-    if (!reactFlow || layoutState !== 'ready' || perspective !== 'territory') return;
+    if (!elements || !reactFlow || layoutState !== 'ready' || perspective !== 'territory') return;
     const animationFrame = window.requestAnimationFrame(() => reactFlow.fitView(fitViewOptions(elements.mode)));
     return () => window.cancelAnimationFrame(animationFrame);
   }, [elements, layoutState, perspective, reactFlow]);
 
   useEffect(() => {
-    if (!pendingCenterNodeId || !reactFlow || perspective !== 'territory' || !elements.nodes.some((node) => node.id === pendingCenterNodeId)) return;
+    if (!pendingCenterNodeId || !reactFlow || !elements || perspective !== 'territory' || !elements.nodes.some((node) => node.id === pendingCenterNodeId)) return;
     window.requestAnimationFrame(() => {
       reactFlow.fitView({ nodes: [{ id: pendingCenterNodeId }], padding: 1, duration: 150, maxZoom: 1.2 });
       setPendingCenterNodeId(null);
     });
-  }, [elements.nodes, pendingCenterNodeId, perspective, reactFlow]);
+  }, [elements, pendingCenterNodeId, perspective, reactFlow]);
 
   const selectedNodeId = location.selectedItemId;
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId);
   const selectedTerritory = location.selectedItemId ? territories.territoriesById.get(location.selectedItemId) : undefined;
   const attention = useMemo(() => createExplorerAttention(projection, location), [projection, location]);
   const flowNodes = useMemo(
-    () => elements.nodes.map((node) => attentionFlowNode(node, attention.nodes.get(node.id))),
-    [elements.nodes, attention.nodes],
+    () => elements?.nodes.map((node) => attentionFlowNode(node, attention.nodes.get(node.id))) ?? [],
+    [elements, attention.nodes],
   );
   const flowEdges = useMemo(
-    () => elements.edges.map((edge) => relationshipFlowEdge(edge, edge.data
+    () => elements?.edges.map((edge) => relationshipFlowEdge(edge, edge.data
       ? attention.edges.get(explorerAttentionEdgeKey(edge.data.kind, edge.source, edge.target))
-      : undefined)),
-    [elements.edges, attention.edges],
+      : undefined)) ?? [],
+    [elements, attention.edges],
   );
   const currentTerritoryFileIds = useMemo(() => {
-    if (location.currentTerritoryId === null) return new Set<string>();
     return new Set(orderedTerritoryChildren(territories, location.currentTerritoryId)
       .flatMap((child) => child.kind === 'file' ? [child.fileId] : []));
   }, [location.currentTerritoryId, territories]);
-  const fileExploration = useMemo(() => selectedNode && location.currentTerritoryId !== null
+  const fileExploration = useMemo(() => selectedNode
     ? createFileExploration(selectedNode, graph, location, projection.visibleNodeIds, currentTerritoryFileIds)
     : undefined, [selectedNode, graph, structure, location, projection.visibleNodeIds, currentTerritoryFileIds]);
 
@@ -150,18 +159,17 @@ export function Explorer({
   }
 
   function focusSelectedFile(): void {
-    if (!fileExploration?.canFocus || !selectedNode || location.currentTerritoryId === null) return;
+    if (!fileExploration?.canFocus || !selectedNode) return;
     setLocation(focusExplorerFile(location, selectedNode.id));
     setPendingCenterNodeId(selectedNode.id);
   }
 
   function expandSelectedNode(): void {
-    if (!fileExploration?.canExpand || !selectedNode || location.currentTerritoryId === null) return;
+    if (!fileExploration?.canExpand || !selectedNode) return;
     setLocation(expandExplorerItem(location, selectedNode.id));
   }
 
   function returnToFileOverview(): void {
-    if (location.currentTerritoryId === null) return;
     setLocation({ ...location, focusedFileId: null, expandedItemIds: new Set() });
   }
 
@@ -178,6 +186,12 @@ export function Explorer({
   function openSelectedTerritory(): void {
     if (!selectedTerritory) return;
     setLocation(navigateToTerritory(location, selectedTerritory.id, selectedTerritory.structuralPath));
+  }
+
+  function openTerritory(territoryId: string): void {
+    const territory = territories.territoriesById.get(territoryId);
+    if (!territory) throw new Error(`Territory not found: ${territoryId}`);
+    setLocation(navigateToTerritory(location, territory.id, territory.structuralPath));
   }
 
   function navigateTo(target: ExplorerNavigationTarget): void {
@@ -201,6 +215,15 @@ export function Explorer({
       onChange={(nextPerspective) => setViewState((current) => switchExplorerPerspective(current, nextPerspective))}
     />
   );
+  const currentTerritory = location.currentTerritoryId === null
+    ? territories.system
+    : territories.territoriesById.get(location.currentTerritoryId);
+  if (!currentTerritory) throw new Error(`Territory not found: ${location.currentTerritoryId}`);
+  const spatialMapModel = projection.mode === 'focus'
+    ? null
+    : createSpatialTerritoryMapModel(projection, currentTerritory);
+  const showTerritoryInspector = perspective === 'territory' && Boolean(selectedTerritory || fileExploration);
+  const showResponsibilityInspector = perspective === 'responsibility' && selectedResponsibility !== null;
 
   return (
     <main className="explorer-shell">
@@ -209,24 +232,23 @@ export function Explorer({
         searchQuery={searchQuery}
         searchResults={searchResults}
         showSearch={perspective === 'territory'}
-        showGraphTools={perspective === 'territory'}
+        showGraphTools={perspective === 'territory' && projection.mode === 'focus'}
         showCenterSelected={Boolean(selectedNode && projection.visibleNodeIds.has(selectedNode.id))}
         perspectiveControl={perspectiveControl}
         onNavigate={navigateTo}
         onSearchQueryChange={setSearchQuery}
         onSelectSearchResult={selectSearchResult}
-        onFitGraph={() => reactFlow?.fitView(fitViewOptions(elements.mode))}
+        onFitGraph={() => elements && reactFlow?.fitView(fitViewOptions(elements.mode))}
         onCenterSelected={() => {
           if (selectedNode && projection.visibleNodeIds.has(selectedNode.id)) setPendingCenterNodeId(selectedNode.id);
         }}
       />
       <section
-        className={`explorer-main ${perspective === 'territory' && projection.rootSummary ? 'explorer-main-system' : ''} ${perspective === 'responsibility' ? 'explorer-main-responsibility' : ''}`}
-        aria-label={perspective === 'responsibility' ? 'Responsibility explorer' : 'Project graph explorer'}
+        className={`explorer-main ${perspective === 'responsibility' ? 'explorer-main-responsibility' : 'explorer-main-territory'} ${(showResponsibilityInspector || showTerritoryInspector) ? 'explorer-main-has-inspector' : ''}`}
+        aria-label={perspective === 'responsibility' ? 'Responsibility explorer' : 'Territory explorer'}
       >
         {perspective === 'territory' ? (
-          <>
-            {projection.rootSummary ? <SystemMapSummary summary={projection.rootSummary} /> : null}
+          projection.mode === 'focus' && elements ? (
             <ExplorerCanvas
               nodes={flowNodes}
               edges={flowEdges}
@@ -236,15 +258,41 @@ export function Explorer({
               onNodeClick={(nodeId) => setLocation(selectExplorerItem(location, nodeId))}
               onPaneClick={() => setLocation(selectExplorerItem(location, null))}
             />
-          </>
+          ) : spatialMapModel ? (
+            <SpatialTerritoryMap
+              model={spatialMapModel}
+              selectedItemId={location.selectedItemId}
+              onSelectItem={(itemId) => setLocation(selectExplorerItem(location, itemId))}
+              onOpenTerritory={(territory) => openTerritory(territory.id)}
+            />
+          ) : null
         ) : (
           <ResponsibilityMap
             projection={responsibilityProjection}
             selectedResponsibility={selectedResponsibility}
+            selectedFindingId={selectedFindingId}
             onSelectResponsibility={(responsibility) => setViewState((current) => selectExplorerResponsibility(current, responsibility))}
+            onSelectFinding={(responsibility, findingId) => setViewState((current) => selectExplorerResponsibilityFinding(current, responsibility, findingId))}
           />
         )}
-        <aside className="details-panel" aria-live="polite">
+        {showResponsibilityInspector || showTerritoryInspector ? <aside className="details-panel" aria-live="polite">
+          {perspective === 'territory' ? (
+            <button
+              type="button"
+              className="inspector-close"
+              onClick={() => setLocation(selectExplorerItem(location, null))}
+            >
+              Close inspector
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="inspector-close"
+              onClick={() => setViewState((current) => clearExplorerResponsibilitySelection(current))}
+            >
+              Close inspector
+            </button>
+          )}
           {perspective === 'responsibility' ? (
             <ResponsibilityDetails
               projection={responsibilityProjection}
@@ -259,10 +307,8 @@ export function Explorer({
             <TerritoryDetails territory={selectedTerritory} onOpen={openSelectedTerritory} />
           ) : fileExploration ? (
             <FileDetails exploration={fileExploration} onFocus={focusSelectedFile} onExpand={expandSelectedNode} />
-          ) : (
-            <ExplorerEmptyDetails orientation={orientation} visibleNodeCount={projection.nodes.length} />
-          )}
-        </aside>
+          ) : null}
+        </aside> : null}
       </section>
     </main>
   );

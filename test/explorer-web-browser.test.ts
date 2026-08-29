@@ -35,14 +35,20 @@ test('Explorer presents a factual Responsibility-first flow in a real browser', 
     await page.waitForSelector('[data-responsibility-map]', { timeout: 15000 });
 
     assert.equal(await page.$eval('[data-perspective="responsibility"]', (element) => element.getAttribute('aria-pressed')), 'true');
+    assert.equal(await page.$eval('[data-responsibility-spatial-field]', (element) => element.getAttribute('data-responsibility-composition')), 'constellation');
     assert.equal(await page.$eval('[data-responsibility-family="interface"]', (element) => element.textContent?.includes('Interface')), true);
     assert.ok(await page.$('[data-responsibility="http-entry-point"]'));
-    assert.equal(await page.$('.responsibility-map .react-flow__edge'), null);
+    assert.equal(await page.$('.responsibility-map .react-flow'), null);
+    assert.equal(await page.$('.details-panel'), null);
+    assert.equal(await page.$eval('.explorer-header-actions', (element) => !element.textContent?.includes('Fit graph') && !element.textContent?.includes('Center selected')), true);
     assert.equal(await page.$eval('[data-responsibility-coverage-notice]', (element) => element.textContent?.includes('coverage is incomplete')), true);
 
     await page.focus('[data-responsibility="http-entry-point"]');
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-responsibility-subject="finding:http"]', { timeout: 5000 });
+    assert.ok(await page.$('[data-responsibility-subject-preview]'));
+    assert.ok(await page.$('[data-responsibility-subject-preview-item="finding:http"]'));
+    assert.ok(await page.$('.details-panel'));
     assert.equal(await page.$eval('[data-responsibility-details]', (element) => element.textContent?.includes('UsersController.list') && element.textContent.includes('1 subject')), true);
     if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
       await page.screenshot({ path: '/tmp/bunkercode-responsibility-1440.png', fullPage: true });
@@ -64,7 +70,8 @@ test('Explorer presents a factual Responsibility-first flow in a real browser', 
     await clickButton(page, 'Locate in Territory');
     await page.waitForSelector('[data-perspective="territory"][aria-pressed="true"]', { timeout: 5000 });
     await page.waitForSelector('[data-explorer-scale="territory"]', { timeout: 5000 });
-    assert.ok(await page.$('.react-flow__node[data-id="src/users.controller.ts"].graph-node-selected'));
+    assert.equal(await page.$('.react-flow'), null);
+    assert.equal(await page.$eval('[data-file-landmark="src/users.controller.ts"]', (element) => element.getAttribute('aria-pressed')), 'true');
     assert.equal(await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent?.includes('src')), true);
 
     const territoryLocation = await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent);
@@ -73,12 +80,16 @@ test('Explorer presents a factual Responsibility-first flow in a real browser', 
     await page.waitForSelector('[data-responsibility-map]', { timeout: 5000 });
     assert.equal(await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent), territoryLocation);
     await page.click('[data-perspective="territory"]');
-    await page.waitForSelector('.react-flow__node[data-id="src/users.controller.ts"].graph-node-selected', { timeout: 5000 });
+    await page.waitForSelector('[data-file-landmark="src/users.controller.ts"][aria-pressed="true"]', { timeout: 5000 });
 
     await page.click('[data-perspective="responsibility"]');
     await page.click('[data-responsibility="access-control"]');
     assert.ok(await page.$('[data-responsibility-subject="finding:access"]'));
     assert.equal(await page.$eval('[data-responsibility-subject="finding:access"]', (element) => element.textContent?.includes('UsersController.list')), true);
+
+    await clickButton(page, 'Close inspector');
+    await page.waitForFunction(() => document.querySelector('.details-panel') === null, { timeout: 5000 });
+    assert.equal(await page.$('[data-responsibility-subject-preview]'), null);
 
     await page.setViewport({ width: 640, height: 900 });
     await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
@@ -112,30 +123,38 @@ test('Explorer navigates factual territories and focused file relationships in a
     await page.setViewport({ width: 1280, height: 800 });
     await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('[data-explorer-scale="root"]', { timeout: 15000 });
-    await page.waitForFunction(() => !document.body.textContent?.includes('Arranging visible graph...'), { timeout: 5000 });
+    await page.waitForSelector('[data-spatial-territory-map]', { timeout: 5000 });
     assert.equal(await page.$eval('[data-perspective="territory"]', (element) => element.getAttribute('aria-pressed')), 'true');
     assert.equal(await page.$eval('[data-perspective="responsibility"]', (element) => (element as HTMLButtonElement).disabled), true);
-    assert.equal(await page.$('.graph-node-package'), null);
-    assert.ok(await page.$('.react-flow__node[data-id="directory:packages"].graph-node-territory'));
-    assert.equal(await page.$eval('[data-analyzed-file-count]', (element) => Number((element as HTMLElement).dataset.analyzedFileCount)), snapshot.analysis.files.length);
+    assert.equal(await page.$('.react-flow'), null);
+    assert.ok(await page.$('[data-territory-region="directory:packages"]'));
+    assert.ok(await page.$('[data-territory-preview-item="workspace-package:packages/analyzer-typescript"]'));
+    assert.equal(await page.$eval('[data-spatial-territory-map]', (element) => element.getAttribute('data-territory-composition')), 'triad');
+    assert.equal(await page.$eval('[data-territory-preview-item="workspace-package:packages/analyzer-typescript"]', (element) => element.getAttribute('data-territory-preview-kind')), 'territory');
+    assert.equal(await page.$eval('[data-territory-preview-item="test/responsibility-contract.test.ts"]', (element) => element.getAttribute('data-territory-preview-kind')), 'file');
+    assert.equal(await page.$eval('[data-spatial-territory-map]', (element) => Number((element as HTMLElement).dataset.analyzedFileCount)), snapshot.analysis.files.length);
     assert.equal(await page.$('[class="back-action"]'), null);
-    assert.equal(await page.$eval('.relationship-key', (element) => element.textContent?.includes('A → B') && element.textContent.includes('means A uses B')), true);
+    assert.equal(await page.$('.relationship-key'), null);
+    assert.equal(await page.$('.details-panel'), null);
+    assert.equal(await page.$eval('.explorer-header-actions', (element) => !element.textContent?.includes('Fit graph') && !element.textContent?.includes('Center selected')), true);
     const rootState = await readExplorerUiState(page);
-    await page.focus('[data-vocabulary-help="system-map"] summary');
+    await page.focus('[data-territory-select="directory:packages"]');
     await page.keyboard.press('Enter');
-    assert.equal(await page.$eval('[data-vocabulary-help="system-map"]', (element) => element instanceof HTMLDetailsElement && element.open), true);
-    assert.deepEqual(await readExplorerUiState(page), rootState);
-    await page.keyboard.press('Enter');
-
-    await clickNode(page, 'directory:packages');
     await page.waitForSelector('.territory-identity', { timeout: 5000 });
     assert.equal(await page.$eval('.territory-identity h2', (element) => element.textContent), 'packages');
+    assert.equal(await page.$eval('[data-territory-select="directory:packages"]', (element) => element.getAttribute('aria-pressed')), 'true');
+    assert.deepEqual({ ...await readExplorerUiState(page), selected: null }, { ...rootState, selected: null });
+    await clickButton(page, 'Close inspector');
+    await page.waitForFunction(() => document.querySelector('.details-panel') === null, { timeout: 5000 });
+    assert.equal(await page.$eval('[data-territory-select="directory:packages"]', (element) => element.getAttribute('aria-pressed')), 'false');
+    await page.click('[data-territory-select="directory:packages"]');
     await clickButton(page, 'Open territory');
     await page.waitForSelector('[data-explorer-scale="territory"]', { timeout: 5000 });
-    assert.ok(await page.$('.react-flow__node[data-id="workspace-package:packages/analyzer-typescript"].graph-node-territory'));
+    assert.ok(await page.$('[data-territory-region="workspace-package:packages/analyzer-typescript"]'));
+    assert.equal(await page.$eval('[data-spatial-territory-map]', (element) => element.getAttribute('data-territory-composition')), 'triad');
     assert.equal(await page.$eval('.back-action', (element) => element.textContent?.includes('Back to system')), true);
 
-    await clickNode(page, 'workspace-package:packages/analyzer-typescript');
+    await page.click('[data-territory-select="workspace-package:packages/analyzer-typescript"]');
     await page.waitForSelector('.territory-identity', { timeout: 5000 });
     assert.equal(
       await page.$eval(
@@ -153,10 +172,10 @@ test('Explorer navigates factual territories and focused file relationships in a
     assert.equal(await page.$eval('[data-disclosure="territory-evidence"]', (element) => element.textContent?.includes('Workspace configuration: pnpm-workspace.yaml') && element.textContent.includes('Workspace pattern: packages/*') && element.textContent.includes('Package manifest: packages/analyzer-typescript/package.json')), true);
     await page.keyboard.press('Enter');
     await clickButton(page, 'Open territory');
-    await page.waitForSelector('.react-flow__node[data-id="directory:packages/analyzer-typescript/src"].graph-node-territory', { timeout: 5000 });
-    await clickNode(page, 'directory:packages/analyzer-typescript/src');
+    await page.waitForSelector('[data-territory-region="directory:packages/analyzer-typescript/src"]', { timeout: 5000 });
+    await page.click('[data-territory-select="directory:packages/analyzer-typescript/src"]');
     await clickButton(page, 'Open territory');
-    await page.waitForSelector('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"]', { timeout: 5000 });
+    await page.waitForSelector('[data-file-landmark="packages/analyzer-typescript/src/analyze-project.ts"]', { timeout: 5000 });
     assert.equal(await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent?.includes('analyzer-typescript') && element.textContent.includes('src')), true);
 
     await page.click('[aria-label="Find file"]');
@@ -169,9 +188,11 @@ test('Explorer navigates factual territories and focused file relationships in a
       await page.$eval('.back-action', (element) => element.getAttribute('aria-label')?.startsWith('Back to ')),
       true,
     );
-    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"].graph-node-selected'));
+    assert.equal(await page.$eval('[data-file-landmark="packages/analyzer-typescript/src/analyze-project.ts"]', (element) => element.getAttribute('aria-pressed')), 'true');
     await clickButton(page, 'Show direct connections');
     await page.waitForSelector('[data-explorer-scale="file-connections"]', { timeout: 5000 });
+    assert.ok(await page.$('.react-flow'));
+    assert.equal(await page.$eval('.explorer-header-actions', (element) => element.textContent?.includes('Fit graph')), true);
     assert.ok(await page.$('[aria-label="Back to territory"]'));
     await page.focus('.back-action');
     assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('back-action')), true);
@@ -185,16 +206,16 @@ test('Explorer navigates factual territories and focused file relationships in a
     assert.equal(await page.$eval('[data-disclosure="file-evidence"]', (element) => element instanceof HTMLDetailsElement && element.open && element.textContent?.includes(' at ') && element.textContent.includes('(exact)')), true);
     await page.click('[aria-label="Back to territory"]');
     await page.waitForSelector('[data-explorer-scale="territory"]', { timeout: 5000 });
-    assert.ok(await page.$('.react-flow__node[data-id="packages/analyzer-typescript/src/analyze-project.ts"]'));
+    assert.ok(await page.$('[data-file-landmark="packages/analyzer-typescript/src/analyze-project.ts"]'));
+    assert.equal(await page.$('.react-flow'), null);
     assert.equal(
       await page.$eval('.back-action', (element) => element.getAttribute('aria-label')?.startsWith('Back to ')),
       true,
     );
-    await clickButton(page, 'Fit graph');
     await page.setViewport({ width: 640, height: 900 });
     await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
     await page.click('.back-action');
-    await page.waitForSelector('.react-flow__node[data-id="directory:packages/analyzer-typescript/src"].graph-node-territory', { timeout: 5000 });
+    await page.waitForSelector('[data-territory-region="directory:packages/analyzer-typescript/src"]', { timeout: 5000 });
   } finally {
     await browser.close();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -224,14 +245,6 @@ async function clickButton(page: import('puppeteer-core').Page, label: string): 
     if (!(button instanceof HTMLButtonElement)) throw new Error(`Button not found: ${buttonLabel}`);
     button.click();
   }, label);
-}
-
-async function clickNode(page: import('puppeteer-core').Page, nodeId: string): Promise<void> {
-  await page.evaluate((id) => {
-    const node = document.querySelector(`.react-flow__node[data-id="${id}"]`);
-    if (!(node instanceof HTMLElement)) throw new Error(`Graph node not found: ${id}`);
-    node.click();
-  }, nodeId);
 }
 
 async function readExplorerUiState(page: import('puppeteer-core').Page) {

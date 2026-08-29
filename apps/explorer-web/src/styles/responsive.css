@@ -5,25 +5,6 @@
     padding-inline: 20px;
   }
 
-  .system-map-summary {
-    grid-template-columns: minmax(300px, 1fr) minmax(210px, 0.7fr);
-    gap: var(--space-5);
-    padding: 16px 20px;
-  }
-
-  .filesystem-overview {
-    grid-column: 1 / -1;
-    grid-template-columns: 180px 1fr;
-    padding-top: var(--space-3);
-    padding-left: 0;
-    border-top: 1px solid var(--color-border-subtle);
-    border-left: 0;
-  }
-
-  .filesystem-overview ul {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .explorer-main {
     grid-template-columns: minmax(0, 1fr) minmax(320px, 34vw);
   }
@@ -134,38 +115,6 @@
     grid-template-columns: 1fr;
   }
 
-  .system-map-summary {
-    grid-template-columns: 1fr;
-    gap: 14px;
-    padding: 16px;
-  }
-
-  .system-summary-introduction {
-    padding-left: 12px;
-  }
-
-  .system-summary-metrics {
-    flex-wrap: wrap;
-    font-size: 16px;
-  }
-
-  .relationship-key,
-  .filesystem-overview {
-    grid-column: auto;
-    padding: 13px 0 0;
-    border-top: 1px solid var(--color-border-subtle);
-    border-left: 0;
-  }
-
-  .filesystem-overview {
-    grid-template-columns: 1fr;
-    gap: var(--space-2);
-  }
-
-  .filesystem-overview ul {
-    grid-template-columns: 1fr;
-  }
-
   .graph-canvas {
     min-height: 62vh;
     height: 62vh;
@@ -189,15 +138,6 @@
   .orientation-identity {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .system-summary-metrics {
-    display: grid;
-    gap: 3px;
-  }
-
-  .system-summary-metrics span + span::before {
-    display: none;
   }
 
   .relation-list {

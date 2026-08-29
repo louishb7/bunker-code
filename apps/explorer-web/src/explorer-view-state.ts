@@ -52,6 +52,10 @@ export function selectExplorerResponsibilityFinding(
   return { ...state, selectedResponsibility: responsibility, selectedFindingId: findingId };
 }
 
+export function clearExplorerResponsibilitySelection(state: ExplorerViewState): ExplorerViewState {
+  return { ...state, selectedResponsibility: null, selectedFindingId: null };
+}
+
 export function locateResponsibilityFinding(
   state: ExplorerViewState,
   finding: ResponsibilityFinding,

@@ -33,11 +33,6 @@ export interface ExplorerTerritoryProjectionNode {
   territory: ExplorerTerritory;
 }
 
-export interface ExplorerRootSummary {
-  directTerritoryCount: number;
-  analyzedFileCount: number;
-}
-
 export interface ExplorerFileDependencyEdge {
   id: string;
   kind: 'file-dependency';
@@ -53,21 +48,18 @@ export interface ExplorerProjection {
   nodes: ExplorerProjectionNode[];
   edges: ExplorerProjectionEdge[];
   visibleNodeIds: ReadonlySet<string>;
-  rootSummary?: ExplorerRootSummary;
 }
 
 export function createExplorerProjection(source: ExplorerSource, location: ExplorerLocation): ExplorerProjection {
-  if (location.currentTerritoryId === null) {
-    return territoryProjection(source, location, null);
-  }
-
-  const territory = source.territories.territoriesById.get(location.currentTerritoryId);
+  const territory = location.currentTerritoryId === null
+    ? source.territories.system
+    : source.territories.territoriesById.get(location.currentTerritoryId);
   if (!territory) {
     throw new Error(`Territory not found: ${location.currentTerritoryId}`);
   }
 
   if (location.focusedFileId === null) {
-    return territoryProjection(source, location, territory.id);
+    return territoryProjection(source, location, territory.kind === 'system' ? null : territory.id);
   }
 
   const territoryFileIds = directFileIds(source.territories, territory.id);
@@ -129,10 +121,6 @@ function territoryProjection(
     nodes,
     edges,
     visibleNodeIds,
-    rootSummary: territoryId === null ? {
-      directTerritoryCount: source.territories.system.directChildTerritoryCount,
-      analyzedFileCount: source.territories.system.analyzedFileCount,
-    } : undefined,
   };
 }
 

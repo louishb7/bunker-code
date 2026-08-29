@@ -23,6 +23,17 @@
   opacity: 0.5;
 }
 
+.inspector-close {
+  min-height: 32px;
+  display: block;
+  margin: -10px 0 var(--space-5) auto;
+  border-color: var(--color-border-subtle);
+  padding: 5px 8px;
+  color: var(--color-text-muted);
+  background: transparent;
+  font-size: 10px;
+}
+
 .details-panel article > header {
   position: relative;
   padding-bottom: var(--space-5);

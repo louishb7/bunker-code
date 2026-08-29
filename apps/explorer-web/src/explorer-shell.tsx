@@ -1,13 +1,6 @@
 import type { ReactNode } from 'react';
 import type { ExplorerOrientation, ExplorerNavigationTarget } from './explorer-orientation.js';
-import type { ExplorerRootSummary } from './explorer-projection.js';
 import type { ExplorerSearchResult } from './explorer-search.js';
-import {
-  relationshipDirectionHelp,
-  relationshipDirectionKey,
-} from './relationship-language.js';
-import { systemMapVocabularyPlacement } from './explorer-vocabulary.js';
-import { VocabularyHelp } from './vocabulary-help.js';
 
 export function ExplorerHeader({
   orientation,
@@ -61,58 +54,6 @@ export function ExplorerHeader({
         ) : null}
       </div>
     </header>
-  );
-}
-
-export function SystemMapSummary({ summary }: { summary: ExplorerRootSummary }) {
-  const vocabularyPlacement = systemMapVocabularyPlacement(summary.directTerritoryCount > 0);
-
-  return (
-    <section className="system-map-summary" aria-labelledby="system-map-summary-title">
-      <div className="system-summary-introduction">
-        <p className="eyebrow">System at a glance</p>
-        <h2 id="system-map-summary-title" className="system-summary-metrics">
-          <span data-system-territory-count={summary.directTerritoryCount}>{countLabel(summary.directTerritoryCount, 'direct territory')}</span>
-          <span data-analyzed-file-count={summary.analyzedFileCount}>{countLabel(summary.analyzedFileCount, 'analyzed file')}</span>
-        </h2>
-        <p>Select a territory to inspect its direct structural children and files.</p>
-        {vocabularyPlacement ? <VocabularyHelp placement={vocabularyPlacement} label="Learn about system structure" /> : null}
-      </div>
-      <div className="relationship-key" aria-label={`Relationship direction: ${relationshipDirectionKey}. ${relationshipDirectionHelp}`}>
-        <p className="summary-section-label">Relationship direction</p>
-        <p className="relationship-equation"><span aria-hidden="true">A → B</span><span>means A uses B</span></p>
-        <small>{relationshipDirectionHelp}</small>
-        <VocabularyHelp placement="relationship-direction" label="Learn Uses and Used by" />
-      </div>
-    </section>
-  );
-}
-
-export function ExplorerEmptyDetails({
-  orientation,
-  visibleNodeCount,
-}: {
-  orientation: ExplorerOrientation;
-  visibleNodeCount: number;
-}) {
-  return (
-    <div className="empty-details">
-      <div className="empty-state-marker" aria-hidden="true"><span /><span /><span /></div>
-      <p className="eyebrow">{orientation.scaleLabel}</p>
-      <h2>{orientation.focusedFileLabel
-        ? `Direct connections for ${orientation.focusedFileLabel}`
-        : orientation.scale === 'root'
-          ? 'Select a territory to inspect it'
-          : `${visibleNodeCount} visible nodes`}</h2>
-      <p>{orientation.scale === 'root'
-        ? 'Each territory exposes its direct structural children and analyzed files.'
-        : orientation.scale === 'file-connections'
-          ? 'Select any visible item to inspect it. Use Back to return to the current territory.'
-          : 'Find a file, select it, then show its direct structural connections.'}</p>
-      {orientation.scale === 'file-connections' ? (
-        <VocabularyHelp placement="file-connections" label="Learn about this view" />
-      ) : null}
-    </div>
   );
 }
 
@@ -208,8 +149,4 @@ function SearchResults({
       ))}
     </ul>
   );
-}
-
-function countLabel(count: number, singular: string): string {
-  return `${count} ${singular}${count === 1 ? '' : 's'}`;
 }

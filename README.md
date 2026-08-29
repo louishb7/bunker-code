@@ -76,22 +76,35 @@ PNPM workspace. Its sole structural navigation model is `ExplorerLocation`
 over an `ExplorerTerritoryProjection`: root shows direct Territories and files;
 each Territory shows only its direct child Territories and files; and focused
 files show their factual direct relationships. The header identifies the
-current **System**, **Territory**, or **File connections** scale. Selecting a
-Territory inspects it; **Open territory** drills down. Selecting an internal
-file only inspects it; **Show direct connections** enters its focused
-relationship view.
+current **System**, **Territory**, or **File connections** scale. System and
+Territory use a DOM/CSS spatial containment map: Territories are bounded
+regions with factual direct-child previews, while files are subordinate
+landmarks. The spatial composition varies deterministically only with the
+number and order of direct Territories; it never encodes file count or
+importance. Selecting a Territory inspects it; **Open territory** drills down.
+Selecting an internal file only inspects it; **Show direct connections** enters
+the React Flow/ELK relationship view.
+
+The Responsibility perspective uses a separate DOM/CSS semantic spatial map.
+Canonical Families form taxonomy regions—not filesystem containment—and each
+factual Responsibility is an equally weighted landmark. Selecting a landmark
+reveals a bounded deterministic subject preview and a contextual inspector;
+all original findings remain available progressively. Coverage stays a
+secondary disclosure, while **Locate in Territory** crosses from WHAT ROLE to
+the already-derived factual WHERE without creating Responsibility edges.
 
 A workspace package remains a factual Territory kind, alongside directory
 Territories. It is not a special System-map card or a distinct navigation
 state. Root and directory/package Territory views therefore share the same
 composition, deterministic ordering, evidence, breadcrumb, and structural
-Back behavior. Back moves to the actual structural parent; a focused file
-returns to the Territory that contextualizes it.
+Back behavior. The inspector is contextual rather than a permanently reserved
+column. Back moves to the actual structural parent; a focused file returns to
+the Territory that contextualizes it.
 
 Every visible relationship keeps the analytical direction **source → target**
 and presents it as **source uses target**. Closed arrowheads point to what is
-used, the System map includes a persistent direction key, and selection labels
-outgoing relationships as **Uses** and incoming relationships as **Used by**.
+used, and file-connection selection labels outgoing relationships as **Uses**
+and incoming relationships as **Used by**.
 Duplicate file occurrences between the same two nodes share one visual edge,
 while the details panel retains every supporting location and confidence value.
 

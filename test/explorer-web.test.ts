@@ -14,7 +14,10 @@ import {
 import { buildProjectGraph, buildProjectStructure } from '../packages/graph-engine/src/index.js';
 import { createExplorerAttention } from '../apps/explorer-web/src/explorer-attention.js';
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
-import { createExplorerProjection } from '../apps/explorer-web/src/explorer-projection.js';
+import {
+  createExplorerProjection,
+  type ExplorerProjection,
+} from '../apps/explorer-web/src/explorer-projection.js';
 import { createExplorerRuntime } from '../apps/explorer-web/src/explorer-runtime.js';
 import {
   generateExplorerSnapshot,
@@ -26,7 +29,12 @@ import {
   resolveOwningTerritory,
   type ExplorerPerspective,
 } from '../apps/explorer-web/src/explorer-responsibility-projection.js';
+import {
+  createResponsibilitySpatialModel,
+  RESPONSIBILITY_SUBJECT_PREVIEW_LIMIT,
+} from '../apps/explorer-web/src/explorer-responsibility-spatial-model.js';
 import { resolveExplorerSearchDestination } from '../apps/explorer-web/src/explorer-search.js';
+import { createSpatialTerritoryMapModel } from '../apps/explorer-web/src/explorer-spatial-territory-map.js';
 import {
   createInitialExplorerLocation,
   focusExplorerFile,
@@ -35,6 +43,7 @@ import {
   selectExplorerItem,
 } from '../apps/explorer-web/src/explorer-state.js';
 import {
+  clearExplorerResponsibilitySelection,
   createInitialExplorerViewState,
   locateResponsibilityFinding,
   selectExplorerResponsibility,
@@ -44,6 +53,8 @@ import {
   createExplorerTerritoryProjection,
   orderedTerritoryChildren,
   parentExplorerTerritory,
+  type ExplorerTerritory,
+  type TerritoryPreviewItem,
 } from '../apps/explorer-web/src/explorer-territory-projection.js';
 
 function workspaceSource() {
@@ -56,6 +67,43 @@ function workspaceSource() {
   );
 
   return { graph, structure, territories };
+}
+
+function spatialModelWithTerritories(
+  entries: Array<{ id: string; label: string; analyzedFileCount: number; previewItems?: TerritoryPreviewItem[] }>,
+) {
+  const currentTerritory: ExplorerTerritory = {
+    id: 'analysis-root:.',
+    kind: 'system',
+    structuralPath: ['.'],
+    normalizedStructuralPath: '.',
+    label: 'System',
+    isDrillable: true,
+    analyzedFileCount: entries.reduce((total, entry) => total + entry.analyzedFileCount, 0),
+    directChildTerritoryCount: entries.length,
+    previewItems: [],
+    omittedPreviewItemCount: 0,
+  };
+  const territories: ExplorerTerritory[] = entries.map((entry) => ({
+    id: entry.id,
+    kind: 'directory',
+    structuralPath: ['.', entry.label],
+    normalizedStructuralPath: `./${entry.label}`,
+    label: entry.label,
+    isDrillable: true,
+    analyzedFileCount: entry.analyzedFileCount,
+    directChildTerritoryCount: entry.previewItems?.filter((item) => item.kind === 'territory').length ?? 0,
+    previewItems: entry.previewItems ?? [],
+    omittedPreviewItemCount: 0,
+  }));
+  const projection: ExplorerProjection = {
+    mode: 'root',
+    nodes: territories.map((territory) => ({ id: territory.id, kind: 'territory', territory })),
+    edges: [],
+    visibleNodeIds: new Set(territories.map((territory) => territory.id)),
+  };
+
+  return createSpatialTerritoryMapModel(projection, currentTerritory);
 }
 
 function responsibilityFinding(
@@ -244,6 +292,49 @@ test('responsibility composition is deterministic and leaves ExplorerLocation un
   assert.equal('perspective' in location, false);
 });
 
+test('responsibility spatial presentation preserves canonical facts with bounded deterministic previews', () => {
+  const source = workspaceSource();
+  const findings = [
+    responsibilityFinding('framework-wiring', 'packages/library/src/second.ts', { id: 'finding:wiring', kind: 'file' }),
+    responsibilityFinding('persistence-interaction', 'packages/library/src/first.ts', { id: 'finding:persistence', kind: 'function' }),
+    responsibilityFinding('access-control', 'apps/application/src/main.ts', { id: 'finding:access', kind: 'class' }),
+    responsibilityFinding('http-entry-point', 'packages/library/src/second.ts', { id: 'finding:http-4', kind: 'file', line: 4 }),
+    responsibilityFinding('http-entry-point', 'packages/library/src/first.ts', { id: 'finding:http-3', kind: 'function', line: 3 }),
+    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http-2', kind: 'class', line: 2 }),
+    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http-1', kind: 'method', line: 1 }),
+  ];
+  const projection = createExplorerResponsibilityProjection(responsibilityResult(findings), source.territories);
+  const model = createResponsibilitySpatialModel(projection);
+
+  assert.equal(model.composition, 'constellation');
+  assert.deepEqual(model.familyRegions.map((region) => region.family), ['interface', 'security', 'data', 'composition']);
+  assert.deepEqual(
+    model.familyRegions.flatMap((region) => region.responsibilities.map(({ item }) => item.responsibility)),
+    ['http-entry-point', 'access-control', 'persistence-interaction', 'framework-wiring'],
+  );
+  const http = model.familyRegions[0]?.responsibilities[0];
+  assert.equal(http?.item.subjectCount, 4);
+  assert.equal(http?.item.findings.length, 4);
+  assert.equal(http?.subjectPreviews.length, RESPONSIBILITY_SUBJECT_PREVIEW_LIMIT);
+  assert.equal(http?.omittedSubjectCount, 1);
+  assert.deepEqual(
+    http?.subjectPreviews.map((finding) => finding.id),
+    http?.item.findings.slice(0, RESPONSIBILITY_SUBJECT_PREVIEW_LIMIT).map((finding) => finding.id),
+  );
+  assert.equal('edges' in model, false);
+
+  const sameFamiliesDifferentFacts = createExplorerResponsibilityProjection(
+    responsibilityResult(findings.map((finding, index) => ({
+      ...finding,
+      id: `renamed:${index}`,
+      subject: { ...finding.subject, id: `renamed-subject:${index}` },
+    }))),
+    source.territories,
+  );
+  assert.equal(createResponsibilitySpatialModel(sameFamiliesDifferentFacts).composition, model.composition);
+  assert.deepEqual(createResponsibilitySpatialModel(projection), model);
+});
+
 test('Explorer view state chooses its initial perspective through D3 eligibility', () => {
   const territories = workspaceSource().territories;
   const qualifying = responsibilityResult([
@@ -281,6 +372,11 @@ test('perspective and Responsibility selection preserve structural location unti
   assert.equal(switchedBack.location, selected.location);
   assert.equal(switchedBack.selectedResponsibility, 'http-entry-point');
 
+  const cleared = clearExplorerResponsibilitySelection(switchedBack);
+  assert.equal(cleared.location, switchedBack.location);
+  assert.equal(cleared.selectedResponsibility, null);
+  assert.equal(cleared.selectedFindingId, null);
+
   const located = locateResponsibilityFinding(switchedBack, finding, territories);
   assert.equal(located.perspective, 'territory');
   assert.equal(located.location.currentTerritoryId, 'directory:packages/library/src');
@@ -317,6 +413,81 @@ test('root projection contains direct factual territory children in canonical or
   assert.deepEqual(projection.nodes.map((node) => node.id), expected.map((child) => child.kind === 'territory' ? child.territoryId : child.fileId));
   assert.equal(projection.nodes.every((node) => node.kind === 'territory' || node.kind === 'file'), true);
   assert.equal(projection.nodes.some((node) => node.kind === 'workspace-package'), false);
+});
+
+test('spatial map exposes only direct structural children and factual nested previews', () => {
+  const source = workspaceSource();
+  const rootLocation = createInitialExplorerLocation(source.territories);
+  const rootModel = createSpatialTerritoryMapModel(
+    createExplorerProjection(source, rootLocation),
+    source.territories.system,
+  );
+
+  assert.equal(rootModel.scale, 'system');
+  assert.deepEqual(
+    rootModel.territories.map((item) => item.territory.id),
+    ['workspace-package:apps/application', 'directory:packages'],
+  );
+  assert.deepEqual(
+    rootModel.territories.find((item) => item.territory.id === 'directory:packages')?.previewItems.map((item) => (
+      item.kind === 'territory' ? item.territoryId : item.fileId
+    )),
+    ['workspace-package:packages/empty', 'workspace-package:packages/isolated', 'workspace-package:packages/library'],
+  );
+  assert.equal('edges' in rootModel, false);
+
+  const packages = source.territories.territoriesById.get('directory:packages');
+  assert.ok(packages);
+  if (!packages) return;
+  const territoryLocation = navigateToTerritory(rootLocation, packages.id, packages.structuralPath);
+  const territoryModel = createSpatialTerritoryMapModel(
+    createExplorerProjection(source, territoryLocation),
+    packages,
+  );
+
+  assert.equal(territoryModel.scale, 'territory');
+  assert.deepEqual(
+    territoryModel.territories.map((item) => item.territory.id),
+    ['workspace-package:packages/empty', 'workspace-package:packages/isolated', 'workspace-package:packages/library'],
+  );
+  assert.equal('edges' in territoryModel, false);
+});
+
+test('spatial map composition is deterministic, neutral, and keeps preview kinds distinct', () => {
+  assert.equal(spatialModelWithTerritories([{ id: 'one', label: 'one', analyzedFileCount: 100 }]).composition, 'single');
+  assert.equal(spatialModelWithTerritories([
+    { id: 'one', label: 'one', analyzedFileCount: 1 },
+    { id: 'two', label: 'two', analyzedFileCount: 200 },
+  ]).composition, 'pair');
+  assert.equal(spatialModelWithTerritories([
+    { id: 'first', label: 'backend', analyzedFileCount: 1 },
+    { id: 'second', label: 'api', analyzedFileCount: 900 },
+    { id: 'third', label: 'web', analyzedFileCount: 2 },
+  ]).composition, 'triad');
+  assert.equal(spatialModelWithTerritories([
+    { id: 'one', label: 'one', analyzedFileCount: 1 },
+    { id: 'two', label: 'two', analyzedFileCount: 2 },
+    { id: 'three', label: 'three', analyzedFileCount: 3 },
+    { id: 'four', label: 'four', analyzedFileCount: 4 },
+  ]).composition, 'field');
+
+  const previews: TerritoryPreviewItem[] = [
+    { kind: 'territory', territoryId: 'child:src', structuralPath: ['.', 'src'], label: 'src', isDrillable: true },
+    { kind: 'file', fileId: 'entry.ts', structuralPath: ['.', 'entry.ts'], label: 'entry.ts' },
+  ];
+  const model = spatialModelWithTerritories([{ id: 'one', label: 'one', analyzedFileCount: 5, previewItems: previews }]);
+  const changedNamesAndCounts = spatialModelWithTerritories([
+    { id: 'one', label: 'server', analyzedFileCount: 1000 },
+    { id: 'two', label: 'frontend', analyzedFileCount: 1 },
+    { id: 'three', label: 'api', analyzedFileCount: 50 },
+  ]);
+  const repeated = spatialModelWithTerritories([{ id: 'one', label: 'one', analyzedFileCount: 5, previewItems: previews }]);
+
+  assert.deepEqual(model.territories[0]?.childTerritoryPreviews, [previews[0]]);
+  assert.deepEqual(model.territories[0]?.filePreviews, [previews[1]]);
+  assert.equal(changedNamesAndCounts.composition, 'triad');
+  assert.deepEqual(model, repeated);
+  assert.equal('edges' in model, false);
 });
 
 test('workspace package and directory territories use the same direct-child composition', () => {
@@ -405,6 +576,18 @@ test('focused files retain direct factual relationship context and attention pri
   assert.equal(projection.mode, 'focus');
   assert.equal(attention.nodes.get(focusedFileId)?.role, 'anchor');
   assert.equal([...attention.nodes.values()].some((node) => node.role === 'direct'), true);
+});
+
+test('a root-level file can enter relationship focus without inventing a Territory', () => {
+  const source = workspaceSource();
+  const focusedFileId = 'orphan.ts';
+  const location = focusExplorerFile(createInitialExplorerLocation(source.territories), focusedFileId);
+  const projection = createExplorerProjection(source, location);
+
+  assert.equal(location.currentTerritoryId, null);
+  assert.deepEqual(location.structuralPath, ['.']);
+  assert.equal(projection.mode, 'focus');
+  assert.equal(projection.nodes.some((node) => node.id === focusedFileId), true);
 });
 
 test('stale territory navigation fails explicitly', () => {

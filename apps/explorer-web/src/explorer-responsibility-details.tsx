@@ -12,6 +12,8 @@ import {
 } from './explorer-responsibility-projection.js';
 import type { ExplorerTerritoryProjection } from './explorer-territory-projection.js';
 
+const RESPONSIBILITY_INSPECTOR_INITIAL_SUBJECT_LIMIT = 6;
+
 export function ResponsibilityDetails({
   projection,
   territories,
@@ -34,14 +36,7 @@ export function ResponsibilityDetails({
   const finding = selection?.item.findings.find((candidate) => candidate.id === selectedFindingId);
 
   if (!selection) {
-    return (
-      <div className="empty-details responsibility-empty-details">
-        <div className="empty-state-marker" aria-hidden="true"><span /><span /><span /></div>
-        <p className="eyebrow">Responsibility perspective</p>
-        <h2>Select a responsibility</h2>
-        <p>Inspect its factual subjects and the Territories where those subjects are located.</p>
-      </div>
-    );
+    return null;
   }
 
   if (finding) {
@@ -87,7 +82,7 @@ export function ResponsibilityDetails({
       <header>
         <p className="eyebrow">{responsibilityFamilyLabel(selection.family)}</p>
         <h2 id="selected-responsibility-title">{responsibilityLabel(selection.item.responsibility)}</h2>
-        <p>{countLabel(selection.item.subjectCount, 'subject')} · {countLabel(selection.item.territoryIds.length, 'territory')}</p>
+        <p>{countLabel(selection.item.subjectCount, 'subject')} · {territoryCountLabel(selection.item.territoryIds.length)}</p>
       </header>
       <section className="responsibility-territory-summary" aria-labelledby="responsibility-territories-title">
         <p className="detail-section-label">Where</p>
@@ -102,23 +97,47 @@ export function ResponsibilityDetails({
       <section className="responsibility-subject-list" aria-labelledby="responsibility-subjects-title">
         <p className="detail-section-label">Subjects</p>
         <h3 id="responsibility-subjects-title">Factual findings</h3>
-        <ul>
-          {selection.item.findings.map((itemFinding) => (
-            <li key={itemFinding.id}>
-              <button
-                type="button"
-                data-responsibility-subject={itemFinding.id}
-                onClick={() => onSelectFinding(selection.item.responsibility, itemFinding.id)}
-              >
-                <strong>{responsibilitySubjectLabel(itemFinding.subject)}</strong>
-                <span>{responsibilitySubjectKindLabel(itemFinding.subject)}</span>
-                <small>{responsibilityLocationLabel(itemFinding.subject)}</small>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <SubjectFindingList
+          findings={selection.item.findings.slice(0, RESPONSIBILITY_INSPECTOR_INITIAL_SUBJECT_LIMIT)}
+          responsibility={selection.item.responsibility}
+          onSelectFinding={onSelectFinding}
+        />
+        {selection.item.findings.length > RESPONSIBILITY_INSPECTOR_INITIAL_SUBJECT_LIMIT ? (
+          <details className="responsibility-subject-overflow" data-disclosure="responsibility-subjects">
+            <summary>Show {selection.item.findings.length - RESPONSIBILITY_INSPECTOR_INITIAL_SUBJECT_LIMIT} more factual findings</summary>
+            <SubjectFindingList
+              findings={selection.item.findings.slice(RESPONSIBILITY_INSPECTOR_INITIAL_SUBJECT_LIMIT)}
+              responsibility={selection.item.responsibility}
+              onSelectFinding={onSelectFinding}
+            />
+          </details>
+        ) : null}
       </section>
     </article>
+  );
+}
+
+function SubjectFindingList({ findings, responsibility, onSelectFinding }: {
+  findings: ResponsibilityFinding[];
+  responsibility: Responsibility;
+  onSelectFinding(responsibility: Responsibility, findingId: string): void;
+}) {
+  return (
+    <ul>
+      {findings.map((finding) => (
+        <li key={finding.id}>
+          <button
+            type="button"
+            data-responsibility-subject={finding.id}
+            onClick={() => onSelectFinding(responsibility, finding.id)}
+          >
+            <strong>{responsibilitySubjectLabel(finding.subject)}</strong>
+            <span>{responsibilitySubjectKindLabel(finding.subject)}</span>
+            <small>{responsibilityLocationLabel(finding.subject)}</small>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -137,4 +156,8 @@ function SubjectLocation({ finding, territories }: { finding: ResponsibilityFind
 
 function countLabel(count: number, singular: string): string {
   return `${count} ${singular}${count === 1 ? '' : 's'}`;
+}
+
+function territoryCountLabel(count: number): string {
+  return `${count} ${count === 1 ? 'territory' : 'territories'}`;
 }

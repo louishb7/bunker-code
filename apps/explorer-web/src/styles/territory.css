@@ -1,0 +1,372 @@
+.explorer-main-territory {
+  min-width: 0;
+  background: var(--color-canvas);
+}
+
+.explorer-main-territory:not(.explorer-main-has-inspector) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.explorer-main-has-inspector {
+  grid-template-columns: minmax(0, 1fr) clamp(330px, 25vw, 390px);
+}
+
+.spatial-territory-map {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background:
+    linear-gradient(rgb(113 207 194 / 2%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(113 207 194 / 2%) 1px, transparent 1px),
+    var(--color-canvas);
+  background-size: 48px 48px, 48px 48px, auto;
+}
+
+.spatial-map-heading {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: var(--space-6);
+  padding: 22px clamp(22px, 3vw, 42px) 18px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: linear-gradient(90deg, rgb(15 28 36 / 94%), rgb(12 21 28 / 72%));
+}
+
+.spatial-map-heading h2 {
+  margin: 0;
+  font-size: clamp(27px, 3vw, 42px);
+  font-weight: 680;
+}
+
+.spatial-map-heading > p {
+  flex: 0 0 auto;
+  margin: 0 0 4px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.spatial-map-surface {
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(20px, 3.5vw, 54px);
+  scrollbar-color: var(--color-border-strong) var(--color-canvas);
+}
+
+.territory-region-field {
+  display: grid;
+  align-content: start;
+  gap: clamp(14px, 2vw, 28px);
+}
+
+.territory-composition-single {
+  grid-template-columns: minmax(0, min(820px, 100%));
+}
+
+.territory-composition-pair {
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+  padding-inline: clamp(0px, 4vw, 72px);
+}
+
+.territory-composition-pair > :nth-child(2) {
+  margin-top: clamp(30px, 5vw, 76px);
+}
+
+.territory-composition-triad {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.territory-composition-triad > :nth-child(1) {
+  grid-column: 1 / span 7;
+}
+
+.territory-composition-triad > :nth-child(2) {
+  grid-column: 8 / -1;
+  margin-top: clamp(36px, 5vw, 72px);
+}
+
+.territory-composition-triad > :nth-child(3) {
+  grid-column: 3 / span 8;
+}
+
+.territory-composition-field {
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  padding-inline: clamp(0px, 2vw, 36px);
+}
+
+.territory-composition-field > :nth-child(4n + 2),
+.territory-composition-field > :nth-child(4n + 3) {
+  margin-top: 30px;
+}
+
+.territory-region {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  border: 1px solid var(--color-border);
+  background: linear-gradient(145deg, rgb(113 207 194 / 4%), transparent 58%), #13232c;
+}
+
+.territory-region-select {
+  width: 100%;
+  min-height: 92px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: center;
+  justify-items: start;
+  gap: 5px var(--space-4);
+  border: 0;
+  border-radius: 0;
+  padding: 18px 20px 15px;
+  background: transparent;
+  text-align: left;
+  box-shadow: inset 0 -1px 0 rgb(57 80 94 / 72%);
+}
+
+.territory-region-select:hover {
+  background: rgb(113 207 194 / 5%);
+}
+
+.territory-region-select[aria-pressed="true"] {
+  background: linear-gradient(90deg, rgb(113 207 194 / 14%), transparent 72%);
+  box-shadow: inset 4px 0 0 var(--color-accent), inset 0 -1px 0 var(--color-border);
+}
+
+.territory-region-select > strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-size: clamp(18px, 1.6vw, 24px);
+  line-height: 1.1;
+}
+
+.territory-region-kind {
+  grid-column: 1 / -1;
+  color: var(--color-accent);
+  font-size: 9px;
+  font-weight: 780;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.territory-region-count {
+  align-self: center;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.territory-containment-preview {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px 21px;
+}
+
+.territory-subregion-field {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(156px, 100%), 1fr));
+  gap: 10px;
+}
+
+.territory-subregion-preview {
+  min-width: 0;
+  min-height: 72px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  border: 1px solid rgb(113 207 194 / 35%);
+  border-left: 3px solid var(--color-accent);
+  padding: 11px 13px;
+  background: rgb(8 23 30 / 56%);
+}
+
+.territory-subregion-preview small {
+  color: var(--color-accent);
+  font-size: 8px;
+  font-weight: 760;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.territory-subregion-preview strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.territory-file-preview-field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding-top: 2px;
+}
+
+.territory-file-preview {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 5px 0;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.territory-file-preview > span {
+  width: 7px;
+  height: 9px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-text-muted);
+}
+
+.territory-preview-more,
+.territory-preview-empty {
+  display: inline-flex;
+  width: fit-content;
+  border-left: 1px dashed var(--color-border-strong);
+  padding: 4px 0 4px 9px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.territory-region-open {
+  justify-self: end;
+  min-height: 32px;
+  margin: 0 14px 12px;
+  border: 0;
+  padding: 4px 7px;
+  color: var(--color-accent-strong);
+  background: transparent;
+}
+
+.territory-region-open:hover {
+  background: rgb(113 207 194 / 8%);
+}
+
+.file-landmark-field {
+  max-width: 960px;
+  margin-top: clamp(22px, 3vw, 38px);
+  border-top: 1px solid var(--color-border);
+  padding-top: 16px;
+}
+
+.file-landmark-field > header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.file-landmark-field > header h3 {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.file-landmark-field > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr));
+  gap: 8px;
+  margin-top: var(--space-3);
+}
+
+.file-landmark {
+  min-width: 0;
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-content: center;
+  gap: 2px 8px;
+  border-color: var(--color-border-subtle);
+  border-radius: var(--radius-technical);
+  padding: 10px 11px;
+  color: var(--color-text-secondary);
+  background: rgb(14 25 33 / 72%);
+  text-align: left;
+  box-shadow: none;
+}
+
+.file-landmark:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-quiet);
+}
+
+.file-landmark[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+  background: rgb(23 63 61 / 38%);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.file-landmark-mark {
+  grid-row: 1 / 3;
+  align-self: center;
+  width: 8px;
+  height: 11px;
+  border: 1px solid currentColor;
+  border-radius: 1px;
+}
+
+.file-landmark strong,
+.file-landmark small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-landmark strong {
+  font-size: 11px;
+}
+
+.file-landmark small {
+  color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8px;
+}
+
+@media (max-width: 760px) {
+  .explorer-main-has-inspector {
+    grid-template-columns: 1fr;
+  }
+
+  .spatial-territory-map {
+    min-height: 64vh;
+    overflow: visible;
+  }
+
+  .spatial-map-heading {
+    align-items: start;
+    flex-direction: column;
+    gap: 7px;
+    padding: 18px 16px 14px;
+  }
+
+  .spatial-map-heading > p {
+    margin: 0;
+  }
+
+  .spatial-map-surface {
+    overflow: visible;
+    padding: 16px;
+  }
+
+  .territory-composition-pair,
+  .territory-composition-triad,
+  .territory-composition-field {
+    grid-template-columns: 1fr;
+    padding-inline: 0;
+  }
+
+  .territory-composition-triad > :nth-child(n),
+  .territory-composition-field > :nth-child(n),
+  .territory-composition-pair > :nth-child(n) {
+    grid-column: auto;
+    margin-top: 0;
+  }
+}

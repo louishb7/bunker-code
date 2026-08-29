@@ -1,6 +1,7 @@
 @import './styles/tokens.css';
 @import './styles/shell.css';
 @import './styles/graph.css';
+@import './styles/territory.css';
 @import './styles/details.css';
 @import './styles/responsibility.css';
 @import './styles/responsive.css';
