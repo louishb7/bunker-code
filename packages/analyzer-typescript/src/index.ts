@@ -1,5 +1,10 @@
 export { analyzeProject, analyzeTypeScriptTarget } from './analyze-project.js';
 export type { TypeScriptTargetAnalysis } from './analyze-project.js';
+export { discoverAnalysisTargets, resolveAnalysisTarget } from './project-discovery.js';
+export type {
+  AnalysisTargetEvidence,
+  DiscoveredAnalysisTarget,
+} from './project-discovery.js';
 export { ANALYSIS_SCHEMA_VERSION } from './analysis-result.js';
 export type {
   AnalysisDiagnostic,

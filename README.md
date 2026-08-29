@@ -103,11 +103,15 @@ pnpm explorer ../another-local-project
 pnpm explorer /absolute/path/to/another-local-project
 ```
 
-The target path is resolved from the directory where the command is run. With
-no argument, `pnpm explorer` analyzes BunkerCode itself. An explicit missing
-path or file fails before analysis; the Explorer never scans sibling projects.
-The target is analyzed read-only and the disposable snapshot is written only
-inside this repository.
+The repository path is resolved from the directory where the command is run.
+With no argument, `pnpm explorer` uses BunkerCode itself. A root already
+supported by the TypeScript analyzer remains the single target. Otherwise,
+discovery searches only below that repository for supported TypeScript project
+roots: one candidate is selected automatically, zero candidates fail clearly,
+and multiple candidates fail with an ordered list so the user can provide one
+explicitly. Discovery never chooses by directory names or scans sibling
+projects. The selected target is analyzed read-only and the disposable snapshot
+is written only inside this repository.
 
 Build the Web application with:
 

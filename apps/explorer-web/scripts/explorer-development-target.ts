@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { analyzeTypeScriptTarget } from '@bunker-code/analyzer-typescript';
+import { analyzeTypeScriptTarget, resolveAnalysisTarget } from '@bunker-code/analyzer-typescript';
 import type { AnalysisResult, ResponsibilityAnalysisResult } from '@bunker-code/contracts';
 
 export interface ExplorerSnapshotTarget {
@@ -38,7 +38,7 @@ export function resolveExplorerSnapshotTarget(
     throw new Error(`Explorer target is not a directory: ${projectDirectory}`);
   }
 
-  return { projectDirectory };
+  return { projectDirectory: resolveAnalysisTarget(projectDirectory) };
 }
 
 export function generateExplorerSnapshot({

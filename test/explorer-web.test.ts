@@ -426,6 +426,8 @@ test('Explorer development target resolves a relative or absolute directory and 
   const explicitTarget = path.join(root, 'explicit-project');
   mkdirSync(defaultTarget);
   mkdirSync(explicitTarget);
+  writeFileSync(path.join(defaultTarget, 'tsconfig.json'), '{}');
+  writeFileSync(path.join(explicitTarget, 'tsconfig.json'), '{}');
   const executionDirectory = path.join(root, 'commands');
   mkdirSync(executionDirectory);
 
@@ -450,7 +452,8 @@ test('Explorer development target resolves a relative or absolute directory and 
 test('Explorer snapshot generation validates its target and keeps analysis and responsibilities synchronized', (context) => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-explorer-snapshot-'));
   context.after(() => rmSync(root, { recursive: true, force: true }));
-  const target = path.join(root, 'target-project');
+  const repository = path.join(root, 'repository');
+  const target = path.join(repository, 'target-project');
   const commands = path.join(root, 'commands');
   const outputPath = path.join(root, 'snapshot.json');
   mkdirSync(path.join(target, 'src'), { recursive: true });
@@ -461,9 +464,9 @@ test('Explorer snapshot generation validates its target and keeps analysis and r
   writeFileSync(path.join(root, 'not-a-directory'), 'file');
 
   const snapshot = generateExplorerSnapshot({
-    args: ['../target-project'],
+    args: ['../repository'],
     cwd: commands,
-    defaultTarget: target,
+    defaultTarget: repository,
     outputPath,
   });
 
@@ -473,11 +476,31 @@ test('Explorer snapshot generation validates its target and keeps analysis and r
   assert.equal(createExplorerRuntime(snapshot).kind, 'ready');
   assert.deepEqual(JSON.parse(readFileSync(outputPath, 'utf8')), snapshot);
   assert.throws(
-    () => resolveExplorerSnapshotTarget(['missing'], { cwd: commands, defaultTarget: target }),
+    () => resolveExplorerSnapshotTarget(['missing'], { cwd: commands, defaultTarget: repository }),
     /Explorer target does not exist: .*missing/,
   );
   assert.throws(
-    () => resolveExplorerSnapshotTarget([path.join(root, 'not-a-directory')], { cwd: commands, defaultTarget: target }),
+    () => resolveExplorerSnapshotTarget([path.join(root, 'not-a-directory')], { cwd: commands, defaultTarget: repository }),
     /Explorer target is not a directory:/,
+  );
+});
+
+test('Explorer development target reports repository ambiguity without choosing a candidate', (context) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-explorer-ambiguity-'));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const repository = path.join(root, 'repository');
+  mkdirSync(path.join(repository, 'zeta'), { recursive: true });
+  mkdirSync(path.join(repository, 'alpha'), { recursive: true });
+  writeFileSync(path.join(repository, 'zeta', 'tsconfig.json'), '{}');
+  writeFileSync(path.join(repository, 'alpha', 'tsconfig.json'), '{}');
+
+  assert.throws(
+    () => resolveExplorerSnapshotTarget([repository], { cwd: root, defaultTarget: repository }),
+    new Error([
+      `Multiple supported TypeScript analysis targets were found under ${repository}:`,
+      '- alpha',
+      '- zeta',
+      'Provide one target directory explicitly.',
+    ].join('\n')),
   );
 });

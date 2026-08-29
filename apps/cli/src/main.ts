@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { analyzeProject } from '@bunker-code/analyzer-typescript';
+import { analyzeProject, resolveAnalysisTarget } from '@bunker-code/analyzer-typescript';
 import {
   aggregatePackageDependencies,
   buildProjectGraph,
@@ -8,7 +8,6 @@ import {
   createImpactReport,
   createProjectDiagnostics,
 } from '@bunker-code/graph-engine';
-import { resolveAnalysisTarget } from './project-discovery.js';
 
 export interface CliStreams {
   writeStdout(output: string): void;
