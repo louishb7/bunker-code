@@ -1,5 +1,7 @@
 export const ANALYSIS_SCHEMA_VERSION = 1;
 
+export * from './responsibility.js';
+
 export type AnalysisSchemaVersion = typeof ANALYSIS_SCHEMA_VERSION;
 
 export interface AnalysisResult {
