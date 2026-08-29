@@ -95,11 +95,19 @@ outgoing relationships as **Uses** and incoming relationships as **Used by**.
 Duplicate file occurrences between the same two nodes share one visual edge,
 while the details panel retains every supporting location and confidence value.
 
-Generate the snapshot and start the local app:
+Generate a snapshot for an explicit target and start the local Explorer:
 
 ```bash
-pnpm --filter @bunker-code/explorer-web dev
+pnpm explorer .
+pnpm explorer ../another-local-project
+pnpm explorer /absolute/path/to/another-local-project
 ```
+
+The target path is resolved from the directory where the command is run. With
+no argument, `pnpm explorer` analyzes BunkerCode itself. An explicit missing
+path or file fails before analysis; the Explorer never scans sibling projects.
+The target is analyzed read-only and the disposable snapshot is written only
+inside this repository.
 
 Build the Web application with:
 

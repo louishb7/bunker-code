@@ -17,6 +17,10 @@ import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-ori
 import { createExplorerProjection } from '../apps/explorer-web/src/explorer-projection.js';
 import { createExplorerRuntime } from '../apps/explorer-web/src/explorer-runtime.js';
 import {
+  generateExplorerSnapshot,
+  resolveExplorerSnapshotTarget,
+} from '../apps/explorer-web/scripts/explorer-development-target.js';
+import {
   chooseInitialExplorerPerspective,
   createExplorerResponsibilityProjection,
   resolveOwningTerritory,
@@ -413,4 +417,67 @@ test('stale territory navigation fails explicitly', () => {
 test('generated snapshot remains a valid responsibility-aware Explorer input', () => {
   const snapshot: unknown = JSON.parse(readFileSync('apps/explorer-web/src/generated/analyzer-typescript.snapshot.json', 'utf8'));
   assert.equal(createExplorerRuntime(snapshot).kind, 'ready');
+});
+
+test('Explorer development target resolves a relative or absolute directory and defaults explicitly', (context) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-explorer-target-'));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const defaultTarget = path.join(root, 'default-project');
+  const explicitTarget = path.join(root, 'explicit-project');
+  mkdirSync(defaultTarget);
+  mkdirSync(explicitTarget);
+  const executionDirectory = path.join(root, 'commands');
+  mkdirSync(executionDirectory);
+
+  assert.equal(
+    resolveExplorerSnapshotTarget([], { cwd: executionDirectory, defaultTarget }).projectDirectory,
+    defaultTarget,
+  );
+  assert.equal(
+    resolveExplorerSnapshotTarget(['../explicit-project'], { cwd: executionDirectory, defaultTarget }).projectDirectory,
+    explicitTarget,
+  );
+  assert.equal(
+    resolveExplorerSnapshotTarget([explicitTarget], { cwd: executionDirectory, defaultTarget }).projectDirectory,
+    explicitTarget,
+  );
+  assert.equal(
+    resolveExplorerSnapshotTarget(['--', '../explicit-project'], { cwd: executionDirectory, defaultTarget }).projectDirectory,
+    explicitTarget,
+  );
+});
+
+test('Explorer snapshot generation validates its target and keeps analysis and responsibilities synchronized', (context) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-explorer-snapshot-'));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const target = path.join(root, 'target-project');
+  const commands = path.join(root, 'commands');
+  const outputPath = path.join(root, 'snapshot.json');
+  mkdirSync(path.join(target, 'src'), { recursive: true });
+  mkdirSync(commands);
+  writeFileSync(path.join(target, 'package.json'), JSON.stringify({ name: 'target-project-label' }));
+  writeFileSync(path.join(target, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022' }, include: ['src/**/*.ts'] }));
+  writeFileSync(path.join(target, 'src', 'entry.ts'), 'export const entry = 1;\n');
+  writeFileSync(path.join(root, 'not-a-directory'), 'file');
+
+  const snapshot = generateExplorerSnapshot({
+    args: ['../target-project'],
+    cwd: commands,
+    defaultTarget: target,
+    outputPath,
+  });
+
+  assert.equal(snapshot.projectLabel, 'target-project-label');
+  assert.equal(snapshot.analysis.files.length, 1);
+  assert.equal(snapshot.analysis.projectPath, snapshot.responsibilities.projectPath);
+  assert.equal(createExplorerRuntime(snapshot).kind, 'ready');
+  assert.deepEqual(JSON.parse(readFileSync(outputPath, 'utf8')), snapshot);
+  assert.throws(
+    () => resolveExplorerSnapshotTarget(['missing'], { cwd: commands, defaultTarget: target }),
+    /Explorer target does not exist: .*missing/,
+  );
+  assert.throws(
+    () => resolveExplorerSnapshotTarget([path.join(root, 'not-a-directory')], { cwd: commands, defaultTarget: target }),
+    /Explorer target is not a directory:/,
+  );
 });

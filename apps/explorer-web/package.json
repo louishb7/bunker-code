@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "generate:snapshot": "node --import tsx scripts/generate-snapshot.ts",
-    "dev": "pnpm generate:snapshot && vite",
+    "dev": "node --import tsx scripts/develop.ts",
     "build": "pnpm generate:snapshot && vite build",
     "typecheck": "tsc --noEmit"
   },
