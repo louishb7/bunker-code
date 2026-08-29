@@ -7,14 +7,13 @@ import { describeRelationship } from './relationship-language.js';
 export interface ExplorerNodeData extends Record<string, unknown> {
   label: string;
   subtitle: string;
-  kind: 'file' | 'external' | 'workspace-package';
+  kind: 'file' | 'external' | 'territory';
   path?: string;
   contextLabel?: string;
   scopeRole?: 'owned' | 'contextual' | 'project';
-  technicalLabel?: string;
-  fileCount?: number;
-  usesCount?: number;
-  usedByCount?: number;
+  territoryKind?: 'system' | 'directory' | 'workspace-package';
+  analyzedFileCount?: number;
+  directChildTerritoryCount?: number;
   attentionLabel?: string;
   attentionRole?: string;
   selectedForInspection?: boolean;
@@ -40,7 +39,7 @@ export interface ExplorerElements {
 }
 
 const fileNodeDimensions = { width: 218, height: 72 };
-const systemPartNodeDimensions = { width: 280, height: 150 };
+const territoryNodeDimensions = { width: 260, height: 118 };
 const elk = new ELK();
 
 /** Adapts the Web projection into renderer-owned React Flow elements. */
@@ -107,19 +106,18 @@ function aggregateVisualEdges(edges: ExplorerProjectionEdge[]): ExplorerProjecti
 }
 
 function createExplorerNode(node: ExplorerProjectionNode): ExplorerNode {
-  if (node.kind === 'workspace-package') {
+  if (node.kind === 'territory') {
     return {
       id: node.id,
       position: { x: 0, y: 0 },
       data: {
-        label: node.presentationLabel,
-        subtitle: 'Part of this system',
+        label: node.territory.label,
+        subtitle: node.territory.kind === 'workspace-package' ? 'Workspace package' : 'Directory',
         kind: node.kind,
-        path: node.workspacePackage.rootPath,
-        technicalLabel: node.technicalLabel,
-        fileCount: node.fileCount,
-        usesCount: node.usesCount,
-        usedByCount: node.usedByCount,
+        path: node.territory.structuralPath.join('/'),
+        territoryKind: node.territory.kind,
+        analyzedFileCount: node.territory.analyzedFileCount,
+        directChildTerritoryCount: node.territory.directChildTerritoryCount,
       },
     };
   }
@@ -134,9 +132,7 @@ function createExplorerNode(node: ExplorerProjectionNode): ExplorerNode {
         kind: node.kind,
         scopeRole: node.scopeRole,
         subtitle: node.scopeRole === 'contextual'
-          ? node.contextualPartLabel
-            ? `From ${node.contextualPartLabel}`
-            : 'Outside this part'
+          ? 'Relationship context'
           : node.scopeRole === 'owned'
             ? 'File in this part'
             : 'Analyzed file',
@@ -159,17 +155,17 @@ function createExplorerNode(node: ExplorerProjectionNode): ExplorerNode {
 
 /** Uses the analytical edge direction: dependent source to dependency target. */
 export async function layoutExplorerElements(elements: ExplorerElements): Promise<ExplorerElements> {
-  const isSystemMap = elements.mode === 'system';
+  const isRoot = elements.mode === 'root';
   const layout = await elk.layout({
     id: 'explorer',
     layoutOptions: {
       'elk.algorithm': 'layered',
       'elk.direction': 'RIGHT',
-      'elk.layered.spacing.nodeNodeBetweenLayers': isSystemMap ? '72' : elements.mode === 'overview' ? '54' : '64',
-      'elk.spacing.nodeNode': isSystemMap ? '36' : elements.mode === 'overview' ? '24' : '30',
+      'elk.layered.spacing.nodeNodeBetweenLayers': isRoot ? '72' : elements.mode === 'territory' ? '54' : '64',
+      'elk.spacing.nodeNode': isRoot ? '36' : elements.mode === 'territory' ? '24' : '30',
     },
     children: elements.nodes.map((node) => {
-      const dimensions = node.data.kind === 'workspace-package' ? systemPartNodeDimensions : fileNodeDimensions;
+      const dimensions = node.data.kind === 'territory' ? territoryNodeDimensions : fileNodeDimensions;
       return { id: node.id, ...dimensions };
     }),
     edges: elements.edges.map((edge) => ({ id: edge.id, sources: [edge.source], targets: [edge.target] })),

@@ -85,7 +85,7 @@ export function attentionFlowNode(
   } satisfies ExplorerNodeAttention;
   const classes = ['graph-node'];
 
-  if (node.data.kind === 'workspace-package') classes.push('graph-node-package');
+  if (node.data.kind === 'territory') classes.push('graph-node-territory');
   if (node.data.kind === 'external') classes.push('graph-node-external');
   if (node.data.scopeRole === 'contextual') classes.push('graph-node-contextual');
   classes.push(`graph-node-attention-${resolvedAttention.role}`);
@@ -149,31 +149,26 @@ export function relationshipFlowEdge(edge: ExplorerEdge, attention: ExplorerEdge
 
 export function fitViewOptions(mode: ExplorerElements['mode']) {
   return {
-    padding: mode === 'system' ? 0.2 : 0.14,
+    padding: mode === 'root' ? 0.2 : 0.14,
     duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180,
-    minZoom: mode === 'system' ? 0.55 : 0.68,
+    minZoom: mode === 'root' ? 0.55 : 0.68,
     maxZoom: 1.15,
   };
 }
 
 function ExplorerNodeView({ data }: NodeProps<ExplorerNode>) {
-  if (data.kind === 'workspace-package') {
-    const fileCount = data.fileCount ?? 0;
-    const usesCount = data.usesCount ?? 0;
-    const usedByCount = data.usedByCount ?? 0;
+  if (data.kind === 'territory') {
+    const fileCount = data.analyzedFileCount ?? 0;
+    const childTerritoryCount = data.directChildTerritoryCount ?? 0;
 
     return (
       <>
         <Handle type="target" position={Position.Left} />
-        <strong className="graph-node-label part-node-name" title={data.technicalLabel ?? data.label}>{data.label}</strong>
-        <span className="part-node-type">Part of this system</span>
+        <strong className="graph-node-label territory-node-name" title={data.path ?? data.label}>{data.label}</strong>
+        <span className="territory-node-type">{data.subtitle}</span>
         <div className="part-node-facts">
-          <span className="part-file-count">{countLabel(fileCount, 'analyzed file')}</span>
-          <span className="part-relationship-summary">
-            {usesCount === 0 && usedByCount === 0
-              ? 'No detected connections'
-              : `Uses ${usesCount} · Used by ${usedByCount}`}
-          </span>
+          <span className="territory-file-count">{countLabel(fileCount, 'analyzed file')}</span>
+          <span className="territory-child-count">{countLabel(childTerritoryCount, 'child territory')}</span>
         </div>
         {data.attentionLabel ? (
           <span className="graph-node-cues"><span className="graph-node-attention">{data.attentionLabel}</span></span>
@@ -215,7 +210,7 @@ function nodeAttentionLabel(
     if (attention.selectedRelationshipRole === 'uses') labels.push('Selected item uses this');
     else if (attention.selectedRelationshipRole === 'used-by') labels.push('Uses selected item');
   }
-  if (attention.selected) labels.push(node.data.kind === 'workspace-package' ? 'Selected for inspection' : 'Selected');
+  if (attention.selected) labels.push(node.data.kind === 'territory' ? 'Selected for inspection' : 'Selected');
 
   return labels.length > 0 ? labels.join(' · ') : undefined;
 }

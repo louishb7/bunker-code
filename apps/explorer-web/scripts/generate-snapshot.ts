@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { analyzeProject } from '@bunker-code/analyzer-typescript';
-import { aggregatePackageDependencies, buildProjectGraph, buildProjectStructure } from '@bunker-code/graph-engine';
+import { analyzeTypeScriptTarget } from '@bunker-code/analyzer-typescript';
+import { buildProjectGraph, buildProjectStructure } from '@bunker-code/graph-engine';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const appDirectory = path.resolve(currentDirectory, '..');
@@ -11,12 +11,12 @@ const outputDirectory = path.join(appDirectory, 'src', 'generated');
 const outputPath = path.join(outputDirectory, 'analyzer-typescript.snapshot.json');
 
 mkdirSync(outputDirectory, { recursive: true });
-const analysis = analyzeProject(datasetDirectory);
+const { analysis, responsibilities } = analyzeTypeScriptTarget(datasetDirectory);
 const graph = buildProjectGraph(analysis);
 const structure = buildProjectStructure(analysis);
 const snapshot = {
   analysis,
-  packageDependencies: aggregatePackageDependencies(graph, structure),
+  responsibilities,
   projectLabel: readProjectLabel(datasetDirectory),
 };
 

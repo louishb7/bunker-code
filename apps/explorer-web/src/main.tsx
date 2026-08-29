@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@xyflow/react/dist/style.css';
-import type { PackageDependency, ProjectGraph, ProjectStructure } from '@bunker-code/graph-engine';
+import type { ProjectGraph, ProjectStructure } from '@bunker-code/graph-engine';
 import snapshot from './generated/analyzer-typescript.snapshot.json';
 import {
   createExplorerElements,
@@ -15,7 +15,6 @@ import {
 import {
   createExplorerProjection,
   type ExplorerSource,
-  type ExplorerWorkspacePackageProjectionNode,
 } from './explorer-projection.js';
 import { createExplorerRuntime, type ExplorerRuntimeState } from './explorer-runtime.js';
 import {
@@ -29,7 +28,10 @@ import {
   type ExplorerLocation,
 } from './explorer-state.js';
 import { resolveExplorerSearchDestination, searchExplorerFiles } from './explorer-search.js';
-import { createExplorerTerritoryProjection } from './explorer-territory-projection.js';
+import {
+  createExplorerTerritoryProjection,
+  orderedTerritoryChildren,
+} from './explorer-territory-projection.js';
 import { createFileExploration } from './file-exploration.js';
 import {
   createExplorerAttention,
@@ -48,7 +50,7 @@ import {
   StatusScreen,
   SystemMapSummary,
 } from './explorer-shell.js';
-import { FileDetails, WorkspacePackageDetails } from './explorer-details.js';
+import { FileDetails, TerritoryDetails } from './explorer-details.js';
 import './styles.css';
 
 function App() {
@@ -74,7 +76,6 @@ function App() {
     <Explorer
       graph={runtime.graph}
       structure={runtime.structure}
-      packageDependencies={runtime.packageDependencies}
       projectLabel={runtime.projectLabel}
     />
   );
@@ -83,22 +84,17 @@ function App() {
 function Explorer({
   graph,
   structure,
-  packageDependencies,
   projectLabel,
 }: {
   graph: ProjectGraph;
   structure: ProjectStructure;
-  packageDependencies: PackageDependency[];
   projectLabel: string;
 }) {
-  const source: ExplorerSource = useMemo(
-    () => ({ graph, structure, packageDependencies }),
-    [graph, structure, packageDependencies],
-  );
   const territories = useMemo(() => createExplorerTerritoryProjection(
     structure,
     graph.nodes.filter((node): node is Extract<typeof node, { kind: 'file' }> => node.kind === 'file'),
   ), [graph.nodes, structure]);
+  const source: ExplorerSource = useMemo(() => ({ graph, structure, territories }), [graph, structure, territories]);
   const [location, setLocation] = useState<ExplorerLocation>(() => createInitialExplorerLocation(territories));
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingCenterNodeId, setPendingCenterNodeId] = useState<string | null>(null);
@@ -108,7 +104,6 @@ function Explorer({
     () => createExplorerOrientation(location, territories, projectLabel, graph),
     [location, territories, projectLabel, graph],
   );
-  const fileScope = location.currentTerritoryId === null ? null : location;
   const projection = useMemo(() => createExplorerProjection(source, location), [
     source,
     location,
@@ -116,8 +111,8 @@ function Explorer({
   const projectedElements = useMemo(() => createExplorerElements(projection), [projection]);
   const [elements, setElements] = useState<ExplorerElements>(projectedElements);
   const searchResults = useMemo(
-    () => fileScope ? searchExplorerFiles(graph, searchQuery) : [],
-    [fileScope, graph, searchQuery],
+    () => searchExplorerFiles(graph, searchQuery),
+    [graph, searchQuery],
   );
 
   useEffect(() => {
@@ -167,11 +162,8 @@ function Explorer({
 
   const selectedNodeId = location.selectedItemId;
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId);
-  const systemParts = useMemo(() => projection.nodes.filter(
-    (node): node is ExplorerWorkspacePackageProjectionNode => node.kind === 'workspace-package',
-  ), [projection.nodes]);
-  const selectedPart = location.currentTerritoryId === null && location.selectedItemId
-    ? systemParts.find((node) => node.id === location.selectedItemId)
+  const selectedTerritory = location.selectedItemId
+    ? territories.territoriesById.get(location.selectedItemId)
     : undefined;
   const attention = useMemo(() => createExplorerAttention(projection, location), [projection, location]);
   const flowNodes = useMemo(
@@ -184,12 +176,26 @@ function Explorer({
       : undefined)),
     [elements.edges, attention.edges],
   );
-  const fileExploration = useMemo(() => selectedNode && fileScope
-    ? createFileExploration(selectedNode, graph, structure, location, projection.visibleNodeIds)
-    : undefined, [selectedNode, fileScope, graph, structure, location, projection.visibleNodeIds]);
+  const currentTerritoryFileIds = useMemo(() => {
+    if (location.currentTerritoryId === null) return new Set<string>();
+
+    return new Set(
+      orderedTerritoryChildren(territories, location.currentTerritoryId)
+        .flatMap((child) => child.kind === 'file' ? [child.fileId] : []),
+    );
+  }, [location.currentTerritoryId, territories]);
+  const fileExploration = useMemo(() => selectedNode && location.currentTerritoryId !== null
+    ? createFileExploration(
+      selectedNode,
+      graph,
+      location,
+      projection.visibleNodeIds,
+      currentTerritoryFileIds,
+    )
+    : undefined, [selectedNode, graph, structure, location, projection.visibleNodeIds, currentTerritoryFileIds]);
 
   function focusSelectedFile(): void {
-    if (!fileExploration?.canFocus || !selectedNode || !fileScope) {
+    if (!fileExploration?.canFocus || !selectedNode || location.currentTerritoryId === null) {
       return;
     }
 
@@ -198,7 +204,7 @@ function Explorer({
   }
 
   function expandSelectedNode(): void {
-    if (!fileExploration?.canExpand || !selectedNode || !fileScope) {
+    if (!fileExploration?.canExpand || !selectedNode || location.currentTerritoryId === null) {
       return;
     }
 
@@ -206,16 +212,11 @@ function Explorer({
   }
 
   function returnToFileOverview(): void {
-    if (!fileScope) {
+    if (location.currentTerritoryId === null) {
       return;
     }
 
     setLocation({ ...location, focusedFileId: null, expandedItemIds: new Set() });
-  }
-
-  function returnToSystemOverview(): void {
-    setLocation(navigateToStructuralPath(location, territories.system.structuralPath, null));
-    setSearchQuery('');
   }
 
   function selectSearchResult(nodeId: string): void {
@@ -232,12 +233,11 @@ function Explorer({
     setSearchQuery('');
   }
 
-  function openSelectedPackage(): void {
-    const territory = location.selectedItemId ? territories.territoriesById.get(location.selectedItemId) : undefined;
-    if (!territory) {
+  function openSelectedTerritory(): void {
+    if (!selectedTerritory) {
       return;
     }
-    setLocation(navigateToTerritory(location, territory.id, territory.structuralPath));
+    setLocation(navigateToTerritory(location, selectedTerritory.id, selectedTerritory.structuralPath));
   }
 
   function fitCurrentGraph(): void {
@@ -251,8 +251,9 @@ function Explorer({
   }
 
   function navigateTo(target: ExplorerNavigationTarget): void {
-    if (target === 'system') {
-      returnToSystemOverview();
+    if (target.kind === 'territory') {
+      setLocation(navigateToStructuralPath(location, target.destination.structuralPath, target.destination.territoryId));
+      setSearchQuery('');
       return;
     }
 
@@ -265,7 +266,7 @@ function Explorer({
         orientation={orientation}
         searchQuery={searchQuery}
         searchResults={searchResults}
-        showSearch={fileScope !== null}
+        showSearch
         showCenterSelected={Boolean(selectedNode && projection.visibleNodeIds.has(selectedNode.id))}
         onNavigate={navigateTo}
         onSearchQueryChange={setSearchQuery}
@@ -273,8 +274,8 @@ function Explorer({
         onFitGraph={fitCurrentGraph}
         onCenterSelected={centerSelectedNode}
       />
-      <section className={`explorer-main ${projection.systemSummary ? 'explorer-main-system' : ''}`} aria-label="Project graph explorer">
-        {projection.systemSummary ? <SystemMapSummary summary={projection.systemSummary} /> : null}
+      <section className={`explorer-main ${projection.rootSummary ? 'explorer-main-system' : ''}`} aria-label="Project graph explorer">
+        {projection.rootSummary ? <SystemMapSummary summary={projection.rootSummary} /> : null}
         <ExplorerCanvas
           nodes={flowNodes}
           edges={flowEdges}
@@ -289,13 +290,8 @@ function Explorer({
           }}
         />
         <aside className="details-panel" aria-live="polite">
-          {selectedPart ? (
-            <WorkspacePackageDetails
-              part={selectedPart}
-              systemParts={systemParts}
-              packageDependencies={packageDependencies}
-              onOpen={openSelectedPackage}
-            />
+          {selectedTerritory ? (
+            <TerritoryDetails territory={selectedTerritory} onOpen={openSelectedTerritory} />
           ) : fileExploration ? (
             <FileDetails
               exploration={fileExploration}

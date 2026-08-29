@@ -1,5 +1,5 @@
 import type { ExplorerOrientation, ExplorerNavigationTarget } from './explorer-orientation.js';
-import type { ExplorerSystemSummary } from './explorer-projection.js';
+import type { ExplorerRootSummary } from './explorer-projection.js';
 import type { ExplorerSearchResult } from './explorer-search.js';
 import {
   relationshipDirectionHelp,
@@ -58,39 +58,25 @@ export function ExplorerHeader({
   );
 }
 
-export function SystemMapSummary({ summary }: { summary: ExplorerSystemSummary }) {
-  const vocabularyPlacement = systemMapVocabularyPlacement(summary.detectedPartCount > 0);
+export function SystemMapSummary({ summary }: { summary: ExplorerRootSummary }) {
+  const vocabularyPlacement = systemMapVocabularyPlacement(summary.directTerritoryCount > 0);
 
   return (
     <section className="system-map-summary" aria-labelledby="system-map-summary-title">
       <div className="system-summary-introduction">
         <p className="eyebrow">System at a glance</p>
         <h2 id="system-map-summary-title" className="system-summary-metrics">
-          <span data-system-part-count={summary.detectedPartCount}>{countLabel(summary.detectedPartCount, 'detected part')}</span>
+          <span data-system-territory-count={summary.directTerritoryCount}>{countLabel(summary.directTerritoryCount, 'direct territory')}</span>
           <span data-analyzed-file-count={summary.analyzedFileCount}>{countLabel(summary.analyzedFileCount, 'analyzed file')}</span>
         </h2>
-        <p>Select a part to understand how it connects. Open its files to explore deeper.</p>
-        {vocabularyPlacement ? <VocabularyHelp placement={vocabularyPlacement} label="Learn about detected parts" /> : null}
+        <p>Select a territory to inspect its direct structural children and files.</p>
+        {vocabularyPlacement ? <VocabularyHelp placement={vocabularyPlacement} label="Learn about system structure" /> : null}
       </div>
       <div className="relationship-key" aria-label={`Relationship direction: ${relationshipDirectionKey}. ${relationshipDirectionHelp}`}>
         <p className="summary-section-label">Relationship direction</p>
         <p className="relationship-equation"><span aria-hidden="true">A → B</span><span>means A uses B</span></p>
         <small>{relationshipDirectionHelp}</small>
         <VocabularyHelp placement="relationship-direction" label="Learn Uses and Used by" />
-      </div>
-      <div className="filesystem-overview" aria-label="Folder organization">
-        <div>
-          <p className="summary-section-label">Folder organization</p>
-          <span>Where these parts live; not an architectural classification.</span>
-        </div>
-        <ul>
-          {summary.filesystemGroups.map((group) => (
-            <li key={group.id} data-filesystem-group={group.id}>
-              <strong>{group.label}</strong>
-              <span>{group.partLabels.join(' · ')}</span>
-            </li>
-          ))}
-        </ul>
       </div>
     </section>
   );
@@ -109,13 +95,13 @@ export function ExplorerEmptyDetails({
       <p className="eyebrow">{orientation.scaleLabel}</p>
       <h2>{orientation.focusedFileLabel
         ? `Direct connections for ${orientation.focusedFileLabel}`
-        : orientation.scale === 'system-map'
-          ? 'Select a part to understand it'
+        : orientation.scale === 'root'
+          ? 'Select a territory to inspect it'
           : `${visibleNodeCount} visible nodes`}</h2>
-      <p>{orientation.scale === 'system-map'
-        ? 'Each part shows its analyzed files and detected connections. Selection keeps you on this map; Open files takes you deeper.'
+      <p>{orientation.scale === 'root'
+        ? 'Each territory exposes its direct structural children and analyzed files.'
         : orientation.scale === 'file-connections'
-          ? 'Select any visible item to inspect it. Use Back to return to the files in this part.'
+          ? 'Select any visible item to inspect it. Use Back to return to the current territory.'
           : 'Find a file, select it, then show its direct structural connections.'}</p>
       {orientation.scale === 'file-connections' ? (
         <VocabularyHelp placement="file-connections" label="Learn about this view" />

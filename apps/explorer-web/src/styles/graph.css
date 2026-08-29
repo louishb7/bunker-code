@@ -192,7 +192,7 @@
   font-weight: 750;
 }
 
-.graph-node-package {
+.graph-node-territory {
   position: absolute;
   width: 280px;
   height: 150px;
@@ -207,7 +207,7 @@
   box-shadow: var(--shadow-card);
 }
 
-.graph-node-package::before {
+.graph-node-territory::before {
   position: absolute;
   top: 0;
   right: 0;
@@ -218,13 +218,13 @@
   opacity: 0.72;
 }
 
-.graph-node-package:hover {
+.graph-node-territory:hover {
   border-color: #7893a0;
   background-color: var(--color-surface-raised);
 }
 
-.graph-node-package > .graph-node-context,
-.graph-node-package > .graph-node-cues {
+.graph-node-territory > .graph-node-context,
+.graph-node-territory > .graph-node-cues {
   position: absolute;
   right: 16px;
   bottom: 10px;

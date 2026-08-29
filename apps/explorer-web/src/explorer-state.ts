@@ -80,16 +80,6 @@ export function expandExplorerItem(location: ExplorerLocation, itemId: string): 
   return { ...location, expandedItemIds: new Set([...location.expandedItemIds, itemId]) };
 }
 
-export function workspacePackageIdForLocation(
-  projection: ExplorerTerritoryProjection,
-  location: ExplorerLocation,
-): string | null {
-  const territory = location.currentTerritoryId
-    ? projection.territoriesById.get(location.currentTerritoryId)
-    : projection.system;
-  return territory?.kind === 'workspace-package' ? territory.id : null;
-}
-
 function sameStructuralPath(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((segment, index) => segment === right[index]);
 }

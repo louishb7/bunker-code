@@ -1,4 +1,4 @@
-import type { WorkspacePackage } from '@bunker-code/contracts';
+import type { WorkspacePackage, WorkspacePackageEvidence } from '@bunker-code/contracts';
 import type {
   DirectoryStructuralUnit,
   FileGraphNode,
@@ -21,6 +21,7 @@ export interface ExplorerTerritory {
   directChildTerritoryCount: number;
   previewItems: TerritoryPreviewItem[];
   omittedPreviewItemCount: number;
+  evidence?: readonly WorkspacePackageEvidence[];
 }
 
 export type ExplorerTerritoryChild =
@@ -44,6 +45,7 @@ export interface ExplorerTerritoryProjection {
   system: ExplorerTerritory;
   territoriesById: ReadonlyMap<string, ExplorerTerritory>;
   childrenByTerritoryId: ReadonlyMap<string, ExplorerTerritoryChild[]>;
+  parentTerritoryIdById: ReadonlyMap<string, string | null>;
 }
 
 interface RawDirectoryChildren {
@@ -79,6 +81,7 @@ export function createExplorerTerritoryProjection(
   const rawChildrenByRootPath = createRawChildren(structure.containments, directoriesById, filesById);
   const territoriesById = new Map<string, ExplorerTerritory>();
   const childrenByTerritoryId = new Map<string, ExplorerTerritoryChild[]>();
+  const parentTerritoryIdById = new Map<string, string | null>();
 
   function draftForRootPath(rootPath: string): TerritoryDraft {
     if (rootPath === '.') {
@@ -153,19 +156,22 @@ export function createExplorerTerritoryProjection(
     return [resolvedRootPath];
   }
 
-  function buildTerritory(rootPath: string): ExplorerTerritory {
+  function buildTerritory(rootPath: string, parentTerritoryId: string | null): ExplorerTerritory {
     const resolvedRootPath = rootPath === '.' ? '.' : resolveVisibleDirectory(rootPath);
     const draft = draftForRootPath(resolvedRootPath);
     const existing = territoriesById.get(draft.id);
 
     if (existing) {
+      if (!parentTerritoryIdById.has(existing.id)) {
+        parentTerritoryIdById.set(existing.id, parentTerritoryId);
+      }
       return existing;
     }
 
     const rawChildren = rawChildrenByRootPath.get(resolvedRootPath) ?? emptyRawChildren();
     const territoryChildren = rawChildren.directoryRootPaths.flatMap((childRootPath) => (
       visibleDirectoryRootPaths(childRootPath).map((visibleRootPath) => {
-        const child = buildTerritory(visibleRootPath);
+        const child = buildTerritory(visibleRootPath, draft.id);
         return {
           kind: 'territory' as const,
           territoryId: child.id,
@@ -201,15 +207,32 @@ export function createExplorerTerritoryProjection(
       directChildTerritoryCount: territoryChildren.length,
       previewItems: children.slice(0, PREVIEW_LIMIT_SYSTEM),
       omittedPreviewItemCount: Math.max(0, children.length - PREVIEW_LIMIT_SYSTEM),
+      evidence: draft.kind === 'workspace-package'
+        ? packagesByRootPath.get(draft.rootPath)?.evidence
+        : undefined,
     };
 
     territoriesById.set(draft.id, territory);
     childrenByTerritoryId.set(draft.id, children);
+    parentTerritoryIdById.set(draft.id, parentTerritoryId);
     return territory;
   }
 
-  const system = buildTerritory('.');
-  return { system, territoriesById, childrenByTerritoryId };
+  const system = buildTerritory('.', null);
+  return { system, territoriesById, childrenByTerritoryId, parentTerritoryIdById };
+}
+
+export function parentExplorerTerritory(
+  projection: ExplorerTerritoryProjection,
+  territoryId: string,
+): ExplorerTerritory | null {
+  const parentId = projection.parentTerritoryIdById.get(territoryId);
+
+  if (parentId === undefined) {
+    throw new Error(`Territory not found: ${territoryId}`);
+  }
+
+  return parentId === null ? null : projection.territoriesById.get(parentId) ?? null;
 }
 
 export function orderedTerritoryChildren(

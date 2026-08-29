@@ -164,7 +164,7 @@ test('browser build reconstructs the snapshot boundary', { timeout: 60000 }, asy
       'src/index.ts',
       'src/pnpm-workspace.ts',
     ]);
-    assert.equal(nodeImpact.totalAffected, 3);
+    assert.equal(nodeImpact.totalAffected, 4);
   } finally {
     await browser.close();
   }

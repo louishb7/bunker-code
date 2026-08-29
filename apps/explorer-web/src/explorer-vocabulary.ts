@@ -33,15 +33,15 @@ export const explorerVocabulary = {
   },
   'workspace-package': {
     id: 'workspace-package',
-    friendlyTerm: 'Part of this system',
+    friendlyTerm: 'A structural territory declared by the workspace',
     technicalTerm: 'Workspace package',
-    explanation: 'A workspace package is a part matched by the supported PNPM workspace configuration and backed by its own local package.json. It has its own root, and analyzed files can belong to it.',
+    explanation: 'A workspace package is a Territory matched by the supported PNPM workspace configuration and backed by its own local package.json. It has its own root and analyzed files can belong to it; it is not a separate Explorer mode.',
   },
   'detected-part': {
     id: 'detected-part',
-    friendlyTerm: 'A part BunkerCode found',
-    technicalTerm: 'Detected part',
-    explanation: 'Detected means the supported workspace configuration and local manifest identify this part. BunkerCode does not infer that it is a service, layer, or domain.',
+    friendlyTerm: 'A structural territory BunkerCode found',
+    technicalTerm: 'Territory',
+    explanation: 'A Territory comes from factual filesystem containment or supported workspace configuration. BunkerCode does not infer that it is a service, layer, or domain.',
   },
   'analyzed-file': {
     id: 'analyzed-file',
@@ -65,7 +65,7 @@ export const explorerVocabulary = {
     id: 'filesystem-group',
     friendlyTerm: 'Folder organization',
     technicalTerm: 'Filesystem group',
-    explanation: 'This label comes only from the first folder in a part\'s root path, such as apps/ or packages/. It is visual organization, not a detected architectural role.',
+    explanation: 'This label comes only from a territory root path, such as apps/ or packages/. It is visual organization, not a detected architectural role.',
   },
   'external-module': {
     id: 'external-module',
@@ -75,9 +75,9 @@ export const explorerVocabulary = {
   },
   'contextual-file': {
     id: 'contextual-file',
-    friendlyTerm: 'From another part',
+    friendlyTerm: 'Relationship context from another territory',
     technicalTerm: 'Contextual file',
-    explanation: 'This file belongs to another detected part and appears because it has a relationship with the part currently open. Its owner does not change, and it is not contained by the open part.',
+    explanation: 'This file appears because it has a direct relationship with the focused file. Its structural owner does not change, and it is not contained by the current Territory.',
   },
   'file-connections': {
     id: 'file-connections',

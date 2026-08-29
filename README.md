@@ -72,21 +72,21 @@ The browser check uses `puppeteer-core` with the system Firefox executable at
 ## Explorer
 
 The Explorer generates a disposable snapshot by analyzing the local BunkerCode
-PNPM workspace. When workspace structure is present, it opens with a System
-Overview of detected workspace packages and their evidence-backed aggregated
-dependencies. The header persistently identifies the analyzed project and the
-current scale: **System map**, **Part files**, or **File connections**. Selecting
-a part only inspects it; **Open files** drills down. Selecting an internal file
-only inspects it; **Show direct connections** enters its focused relationship
-view. Explicit Back actions return one semantic level while the breadcrumb
-shows the complete location and permits ancestor jumps.
+PNPM workspace. Its sole structural navigation model is `ExplorerLocation`
+over an `ExplorerTerritoryProjection`: root shows direct Territories and files;
+each Territory shows only its direct child Territories and files; and focused
+files show their factual direct relationships. The header identifies the
+current **System**, **Territory**, or **File connections** scale. Selecting a
+Territory inspects it; **Open territory** drills down. Selecting an internal
+file only inspects it; **Show direct connections** enters its focused
+relationship view.
 
-The System map begins with factual detected-part and analyzed-file counts. Its
-compact part cards show a presentation label, analyzed files, **Uses**, and
-**Used by** counts derived only from the supplied package dependencies. A
-separate **Folder organization** legend groups paths such as `apps/` and
-`packages/` visually without turning folders into analytical nodes or inferred
-architecture.
+A workspace package remains a factual Territory kind, alongside directory
+Territories. It is not a special System-map card or a distinct navigation
+state. Root and directory/package Territory views therefore share the same
+composition, deterministic ordering, evidence, breadcrumb, and structural
+Back behavior. Back moves to the actual structural parent; a focused file
+returns to the Territory that contextualizes it.
 
 Every visible relationship keeps the analytical direction **source → target**
 and presents it as **source uses target**. Closed arrowheads point to what is
@@ -110,22 +110,21 @@ pnpm --filter @bunker-code/explorer-web build
 The generated snapshot at `apps/explorer-web/src/generated/` is ignored by Git.
 Source code remains the source of truth; regenerate the snapshot after analyzer
 changes rather than treating it as persisted Explorer data. Its Web delivery
-payload carries the `AnalysisResult` plus package dependencies already
-aggregated by `graph-engine`; the browser consumes that fact and does not
-reconstruct package relationships itself.
+payload carries the `AnalysisResult` and the separate
+`ResponsibilityAnalysisResult`. ProjectGraph relationships are rebuilt only
+from analysis; Responsibility is validated at runtime but has no visual
+composition yet. Package-dependency presentation data is no longer delivered
+to the Explorer.
 
-Within a package, the Explorer can find its internal files by path or file
-name. Selecting a search result centers it; selecting a result outside the
-current focus context returns to that package's file overview so the file is
-visible before it is selected. Files from another workspace package appear only
-as contextual file nodes when a cross-package dependency requires that context.
-Returning from File connections preserves its anchor as the selected file;
-returning from Part files preserves the previously opened part on the System
-map. The no-workspace snapshot fallback remains a project-file overview and
-does not invent a system part.
+The Explorer searches internal files by path or name. A result resolves to its
+deepest factual owning Territory, then selects the file in that context. Files
+from outside the focused file's Territory can appear only as direct factual
+relationship context. Returning from File connections preserves its anchor as
+the selected file. Trace, semantic Impact, and the Responsibility perspective
+remain outside the current Explorer phase.
 
 Selecting a file now presents its filename before its full path and distinguishes
-a file in the open part, a file shown from another detected part, and a module
+a file in the current Territory, a file shown as relationship context, and a module
 outside the analyzed system. `Uses` and `Used by` group repeated source/target
 occurrences for first reading. `Technical details` and `How BunkerCode knows`
 remain closed until requested; the latter retains every exact module specifier,
@@ -145,8 +144,7 @@ as additional context. File maps keep a readable fit floor and allow panning to
 remaining context instead of forcing every label into a microscopic overview.
 
 The production Explorer uses a restrained planning-room visual system across
-its orientation shell, map canvas, structural cards, details, and evidence.
-System parts are arranged left to right as one visible composition; responsive
-layouts keep the canvas primary on wide screens and deliberately stack map and
-details at 640 px. These are Web presentation choices only: analytical facts,
-direction, evidence, and navigation state remain unchanged.
+its orientation shell, map canvas, Territory nodes, details, and evidence.
+Responsive layouts keep the canvas primary on wide screens and deliberately
+stack map and details at 640 px. These are Web presentation choices only:
+analytical facts, direction, evidence, and navigation state remain unchanged.
