@@ -11,9 +11,10 @@ import {
   type ResponsibilityCoverage,
   type ResponsibilityFinding,
 } from '../packages/contracts/src/index.js';
-import { buildProjectGraph, buildProjectStructure } from '../packages/graph-engine/src/index.js';
+import { buildProjectGraph, buildProjectStructure, type ProjectGraph } from '../packages/graph-engine/src/index.js';
 import { createExplorerAttention } from '../apps/explorer-web/src/explorer-attention.js';
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
+import { createExplorerSystemOrientationProjection } from '../apps/explorer-web/src/explorer-system-orientation.js';
 import {
   createExplorerProjection,
   type ExplorerProjection,
@@ -166,6 +167,66 @@ test('runtime requires ResponsibilityAnalysisResult but keeps it outside territo
   );
   const projection = createExplorerProjection({ graph: runtime.graph, structure: runtime.structure, territories }, createInitialExplorerLocation(territories));
   assert.equal(projection.nodes.some((node) => node.kind === 'responsibility'), false);
+});
+
+test('System Orientation derives package directions, external module use, and structural observations from existing graph facts', () => {
+  const { graph, structure } = workspaceSource();
+  const orientation = createExplorerSystemOrientationProjection(graph, structure);
+
+  assert.deepEqual(orientation.packageConnections, [{
+    id: 'workspace-package:apps/application -> workspace-package:packages/library',
+    source: { id: 'workspace-package:apps/application', label: '@fixture/application' },
+    target: { id: 'workspace-package:packages/library', label: 'packages/library' },
+    fileDependencyCount: 2,
+  }]);
+  assert.deepEqual(orientation.externalModules, [{
+    moduleSpecifier: 'external-package',
+    sourceFileIds: ['apps/application/src/main.ts'],
+    sourcePackageIds: ['workspace-package:apps/application'],
+  }]);
+  assert.deepEqual(orientation.cycles, []);
+  assert.deepEqual(orientation.isolatedFiles, [
+    { id: 'orphan.ts', path: 'orphan.ts' },
+    { id: 'packages/isolated/src/isolated.ts', path: 'packages/isolated/src/isolated.ts' },
+  ]);
+  assert.deepEqual(orientation.unresolvedDependencies, []);
+  assert.equal('importance' in orientation.packageConnections[0]!, false);
+  assert.equal('layer' in orientation.packageConnections[0]!, false);
+  assert.equal('core' in orientation.packageConnections[0]!, false);
+});
+
+test('System Orientation preserves cycle and unresolved-dependency observations without interpretation', () => {
+  const { graph, structure } = workspaceSource();
+  const edge = graph.edges.find((candidate) => candidate.sourceNodeId === 'packages/library/src/first.ts');
+  assert.ok(edge);
+  const observedGraph: ProjectGraph = {
+    ...graph,
+    edges: [...graph.edges, {
+      ...edge,
+      id: 'packages/library/src/second.ts -> packages/library/src/first.ts -> ./first.js -> 1:1',
+      sourceNodeId: 'packages/library/src/second.ts',
+      targetNodeId: 'packages/library/src/first.ts',
+      moduleSpecifier: './first.js',
+    }],
+    unresolvedDependencies: [{
+      id: 'orphan.ts -> ./missing.js ? 1:1',
+      sourceNodeId: 'orphan.ts',
+      moduleSpecifier: './missing.js',
+      reason: 'relative-target-not-found',
+      evidence: edge.evidence,
+      confidence: edge.confidence,
+    }],
+  };
+
+  const orientation = createExplorerSystemOrientationProjection(observedGraph, structure);
+
+  assert.deepEqual(orientation.cycles, [{ fileIds: ['packages/library/src/first.ts', 'packages/library/src/second.ts', 'packages/library/src/first.ts'] }]);
+  assert.deepEqual(orientation.unresolvedDependencies, [{
+    id: 'orphan.ts -> ./missing.js ? 1:1',
+    sourceFileId: 'orphan.ts',
+    moduleSpecifier: './missing.js',
+    reason: 'relative-target-not-found',
+  }]);
 });
 
 test('responsibility projection keeps zero findings empty and chooses Territory', () => {

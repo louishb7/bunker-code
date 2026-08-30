@@ -41,6 +41,9 @@
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1.18fr) minmax(340px, 0.82fr);
+  grid-template-areas:
+    "where connections"
+    "responsibility observations";
   align-items: start;
   gap: clamp(18px, 3vw, 44px);
   overflow: auto;
@@ -57,10 +60,28 @@
   background: linear-gradient(145deg, rgb(113 207 194 / 5%), transparent 52%), rgb(10 19 25 / 72%);
 }
 
+.overview-where {
+  grid-area: where;
+}
+
+.overview-connections {
+  grid-area: connections;
+  border-radius: 5px 18px 5px 18px;
+  background: linear-gradient(145deg, rgb(113 207 194 / 8%), transparent 52%), rgb(8 20 27 / 72%);
+}
+
 .overview-responsibility {
+  grid-area: responsibility;
   margin-top: clamp(28px, 5vw, 74px);
   border-radius: 18px 5px 18px 5px;
   background: linear-gradient(145deg, rgb(117 167 215 / 6%), transparent 52%), rgb(8 15 21 / 72%);
+}
+
+.overview-observations {
+  grid-area: observations;
+  align-self: start;
+  border-radius: 5px 18px 5px 18px;
+  background: linear-gradient(145deg, rgb(215 171 85 / 7%), transparent 52%), rgb(18 17 14 / 68%);
 }
 
 .overview-region > header {
@@ -109,6 +130,75 @@
 .overview-territory-field strong,
 .overview-territory-field li {
   overflow-wrap: anywhere;
+}
+
+.overview-connection-list,
+.overview-observations ul,
+.overview-external-usage ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.overview-connection-list {
+  grid-template-columns: 1fr;
+}
+
+.overview-connection-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  border-left: 2px solid var(--color-accent);
+  padding: 8px 10px;
+  background: rgb(7 14 19 / 52%);
+}
+
+.overview-connection-list strong,
+.overview-connection-list small,
+.overview-external-usage code,
+.overview-observations code {
+  overflow-wrap: anywhere;
+}
+
+.overview-connection-list li > span {
+  color: var(--color-accent-strong);
+}
+
+.overview-orientation-empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.overview-external-usage {
+  border-top: 1px dashed var(--color-border-subtle);
+  padding-top: 12px;
+}
+
+.overview-external-usage summary {
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.overview-external-usage ul {
+  margin-top: 10px;
+}
+
+.overview-external-usage li,
+.overview-observations li {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.overview-external-usage code,
+.overview-observations code {
+  color: var(--color-text-secondary);
 }
 
 .overview-territory-field ul {
@@ -213,6 +303,11 @@
 
   .system-overview-field {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "where"
+      "connections"
+      "responsibility"
+      "observations";
     gap: 16px;
     overflow: visible;
     padding: 14px 16px 28px;

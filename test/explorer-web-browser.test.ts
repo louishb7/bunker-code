@@ -136,7 +136,7 @@ test('Explorer navigates factual territories and focused file relationships in a
 
   try {
     const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
+    await page.setViewport({ width: 1440, height: 900 });
     await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('[data-system-overview]', { timeout: 15000 });
     assert.equal(await page.$eval('[data-surface="overview"]', (element) => element.getAttribute('aria-pressed')), 'true');
@@ -146,8 +146,15 @@ test('Explorer navigates factual territories and focused file relationships in a
       const text = element.textContent ?? '';
       return text.includes('No supported factual responsibility findings are available') && text.includes('does not establish that the system has no architectural responsibilities');
     }), true);
+    assert.ok(await page.$('[data-system-connections]'));
+    assert.equal(await page.$$('[data-system-connection]').then((connections) => connections.length > 0), true);
+    assert.ok(await page.$('[data-external-module-usage]'));
+    assert.ok(await page.$('[data-structural-observations]'));
     assert.equal(await page.$('.react-flow'), null);
     assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 220), true);
+    if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
+      await page.screenshot({ path: '/tmp/bunkercode-system-orientation-1440.png', fullPage: true });
+    }
     await page.focus('[data-surface="territory"]');
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-spatial-territory-map]', { timeout: 5000 });
@@ -237,10 +244,14 @@ test('Explorer navigates factual territories and focused file relationships in a
       await page.$eval('.back-action', (element) => element.getAttribute('aria-label')?.startsWith('Back to ')),
       true,
     );
+    await page.click('[data-surface="overview"]');
+    await page.waitForSelector('[data-system-overview]', { timeout: 5000 });
     await page.setViewport({ width: 640, height: 900 });
     await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
-    await page.click('.back-action');
-    await page.waitForSelector('[data-territory-region="directory:packages/analyzer-typescript/src"]', { timeout: 5000 });
+    assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 340), true);
+    if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
+      await page.screenshot({ path: '/tmp/bunkercode-system-orientation-640.png', fullPage: true });
+    }
   } finally {
     await browser.close();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

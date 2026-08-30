@@ -76,7 +76,12 @@ PNPM workspace. Every project opens on a compact System Overview that composes
 the existing factual WHERE and WHAT ROLE projections for orientation. Overview
 is a Web-local surface, not a semantic Perspective or domain contract.
 Responsibility and Territory remain the two depth lenses, and entering or
-leaving Overview never resets `ExplorerLocation`.
+leaving Overview never resets `ExplorerLocation`. System Orientation now adds
+a Web-local, low-resolution view of existing structural facts: factual
+cross-package dependency directions, actually imported external modules, and
+only relevant cycle, isolation, or unresolved-dependency observations. It does
+not create a new semantic contract or turn those facts into architectural
+responsibilities.
 
 Its sole structural navigation model is `ExplorerLocation`
 over an `ExplorerTerritoryProjection`: root shows direct Territories and files;
@@ -156,7 +161,9 @@ details can locate their factual file in its owning Territory without changing
 the meaning of `ExplorerLocation`. Coverage limitations and evidence/provenance
 remain progressively disclosed. This composition creates no responsibility
 relationships.
-Package-dependency presentation data is no longer delivered to the Explorer.
+The Explorer derives package dependency directions from the existing
+`ProjectGraph` and `ProjectStructure` in the browser; it does not receive or
+store a separate package-dependency delivery contract.
 
 Current Responsibility coverage is intentionally evidence-backed and narrow:
 the implemented TypeScript detectors use NestJS and Prisma as the first

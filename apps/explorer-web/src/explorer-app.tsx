@@ -51,6 +51,7 @@ import {
   isResponsibilityPerspectiveEligible,
 } from './explorer-responsibility-projection.js';
 import { ExplorerSystemOverview } from './explorer-system-overview.js';
+import { createExplorerSystemOrientationProjection } from './explorer-system-orientation.js';
 import {
   createSpatialTerritoryMapModel,
   SpatialTerritoryMap,
@@ -99,6 +100,10 @@ export function Explorer({
   const overviewProjection = useMemo(
     () => createExplorerProjection(source, createInitialExplorerLocation(territories)),
     [source, territories],
+  );
+  const systemOrientation = useMemo(
+    () => createExplorerSystemOrientationProjection(graph, structure),
+    [graph, structure],
   );
   const projectedElements = useMemo(
     () => projection.mode === 'focus' ? createExplorerElements(projection) : null,
@@ -266,6 +271,7 @@ export function Explorer({
           <ExplorerSystemOverview
             projectLabel={projectLabel}
             territoryModel={overviewTerritoryModel}
+            systemOrientation={systemOrientation}
             responsibilities={responsibilityProjection}
             responsibilityAvailable={responsibilityAvailable}
             onExploreResponsibilities={() => setViewState((current) => switchExplorerSurface(current, 'responsibility'))}
