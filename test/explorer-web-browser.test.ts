@@ -12,7 +12,7 @@ const repoRoot = path.resolve('.');
 const appRoot = path.join(repoRoot, 'apps', 'explorer-web');
 const firefoxExecutablePath = process.env.BUNKERCODE_BROWSER_EXECUTABLE ?? '/usr/bin/firefox';
 
-test('Explorer presents a factual Responsibility-first flow in a real browser', { timeout: 90000 }, async (t) => {
+test('Explorer starts in Overview and presents a factual Responsibility flow in a real browser', { timeout: 90000 }, async (t) => {
   if (process.env.BUNKERCODE_BROWSER_TEST !== '1') {
     t.skip('Set BUNKERCODE_BROWSER_TEST=1 to run the Firefox Explorer smoke test.');
     return;
@@ -32,9 +32,20 @@ test('Explorer presents a factual Responsibility-first flow in a real browser', 
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 900 });
     await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-responsibility-map]', { timeout: 15000 });
+    await page.waitForSelector('[data-system-overview]', { timeout: 15000 });
 
-    assert.equal(await page.$eval('[data-perspective="responsibility"]', (element) => element.getAttribute('aria-pressed')), 'true');
+    assert.equal(await page.$eval('[data-surface="overview"]', (element) => element.getAttribute('aria-pressed')), 'true');
+    assert.equal(await page.$eval('[data-surface="responsibility"]', (element) => (element as HTMLButtonElement).disabled), false);
+    assert.ok(await page.$('[data-overview-territory="directory:src"]'));
+    assert.ok(await page.$('[data-overview-responsibility="http-entry-point"]'));
+    assert.equal(await page.$('.react-flow'), null);
+    assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 220), true);
+    assert.equal(await page.$eval('[data-overview-responsibility-coverage]', (element) => element.textContent?.includes('coverage is incomplete')), true);
+
+    await page.focus('[data-surface="responsibility"]');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-responsibility-map]', { timeout: 5000 });
+    assert.equal(await page.$eval('[data-surface="responsibility"]', (element) => element.getAttribute('aria-pressed')), 'true');
     assert.equal(await page.$eval('[data-responsibility-spatial-field]', (element) => element.getAttribute('data-responsibility-composition')), 'constellation');
     assert.equal(await page.$eval('[data-responsibility-family="interface"]', (element) => element.textContent?.includes('Interface')), true);
     assert.ok(await page.$('[data-responsibility="http-entry-point"]'));
@@ -66,23 +77,24 @@ test('Explorer presents a factual Responsibility-first flow in a real browser', 
       const text = element.textContent ?? '';
       return text.includes('Evaluated') && text.includes('Partially evaluated') && text.includes('Not evaluated') && text.includes('Unsupported') && text.includes('Failed');
     }), true);
+    assert.equal(await page.$eval('[data-disclosure="responsibility-coverage"] li', (element) => element.getClientRects().length > 0), true);
 
     await clickButton(page, 'Locate in Territory');
-    await page.waitForSelector('[data-perspective="territory"][aria-pressed="true"]', { timeout: 5000 });
+    await page.waitForSelector('[data-surface="territory"][aria-pressed="true"]', { timeout: 5000 });
     await page.waitForSelector('[data-explorer-scale="territory"]', { timeout: 5000 });
     assert.equal(await page.$('.react-flow'), null);
     assert.equal(await page.$eval('[data-file-landmark="src/users.controller.ts"]', (element) => element.getAttribute('aria-pressed')), 'true');
     assert.equal(await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent?.includes('src')), true);
 
     const territoryLocation = await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent);
-    await page.focus('[data-perspective="responsibility"]');
+    await page.focus('[data-surface="responsibility"]');
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-responsibility-map]', { timeout: 5000 });
     assert.equal(await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent), territoryLocation);
-    await page.click('[data-perspective="territory"]');
+    await page.click('[data-surface="territory"]');
     await page.waitForSelector('[data-file-landmark="src/users.controller.ts"][aria-pressed="true"]', { timeout: 5000 });
 
-    await page.click('[data-perspective="responsibility"]');
+    await page.click('[data-surface="responsibility"]');
     await page.click('[data-responsibility="access-control"]');
     assert.ok(await page.$('[data-responsibility-subject="finding:access"]'));
     assert.equal(await page.$eval('[data-responsibility-subject="finding:access"]', (element) => element.textContent?.includes('UsersController.list')), true);
@@ -91,8 +103,12 @@ test('Explorer presents a factual Responsibility-first flow in a real browser', 
     await page.waitForFunction(() => document.querySelector('.details-panel') === null, { timeout: 5000 });
     assert.equal(await page.$('[data-responsibility-subject-preview]'), null);
 
+    await page.click('[data-surface="overview"]');
+    await page.waitForSelector('[data-system-overview]', { timeout: 5000 });
+    assert.equal(await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent), territoryLocation);
     await page.setViewport({ width: 640, height: 900 });
     await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
+    assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 340), true);
     if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
       await page.screenshot({ path: '/tmp/bunkercode-responsibility-640.png', fullPage: true });
     }
@@ -122,11 +138,20 @@ test('Explorer navigates factual territories and focused file relationships in a
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
     await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-explorer-scale="root"]', { timeout: 15000 });
-    await page.waitForSelector('[data-spatial-territory-map]', { timeout: 5000 });
-    assert.equal(await page.$eval('[data-perspective="territory"]', (element) => element.getAttribute('aria-pressed')), 'true');
-    assert.equal(await page.$eval('[data-perspective="responsibility"]', (element) => (element as HTMLButtonElement).disabled), true);
+    await page.waitForSelector('[data-system-overview]', { timeout: 15000 });
+    assert.equal(await page.$eval('[data-surface="overview"]', (element) => element.getAttribute('aria-pressed')), 'true');
+    assert.equal(await page.$eval('[data-surface="responsibility"]', (element) => (element as HTMLButtonElement).disabled), true);
+    assert.equal(await page.$eval('[data-surface="territory"]', (element) => (element as HTMLButtonElement).disabled), false);
+    assert.equal(await page.$eval('[data-overview-responsibility-unavailable]', (element) => {
+      const text = element.textContent ?? '';
+      return text.includes('No supported factual responsibility findings are available') && text.includes('does not establish that the system has no architectural responsibilities');
+    }), true);
     assert.equal(await page.$('.react-flow'), null);
+    assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 220), true);
+    await page.focus('[data-surface="territory"]');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-spatial-territory-map]', { timeout: 5000 });
+    assert.equal(await page.$eval('[data-surface="territory"]', (element) => element.getAttribute('aria-pressed')), 'true');
     assert.ok(await page.$('[data-territory-region="directory:packages"]'));
     assert.ok(await page.$('[data-territory-preview-item="workspace-package:packages/analyzer-typescript"]'));
     assert.equal(await page.$eval('[data-spatial-territory-map]', (element) => element.getAttribute('data-territory-composition')), 'triad');

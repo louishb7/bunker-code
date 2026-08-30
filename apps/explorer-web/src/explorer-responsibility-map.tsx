@@ -1,13 +1,13 @@
 import type { Responsibility, ResponsibilityFinding } from '@bunker-code/contracts';
 import type { ExplorerResponsibilityProjection } from './explorer-responsibility-projection.js';
 import {
-  coverageStatusLabel,
   responsibilityFamilyLabel,
   responsibilityLabel,
   responsibilityLocationLabel,
   responsibilitySubjectKindLabel,
   responsibilitySubjectLabel,
 } from './explorer-responsibility-language.js';
+import { ResponsibilityCoverageDisclosure } from './explorer-responsibility-coverage.js';
 import {
   createResponsibilitySpatialModel,
   type ResponsibilityLandmarkPresentation,
@@ -27,23 +27,15 @@ export function ResponsibilityMap({
   onSelectFinding(responsibility: Responsibility, findingId: string): void;
 }) {
   const model = createResponsibilitySpatialModel(projection);
-  const coverageIncomplete = projection.coverageSummary.hasPartialCoverage
-    || projection.coverageSummary.hasNotEvaluatedCoverage
-    || projection.coverageSummary.hasFailures
-    || projection.coverageSummary.hasUnsupportedCapabilities;
-
   return (
     <section className="responsibility-map" data-responsibility-map aria-labelledby="responsibility-map-title">
       <header className="responsibility-map-heading">
-        <div>
-          <p className="eyebrow">What role</p>
-          <h2 id="responsibility-map-title">Responsibility map</h2>
-          <p>Factual architectural roles, grouped by canonical taxonomy and linked back to structural location.</p>
-        </div>
-        {coverageIncomplete ? <CoverageDisclosure projection={projection} /> : null}
+        <div><p className="eyebrow">What role</p><h2 id="responsibility-map-title">Responsibility</h2></div>
+        <ResponsibilityCoverageDisclosure projection={projection} context="map" />
       </header>
       <div
         className="responsibility-spatial-field"
+        data-primary-explorer-surface
         data-responsibility-spatial-field
         data-responsibility-composition={model.composition}
       >
@@ -146,24 +138,6 @@ function SubjectPreview({ finding, selected, onSelect }: {
         <span>{responsibilitySubjectKindLabel(finding.subject)} · {responsibilityLocationLabel(finding.subject)}</span>
       </button>
     </li>
-  );
-}
-
-function CoverageDisclosure({ projection }: { projection: ExplorerResponsibilityProjection }) {
-  return (
-    <details className="responsibility-coverage-notice" data-responsibility-coverage-notice data-disclosure="responsibility-coverage">
-      <summary>Responsibility coverage is incomplete</summary>
-      <p>The map shows positive findings from the areas this analysis could evaluate.</p>
-      <ul>
-        {projection.coverage.map((coverage, index) => (
-          <li key={`${coverage.capability}:${coverage.scope.kind}:${index}`}>
-            <strong>{responsibilityLabel(coverage.capability)}</strong>
-            <span>{coverageStatusLabel(coverage.status)}</span>
-            <code>{coverage.status}</code>
-          </li>
-        ))}
-      </ul>
-    </details>
   );
 }
 

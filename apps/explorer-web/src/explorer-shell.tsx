@@ -9,7 +9,7 @@ export function ExplorerHeader({
   showSearch,
   showGraphTools,
   showCenterSelected,
-  perspectiveControl,
+  surfaceControl,
   onNavigate,
   onSearchQueryChange,
   onSelectSearchResult,
@@ -22,7 +22,7 @@ export function ExplorerHeader({
   showSearch: boolean;
   showGraphTools: boolean;
   showCenterSelected: boolean;
-  perspectiveControl: ReactNode;
+  surfaceControl: ReactNode;
   onNavigate(target: ExplorerNavigationTarget): void;
   onSearchQueryChange(query: string): void;
   onSelectSearchResult(nodeId: string): void;
@@ -30,13 +30,13 @@ export function ExplorerHeader({
   onCenterSelected(): void;
 }) {
   return (
-    <header className="explorer-header">
+    <header className="explorer-header" data-explorer-app-bar>
       <OrientationHeader orientation={orientation} onNavigate={onNavigate} />
       <div className="explorer-header-actions" aria-label="Map tools">
-        {perspectiveControl}
+        {surfaceControl}
         {showSearch ? (
           <label className="search-control">
-            <span>Find file</span>
+            <span className="search-control-label">Find file</span>
             <input
               aria-label="Find file"
               value={searchQuery}
@@ -105,22 +105,24 @@ function OrientationHeader({
             {backAction.label}
           </button>
         ) : null}
-        <nav className="breadcrumb" aria-label="Explorer location">
-          <ol>
-            {orientation.trail.map((item, index) => (
-              <li key={item.id}>
-                {index > 0 ? <span className="breadcrumb-separator" aria-hidden="true">/</span> : null}
-                {item.target ? (
-                  <button type="button" onClick={() => {
-                    if (item.target) onNavigate(item.target);
-                  }}>{item.label}</button>
-                ) : (
-                  <span aria-current="page">{item.label}</span>
-                )}
-              </li>
-            ))}
-          </ol>
-        </nav>
+        {orientation.trail.length > 1 ? (
+          <nav className="breadcrumb" aria-label="Explorer location">
+            <ol>
+              {orientation.trail.map((item, index) => (
+                <li key={item.id}>
+                  {index > 0 ? <span className="breadcrumb-separator" aria-hidden="true">/</span> : null}
+                  {item.target ? (
+                    <button type="button" onClick={() => {
+                      if (item.target) onNavigate(item.target);
+                    }}>{item.label}</button>
+                  ) : (
+                    <span aria-current="page">{item.label}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </nav>
+        ) : null}
       </div>
     </div>
   );

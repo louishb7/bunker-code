@@ -1,6 +1,5 @@
-import type { Responsibility, ResponsibilityAnalysisResult, ResponsibilityFinding } from '@bunker-code/contracts';
+import type { Responsibility, ResponsibilityFinding } from '@bunker-code/contracts';
 import {
-  chooseInitialExplorerPerspective,
   resolveOwningTerritory,
   type ExplorerPerspective,
 } from './explorer-responsibility-projection.js';
@@ -12,29 +11,30 @@ import {
 import type { ExplorerTerritoryProjection } from './explorer-territory-projection.js';
 
 export interface ExplorerViewState {
-  perspective: ExplorerPerspective;
+  surface: ExplorerSurface;
   location: ExplorerLocation;
   selectedResponsibility: Responsibility | null;
   selectedFindingId: string | null;
 }
 
+export type ExplorerSurface = 'overview' | ExplorerPerspective;
+
 export function createInitialExplorerViewState(
-  responsibilities: ResponsibilityAnalysisResult,
   territories: ExplorerTerritoryProjection,
 ): ExplorerViewState {
   return {
-    perspective: chooseInitialExplorerPerspective(responsibilities),
+    surface: 'overview',
     location: createInitialExplorerLocation(territories),
     selectedResponsibility: null,
     selectedFindingId: null,
   };
 }
 
-export function switchExplorerPerspective(
+export function switchExplorerSurface(
   state: ExplorerViewState,
-  perspective: ExplorerPerspective,
+  surface: ExplorerSurface,
 ): ExplorerViewState {
-  return { ...state, perspective };
+  return { ...state, surface };
 }
 
 export function selectExplorerResponsibility(
@@ -65,7 +65,7 @@ export function locateResponsibilityFinding(
 
   return {
     ...state,
-    perspective: 'territory',
+    surface: 'territory',
     location: navigateToDestination(state.location, {
       territoryId: territory.kind === 'system' ? null : territory.id,
       structuralPath: [...territory.structuralPath],

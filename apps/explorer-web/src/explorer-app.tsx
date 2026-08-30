@@ -16,6 +16,7 @@ import {
 } from './explorer-projection.js';
 import {
   expandExplorerItem,
+  createInitialExplorerLocation,
   focusExplorerFile,
   navigateToDestination,
   navigateToStructuralPath,
@@ -42,10 +43,14 @@ import {
 } from './explorer-graph.js';
 import { ExplorerHeader } from './explorer-shell.js';
 import { FileDetails, TerritoryDetails } from './explorer-details.js';
-import { ExplorerPerspectiveControl } from './explorer-perspective-control.js';
+import { ExplorerSurfaceControl } from './explorer-surface-control.js';
 import { ResponsibilityDetails } from './explorer-responsibility-details.js';
 import { ResponsibilityMap } from './explorer-responsibility-map.js';
-import { createExplorerResponsibilityProjection } from './explorer-responsibility-projection.js';
+import {
+  createExplorerResponsibilityProjection,
+  isResponsibilityPerspectiveEligible,
+} from './explorer-responsibility-projection.js';
+import { ExplorerSystemOverview } from './explorer-system-overview.js';
 import {
   createSpatialTerritoryMapModel,
   SpatialTerritoryMap,
@@ -56,7 +61,7 @@ import {
   locateResponsibilityFinding,
   selectExplorerResponsibility,
   selectExplorerResponsibilityFinding,
-  switchExplorerPerspective,
+  switchExplorerSurface,
 } from './explorer-view-state.js';
 
 export function Explorer({
@@ -79,8 +84,9 @@ export function Explorer({
     [responsibilities, territories],
   );
   const source: ExplorerSource = useMemo(() => ({ graph, structure, territories }), [graph, structure, territories]);
-  const [viewState, setViewState] = useState(() => createInitialExplorerViewState(responsibilities, territories));
-  const { location, perspective, selectedResponsibility, selectedFindingId } = viewState;
+  const [viewState, setViewState] = useState(() => createInitialExplorerViewState(territories));
+  const { location, surface, selectedResponsibility, selectedFindingId } = viewState;
+  const responsibilityAvailable = isResponsibilityPerspectiveEligible(responsibilities);
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingCenterNodeId, setPendingCenterNodeId] = useState<string | null>(null);
   const [reactFlow, setReactFlow] = useState<ExplorerReactFlowInstance | null>(null);
@@ -90,6 +96,10 @@ export function Explorer({
     [location, territories, projectLabel, graph],
   );
   const projection = useMemo(() => createExplorerProjection(source, location), [source, location]);
+  const overviewProjection = useMemo(
+    () => createExplorerProjection(source, createInitialExplorerLocation(territories)),
+    [source, territories],
+  );
   const projectedElements = useMemo(
     () => projection.mode === 'focus' ? createExplorerElements(projection) : null,
     [projection],
@@ -119,18 +129,18 @@ export function Explorer({
   }, [projectedElements, reactFlow]);
 
   useEffect(() => {
-    if (!elements || !reactFlow || layoutState !== 'ready' || perspective !== 'territory') return;
+    if (!elements || !reactFlow || layoutState !== 'ready' || surface !== 'territory') return;
     const animationFrame = window.requestAnimationFrame(() => reactFlow.fitView(fitViewOptions(elements.mode)));
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [elements, layoutState, perspective, reactFlow]);
+  }, [elements, layoutState, surface, reactFlow]);
 
   useEffect(() => {
-    if (!pendingCenterNodeId || !reactFlow || !elements || perspective !== 'territory' || !elements.nodes.some((node) => node.id === pendingCenterNodeId)) return;
+    if (!pendingCenterNodeId || !reactFlow || !elements || surface !== 'territory' || !elements.nodes.some((node) => node.id === pendingCenterNodeId)) return;
     window.requestAnimationFrame(() => {
       reactFlow.fitView({ nodes: [{ id: pendingCenterNodeId }], padding: 1, duration: 150, maxZoom: 1.2 });
       setPendingCenterNodeId(null);
     });
-  }, [elements, pendingCenterNodeId, perspective, reactFlow]);
+  }, [elements, pendingCenterNodeId, surface, reactFlow]);
 
   const selectedNodeId = location.selectedItemId;
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId);
@@ -169,10 +179,6 @@ export function Explorer({
     setLocation(expandExplorerItem(location, selectedNode.id));
   }
 
-  function returnToFileOverview(): void {
-    setLocation({ ...location, focusedFileId: null, expandedItemIds: new Set() });
-  }
-
   function selectSearchResult(nodeId: string): void {
     const result = searchResults.find((candidate) => candidate.nodeId === nodeId);
     if (!result) return;
@@ -196,11 +202,19 @@ export function Explorer({
 
   function navigateTo(target: ExplorerNavigationTarget): void {
     if (target.kind === 'territory') {
-      setLocation(navigateToStructuralPath(location, target.destination.structuralPath, target.destination.territoryId));
+      setViewState((current) => ({
+        ...current,
+        surface: 'territory',
+        location: navigateToStructuralPath(current.location, target.destination.structuralPath, target.destination.territoryId),
+      }));
       setSearchQuery('');
       return;
     }
-    returnToFileOverview();
+    setViewState((current) => ({
+      ...current,
+      surface: 'territory',
+      location: { ...current.location, focusedFileId: null, expandedItemIds: new Set() },
+    }));
   }
 
   function locateFinding(finding: ResponsibilityFinding): void {
@@ -208,11 +222,11 @@ export function Explorer({
     setPendingCenterNodeId(finding.subject.fileId);
   }
 
-  const perspectiveControl = (
-    <ExplorerPerspectiveControl
-      perspective={perspective}
-      responsibilityAvailable={responsibilityProjection.groups.length > 0}
-      onChange={(nextPerspective) => setViewState((current) => switchExplorerPerspective(current, nextPerspective))}
+  const surfaceControl = (
+    <ExplorerSurfaceControl
+      surface={surface}
+      responsibilityAvailable={responsibilityAvailable}
+      onChange={(nextSurface) => setViewState((current) => switchExplorerSurface(current, nextSurface))}
     />
   );
   const currentTerritory = location.currentTerritoryId === null
@@ -222,8 +236,9 @@ export function Explorer({
   const spatialMapModel = projection.mode === 'focus'
     ? null
     : createSpatialTerritoryMapModel(projection, currentTerritory);
-  const showTerritoryInspector = perspective === 'territory' && Boolean(selectedTerritory || fileExploration);
-  const showResponsibilityInspector = perspective === 'responsibility' && selectedResponsibility !== null;
+  const overviewTerritoryModel = createSpatialTerritoryMapModel(overviewProjection, territories.system);
+  const showTerritoryInspector = surface === 'territory' && Boolean(selectedTerritory || fileExploration);
+  const showResponsibilityInspector = surface === 'responsibility' && selectedResponsibility !== null;
 
   return (
     <main className="explorer-shell">
@@ -231,10 +246,10 @@ export function Explorer({
         orientation={orientation}
         searchQuery={searchQuery}
         searchResults={searchResults}
-        showSearch={perspective === 'territory'}
-        showGraphTools={perspective === 'territory' && projection.mode === 'focus'}
+        showSearch={surface === 'territory'}
+        showGraphTools={surface === 'territory' && projection.mode === 'focus'}
         showCenterSelected={Boolean(selectedNode && projection.visibleNodeIds.has(selectedNode.id))}
-        perspectiveControl={perspectiveControl}
+        surfaceControl={surfaceControl}
         onNavigate={navigateTo}
         onSearchQueryChange={setSearchQuery}
         onSelectSearchResult={selectSearchResult}
@@ -244,10 +259,19 @@ export function Explorer({
         }}
       />
       <section
-        className={`explorer-main ${perspective === 'responsibility' ? 'explorer-main-responsibility' : 'explorer-main-territory'} ${(showResponsibilityInspector || showTerritoryInspector) ? 'explorer-main-has-inspector' : ''}`}
-        aria-label={perspective === 'responsibility' ? 'Responsibility explorer' : 'Territory explorer'}
+        className={`explorer-main explorer-main-${surface} ${(showResponsibilityInspector || showTerritoryInspector) ? 'explorer-main-has-inspector' : ''}`}
+        aria-label={surface === 'overview' ? 'System overview' : surface === 'responsibility' ? 'Responsibility explorer' : 'Territory explorer'}
       >
-        {perspective === 'territory' ? (
+        {surface === 'overview' ? (
+          <ExplorerSystemOverview
+            projectLabel={projectLabel}
+            territoryModel={overviewTerritoryModel}
+            responsibilities={responsibilityProjection}
+            responsibilityAvailable={responsibilityAvailable}
+            onExploreResponsibilities={() => setViewState((current) => switchExplorerSurface(current, 'responsibility'))}
+            onExploreStructure={() => setViewState((current) => switchExplorerSurface(current, 'territory'))}
+          />
+        ) : surface === 'territory' ? (
           projection.mode === 'focus' && elements ? (
             <ExplorerCanvas
               nodes={flowNodes}
@@ -276,7 +300,7 @@ export function Explorer({
           />
         )}
         {showResponsibilityInspector || showTerritoryInspector ? <aside className="details-panel" aria-live="polite">
-          {perspective === 'territory' ? (
+          {surface === 'territory' ? (
             <button
               type="button"
               className="inspector-close"
@@ -293,7 +317,7 @@ export function Explorer({
               Close inspector
             </button>
           )}
-          {perspective === 'responsibility' ? (
+          {surface === 'responsibility' ? (
             <ResponsibilityDetails
               projection={responsibilityProjection}
               territories={territories}

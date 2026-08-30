@@ -28,22 +28,23 @@
   min-width: 0;
   display: flex;
   justify-content: space-between;
-  align-items: end;
-  gap: var(--space-6);
-  padding: 22px clamp(22px, 3vw, 42px) 18px;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 66px;
+  padding: 10px clamp(18px, 2.5vw, 34px);
   border-bottom: 1px solid var(--color-border-subtle);
   background: linear-gradient(90deg, rgb(15 28 36 / 94%), rgb(12 21 28 / 72%));
 }
 
 .spatial-map-heading h2 {
   margin: 0;
-  font-size: clamp(27px, 3vw, 42px);
+  font-size: clamp(20px, 2vw, 28px);
   font-weight: 680;
 }
 
 .spatial-map-heading > p {
   flex: 0 0 auto;
-  margin: 0 0 4px;
+  margin: 0;
   color: var(--color-text-muted);
   font-size: 11px;
 }
@@ -343,8 +344,9 @@
   .spatial-map-heading {
     align-items: start;
     flex-direction: column;
-    gap: 7px;
-    padding: 18px 16px 14px;
+    gap: 3px;
+    min-height: 62px;
+    padding: 9px 16px;
   }
 
   .spatial-map-heading > p {

@@ -104,12 +104,10 @@ export function createExplorerResponsibilityProjection(
   };
 }
 
-export function chooseInitialExplorerPerspective(
+export function isResponsibilityPerspectiveEligible(
   result: Pick<ResponsibilityAnalysisResult, 'findings'>,
-): ExplorerPerspective {
-  return result.findings.some((finding) => qualifyingFamilies.has(familyFor(finding.responsibility)))
-    ? 'responsibility'
-    : 'territory';
+): boolean {
+  return result.findings.some((finding) => qualifyingFamilies.has(familyFor(finding.responsibility)));
 }
 
 export function resolveOwningTerritory(

@@ -24,8 +24,8 @@ import {
   resolveExplorerSnapshotTarget,
 } from '../apps/explorer-web/scripts/explorer-development-target.js';
 import {
-  chooseInitialExplorerPerspective,
   createExplorerResponsibilityProjection,
+  isResponsibilityPerspectiveEligible,
   resolveOwningTerritory,
   type ExplorerPerspective,
 } from '../apps/explorer-web/src/explorer-responsibility-projection.js';
@@ -47,7 +47,7 @@ import {
   createInitialExplorerViewState,
   locateResponsibilityFinding,
   selectExplorerResponsibility,
-  switchExplorerPerspective,
+  switchExplorerSurface,
 } from '../apps/explorer-web/src/explorer-view-state.js';
 import {
   createExplorerTerritoryProjection,
@@ -148,7 +148,7 @@ function responsibilityResult(
 }
 
 function perspectiveFor(result: ResponsibilityAnalysisResult): ExplorerPerspective {
-  return chooseInitialExplorerPerspective(result);
+  return isResponsibilityPerspectiveEligible(result) ? 'responsibility' : 'territory';
 }
 
 test('runtime requires ResponsibilityAnalysisResult but keeps it outside territory projection', () => {
@@ -179,7 +179,7 @@ test('responsibility projection keeps zero findings empty and chooses Territory'
   assert.equal(perspectiveFor(result), 'territory');
 });
 
-test('only behavioral factual responsibility families qualify the initial perspective', () => {
+test('only behavioral factual responsibility families qualify the Responsibility lens', () => {
   const cases: Array<{ finding: ResponsibilityFinding; expected: ExplorerPerspective }> = [
     { finding: responsibilityFinding('framework-wiring', 'apps/application/src/main.ts'), expected: 'territory' },
     { finding: responsibilityFinding('http-entry-point', 'apps/application/src/main.ts'), expected: 'responsibility' },
@@ -335,7 +335,7 @@ test('responsibility spatial presentation preserves canonical facts with bounded
   assert.deepEqual(createResponsibilitySpatialModel(projection), model);
 });
 
-test('Explorer view state chooses its initial perspective through D3 eligibility', () => {
+test('Explorer view state always starts in Overview independently from Responsibility eligibility', () => {
   const territories = workspaceSource().territories;
   const qualifying = responsibilityResult([
     responsibilityFinding('http-entry-point', 'apps/application/src/main.ts'),
@@ -344,16 +344,17 @@ test('Explorer view state chooses its initial perspective through D3 eligibility
     responsibilityFinding('framework-wiring', 'apps/application/src/main.ts'),
   ]);
 
-  assert.equal(createInitialExplorerViewState(qualifying, territories).perspective, 'responsibility');
-  assert.equal(createInitialExplorerViewState(wiringOnly, territories).perspective, 'territory');
-  assert.equal(createInitialExplorerViewState(responsibilityResult([]), territories).perspective, 'territory');
+  assert.equal(createInitialExplorerViewState(territories).surface, 'overview');
+  assert.equal(isResponsibilityPerspectiveEligible(qualifying), true);
+  assert.equal(isResponsibilityPerspectiveEligible(wiringOnly), false);
+  assert.equal(isResponsibilityPerspectiveEligible(responsibilityResult([])), false);
 });
 
 test('perspective and Responsibility selection preserve structural location until factual Locate', () => {
   const territories = workspaceSource().territories;
   const finding = responsibilityFinding('http-entry-point', 'packages/library/src/first.ts');
   const responsibilities = responsibilityResult([finding]);
-  const initial = createInitialExplorerViewState(responsibilities, territories);
+  const initial = createInitialExplorerViewState(territories);
   const territory = territories.territoriesById.get('directory:apps/application/src');
   assert.ok(territory);
   if (!territory) return;
@@ -366,8 +367,10 @@ test('perspective and Responsibility selection preserve structural location unti
   assert.equal(selected.location, locatedElsewhere.location);
   assert.equal(selected.location.currentTerritoryId, 'directory:apps/application/src');
 
-  const switched = switchExplorerPerspective(selected, 'territory');
-  const switchedBack = switchExplorerPerspective(switched, 'responsibility');
+  const overviewFromSelection = switchExplorerSurface(selected, 'overview');
+  const switched = switchExplorerSurface(overviewFromSelection, 'territory');
+  const switchedBack = switchExplorerSurface(switched, 'responsibility');
+  assert.equal(overviewFromSelection.location, selected.location);
   assert.equal(switched.location, selected.location);
   assert.equal(switchedBack.location, selected.location);
   assert.equal(switchedBack.selectedResponsibility, 'http-entry-point');
@@ -378,7 +381,7 @@ test('perspective and Responsibility selection preserve structural location unti
   assert.equal(cleared.selectedFindingId, null);
 
   const located = locateResponsibilityFinding(switchedBack, finding, territories);
-  assert.equal(located.perspective, 'territory');
+  assert.equal(located.surface, 'territory');
   assert.equal(located.location.currentTerritoryId, 'directory:packages/library/src');
   assert.deepEqual(located.location.structuralPath, ['.', 'packages', 'library', 'src']);
   assert.equal(located.location.selectedItemId, 'packages/library/src/first.ts');

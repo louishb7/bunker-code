@@ -72,7 +72,13 @@ The browser check uses `puppeteer-core` with the system Firefox executable at
 ## Explorer
 
 The Explorer generates a disposable snapshot by analyzing the local BunkerCode
-PNPM workspace. Its sole structural navigation model is `ExplorerLocation`
+PNPM workspace. Every project opens on a compact System Overview that composes
+the existing factual WHERE and WHAT ROLE projections for orientation. Overview
+is a Web-local surface, not a semantic Perspective or domain contract.
+Responsibility and Territory remain the two depth lenses, and entering or
+leaving Overview never resets `ExplorerLocation`.
+
+Its sole structural navigation model is `ExplorerLocation`
 over an `ExplorerTerritoryProjection`: root shows direct Territories and files;
 each Territory shows only its direct child Territories and files; and focused
 files show their factual direct relationships. The header identifies the
@@ -139,18 +145,26 @@ payload carries the `AnalysisResult` and the separate
 `ResponsibilityAnalysisResult`. ProjectGraph relationships are rebuilt only
 from analysis. A presentation-independent Responsibility projection now
 composes original factual findings by canonical family and responsibility with
-their deepest factual Territory context. Its perspective eligibility is
+their deepest factual Territory context. Responsibility lens eligibility is
 deterministic: any Interface, Security, Data, Integration, or Async Processing
-finding can begin in Responsibility; Framework Wiring alone and zero findings
-fall back to Territory. Partial coverage remains explicit and may still
-qualify when a factual behavioral finding exists. The Explorer now renders this
-as a real Responsibility perspective beside Territory: families provide visual
+finding enables the lens; Framework Wiring alone and zero findings do not.
+Eligibility no longer chooses the initial surface. Partial coverage remains
+explicit and may still enable the lens when a factual behavioral finding exists.
+The Explorer renders Responsibility beside Territory: families provide visual
 regions, responsibilities are the primary landmarks, and progressive subject
 details can locate their factual file in its owning Territory without changing
 the meaning of `ExplorerLocation`. Coverage limitations and evidence/provenance
 remain progressively disclosed. This composition creates no responsibility
 relationships.
 Package-dependency presentation data is no longer delivered to the Explorer.
+
+Current Responsibility coverage is intentionally evidence-backed and narrow:
+the implemented TypeScript detectors use NestJS and Prisma as the first
+technology-specific evidence sources. BunkerCode is not a NestJS/Prisma product,
+and TypeScript/Node is the first concrete analyzer rather than the final product
+boundary. Expanding semantic coverage across backend frameworks, stacks, and
+future languages is a separate architectural investigation; no unsupported role
+is inferred from names, paths, or missing findings.
 
 The Explorer searches internal files by path or name. A result resolves to its
 deepest factual owning Territory, then selects the file in that context. Files

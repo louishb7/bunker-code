@@ -87,6 +87,7 @@ export function SpatialTerritoryMap({
       <div
         className="spatial-map-surface"
         data-spatial-map-surface
+        data-primary-explorer-surface
         onClick={(event) => {
           if (event.target === event.currentTarget) onSelectItem(null);
         }}
