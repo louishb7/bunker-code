@@ -93,6 +93,16 @@ uncertainty; evaluated coverage remains available from the original
 Responsibility projection. No analyzer, detector, contract, graph-engine fact,
 score, or architectural category is introduced by this presentation layer.
 
+An auxiliary Web-local structural evidence distribution projects only existing
+positive Responsibility findings over that same Territory hierarchy. Each
+Territory keeps direct local findings separate from subtree totals and exposes
+deterministic counts by Responsibility for its direct structural children.
+The System remains the root and zero-finding Territories remain present. This
+experimental model neither selects a preferred scale nor interprets a
+directory, package, finding concentration, or structural boundary as an
+architectural role. It is not integrated into Overview; the final L0 visual
+grammar remains undecided.
+
 Its sole structural navigation model is `ExplorerLocation`
 over an `ExplorerTerritoryProjection`: root shows direct Territories and files;
 each Territory shows only its direct child Territories and files; and focused

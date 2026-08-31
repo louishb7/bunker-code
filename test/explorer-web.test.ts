@@ -16,6 +16,7 @@ import { createExplorerAttention } from '../apps/explorer-web/src/explorer-atten
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
 import { createExplorerSystemOrientationProjection } from '../apps/explorer-web/src/explorer-system-orientation.js';
 import { createExplorerComprehensionProjection } from '../apps/explorer-web/src/explorer-comprehension-projection.js';
+import { createExplorerStructuralEvidenceDistribution } from '../apps/explorer-web/src/explorer-structural-evidence-distribution.js';
 import {
   createExplorerProjection,
   type ExplorerProjection,
@@ -398,6 +399,104 @@ test('comprehension projection exposes coverage limits and unresolved dependenci
   }]);
   assert.equal(comprehension.knownResponsibilities.length, 0);
 });
+
+test('structural evidence distribution keeps local findings distinct from ancestor subtree evidence', () => {
+  const source = workspaceSource();
+  const finding = responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http' });
+  const distribution = createExplorerStructuralEvidenceDistribution(
+    source.territories,
+    createExplorerResponsibilityProjection(responsibilityResult([finding]), source.territories),
+  );
+  const application = distribution.root.children.find((child) => child.territoryId === 'workspace-package:apps/application');
+  const applicationSource = application?.children.find((child) => child.territoryId === 'directory:apps/application/src');
+
+  assert.ok(application);
+  assert.ok(applicationSource);
+  assert.equal(application.localEvidence.findingCount, 0);
+  assert.equal(application.subtreeEvidence.findingCount, 1);
+  assert.equal(applicationSource.localEvidence.findingCount, 1);
+  assert.equal(applicationSource.subtreeEvidence.findingCount, 1);
+  assert.deepEqual(applicationSource.localEvidence.findings, [finding]);
+  assert.deepEqual(applicationSource.localEvidence.findings[0]?.subject.location, finding.subject.location);
+});
+
+test('structural evidence distribution separates sibling subtrees and Responsibility counts', () => {
+  const source = workspaceSource();
+  const findings = [
+    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http:1' }),
+    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http:2', line: 2 }),
+    responsibilityFinding('persistence-interaction', 'packages/library/src/first.ts', { id: 'finding:persistence:1' }),
+    responsibilityFinding('persistence-interaction', 'packages/library/src/second.ts', { id: 'finding:persistence:2' }),
+    responsibilityFinding('persistence-interaction', 'packages/library/src/second.ts', { id: 'finding:persistence:3', line: 2 }),
+    responsibilityFinding('access-control', 'packages/library/src/first.ts', { id: 'finding:access' }),
+  ];
+  const distribution = createExplorerStructuralEvidenceDistribution(
+    source.territories,
+    createExplorerResponsibilityProjection(responsibilityResult(findings), source.territories),
+  );
+  const application = distribution.root.children.find((child) => child.territoryId === 'workspace-package:apps/application');
+  const packages = distribution.root.children.find((child) => child.territoryId === 'directory:packages');
+  const library = packages?.children.find((child) => child.territoryId === 'workspace-package:packages/library');
+
+  assert.deepEqual(distribution.root.subtreeEvidence, {
+    findingCount: 6,
+    responsibilityFindingCounts: [
+      { responsibility: 'access-control', findingCount: 1 },
+      { responsibility: 'http-entry-point', findingCount: 2 },
+      { responsibility: 'persistence-interaction', findingCount: 3 },
+    ],
+  });
+  assert.deepEqual(application?.subtreeEvidence, {
+    findingCount: 2,
+    responsibilityFindingCounts: [{ responsibility: 'http-entry-point', findingCount: 2 }],
+  });
+  assert.deepEqual(library?.subtreeEvidence, {
+    findingCount: 4,
+    responsibilityFindingCounts: [
+      { responsibility: 'access-control', findingCount: 1 },
+      { responsibility: 'persistence-interaction', findingCount: 3 },
+    ],
+  });
+});
+
+test('structural evidence distribution preserves zero-finding hierarchy without architectural fields', () => {
+  const source = workspaceSource();
+  const distribution = createExplorerStructuralEvidenceDistribution(
+    source.territories,
+    createExplorerResponsibilityProjection(responsibilityResult([]), source.territories),
+  );
+  const expectedNodeKeys = ['children', 'label', 'localEvidence', 'path', 'subtreeEvidence', 'territoryId', 'territoryKind'];
+
+  assert.equal(distribution.root.children.length > 0, true);
+  assert.equal(source.territories.territoriesById.size, countDistributionNodes(distribution.root));
+  for (const node of flattenDistribution(distribution.root)) {
+    assert.deepEqual(Object.keys(node).sort(), expectedNodeKeys);
+    assert.deepEqual(node.localEvidence, { findings: [], findingCount: 0, responsibilityFindingCounts: [] });
+    assert.deepEqual(node.subtreeEvidence, { findingCount: 0, responsibilityFindingCounts: [] });
+  }
+});
+
+test('structural evidence distribution is deterministic for reordered factual findings', () => {
+  const source = workspaceSource();
+  const findings = [
+    responsibilityFinding('persistence-interaction', 'packages/library/src/first.ts', { id: 'finding:b', line: 2 }),
+    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:a' }),
+  ];
+  const project = (input: ResponsibilityFinding[]) => createExplorerStructuralEvidenceDistribution(
+    source.territories,
+    createExplorerResponsibilityProjection(responsibilityResult(input), source.territories),
+  );
+
+  assert.deepEqual(project(findings), project([...findings].reverse()));
+});
+
+function flattenDistribution(node: ReturnType<typeof createExplorerStructuralEvidenceDistribution>['root']) {
+  return [node, ...node.children.flatMap((child) => flattenDistribution(child))];
+}
+
+function countDistributionNodes(node: ReturnType<typeof createExplorerStructuralEvidenceDistribution>['root']): number {
+  return 1 + node.children.reduce((count, child) => count + countDistributionNodes(child), 0);
+}
 
 test('responsibility projection keeps zero findings empty and chooses Territory', () => {
   const source = workspaceSource();
