@@ -53,6 +53,12 @@ import {
 import { ExplorerSystemOverview } from './explorer-system-overview.js';
 import { createExplorerSystemOrientationProjection } from './explorer-system-orientation.js';
 import { createExplorerComprehensionProjection } from './explorer-comprehension-projection.js';
+import { ExplorerL0Experiment } from './explorer-l0-experiment.js';
+import {
+  createExplorerL0ExperimentModel,
+  type ExplorerL0ExperimentVariant,
+} from './explorer-l0-experiment-model.js';
+import { createExplorerStructuralEvidenceDistribution } from './explorer-structural-evidence-distribution.js';
 import {
   createSpatialTerritoryMapModel,
   SpatialTerritoryMap,
@@ -71,11 +77,13 @@ export function Explorer({
   structure,
   responsibilities,
   projectLabel,
+  experimentalL0Variant,
 }: {
   graph: ProjectGraph;
   structure: ProjectStructure;
   responsibilities: ResponsibilityAnalysisResult;
   projectLabel: string;
+  experimentalL0Variant?: ExplorerL0ExperimentVariant;
 }) {
   const territories = useMemo(() => createExplorerTerritoryProjection(
     structure,
@@ -106,6 +114,11 @@ export function Explorer({
     () => createExplorerComprehensionProjection(territories, systemOrientation, responsibilityProjection),
     [territories, systemOrientation, responsibilityProjection],
   );
+  const l0ExperimentModel = useMemo(() => {
+    if (!experimentalL0Variant) return null;
+    const distribution = createExplorerStructuralEvidenceDistribution(territories, responsibilityProjection);
+    return createExplorerL0ExperimentModel(comprehension, distribution, territories, responsibilityProjection);
+  }, [comprehension, experimentalL0Variant, responsibilityProjection, territories]);
   const projectedElements = useMemo(
     () => projection.mode === 'focus' ? createExplorerElements(projection) : null,
     [projection],
@@ -267,7 +280,13 @@ export function Explorer({
         className={`explorer-main explorer-main-${surface} ${(showResponsibilityInspector || showTerritoryInspector) ? 'explorer-main-has-inspector' : ''}`}
         aria-label={surface === 'overview' ? 'System overview' : surface === 'responsibility' ? 'Responsibility explorer' : 'Territory explorer'}
       >
-        {surface === 'overview' ? (
+        {surface === 'overview' && experimentalL0Variant && l0ExperimentModel ? (
+          <ExplorerL0Experiment
+            projectLabel={projectLabel}
+            variant={experimentalL0Variant}
+            model={l0ExperimentModel}
+          />
+        ) : surface === 'overview' ? (
           <ExplorerSystemOverview
             projectLabel={projectLabel}
             comprehension={comprehension}

@@ -16,6 +16,10 @@ import { createExplorerAttention } from '../apps/explorer-web/src/explorer-atten
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
 import { createExplorerSystemOrientationProjection } from '../apps/explorer-web/src/explorer-system-orientation.js';
 import { createExplorerComprehensionProjection } from '../apps/explorer-web/src/explorer-comprehension-projection.js';
+import {
+  createExplorerL0ExperimentModel,
+  readExplorerL0ExperimentVariant,
+} from '../apps/explorer-web/src/explorer-l0-experiment-model.js';
 import { createExplorerStructuralEvidenceDistribution } from '../apps/explorer-web/src/explorer-structural-evidence-distribution.js';
 import {
   createExplorerProjection,
@@ -488,6 +492,77 @@ test('structural evidence distribution is deterministic for reordered factual fi
   );
 
   assert.deepEqual(project(findings), project([...findings].reverse()));
+});
+
+test('controlled L0 model preserves structural order and factual Responsibility locations without ranking', () => {
+  const source = workspaceSource();
+  const responsibilities = createExplorerResponsibilityProjection(responsibilityResult([
+    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http' }),
+    responsibilityFinding('persistence-interaction', 'packages/library/src/first.ts', { id: 'finding:persistence:1' }),
+    responsibilityFinding('persistence-interaction', 'packages/library/src/second.ts', { id: 'finding:persistence:2' }),
+  ]), source.territories);
+  const comprehension = createExplorerComprehensionProjection(
+    source.territories,
+    createExplorerSystemOrientationProjection(source.graph, source.structure),
+    responsibilities,
+  );
+  const model = createExplorerL0ExperimentModel(
+    comprehension,
+    createExplorerStructuralEvidenceDistribution(source.territories, responsibilities),
+    source.territories,
+    responsibilities,
+  );
+
+  assert.deepEqual(model.structureRoot.children.map((child) => child.territoryId), [
+    'workspace-package:apps/application',
+    'directory:packages',
+  ]);
+  assert.deepEqual(model.structureRoot.children.map((child) => child.subtreeEvidence.findingCount), [1, 2]);
+  assert.deepEqual(model.evidenceGroups.map((group) => ({
+    responsibility: group.responsibility,
+    findingCount: group.findingCount,
+    locations: group.locations.map((location) => location.path),
+  })), [
+    { responsibility: 'http-entry-point', findingCount: 1, locations: ['./apps/application/src'] },
+    { responsibility: 'persistence-interaction', findingCount: 2, locations: ['./packages/library/src'] },
+  ]);
+  assert.deepEqual(model.factSet.findingIds, ['finding:http', 'finding:persistence:1', 'finding:persistence:2']);
+  assert.deepEqual(Object.keys(model).sort(), [
+    'evidenceGroups', 'factSet', 'factSetKey', 'relations', 'structureRoot', 'systemParts', 'uncertainty',
+  ]);
+  assert.equal(readExplorerL0ExperimentVariant('?l0-experiment=structure-first'), 'structure-first');
+  assert.equal(readExplorerL0ExperimentVariant('?l0-experiment=evidence-first'), 'evidence-first');
+  assert.equal(readExplorerL0ExperimentVariant('?l0-experiment=unknown'), null);
+});
+
+test('controlled L0 model keeps zero Responsibility and incomplete uncertainty factual', () => {
+  const source = workspaceSource();
+  const responsibilities = createExplorerResponsibilityProjection(responsibilityResult([], [
+    { capability: 'http-entry-point', scope: { kind: 'project' }, status: 'evaluated', limitationIds: [] },
+    { capability: 'graphql-entry-point', scope: { kind: 'project' }, status: 'partially-evaluated', limitationIds: ['limitation:graphql'] },
+  ]), source.territories);
+  const comprehension = createExplorerComprehensionProjection(
+    source.territories,
+    createExplorerSystemOrientationProjection(source.graph, source.structure),
+    responsibilities,
+  );
+  const model = createExplorerL0ExperimentModel(
+    comprehension,
+    createExplorerStructuralEvidenceDistribution(source.territories, responsibilities),
+    source.territories,
+    responsibilities,
+  );
+
+  assert.deepEqual(model.evidenceGroups, []);
+  assert.equal(model.systemParts.length > 0, true);
+  assert.deepEqual(model.uncertainty.responsibilityCoverage.map(({ coverage }) => coverage.status), ['partially-evaluated']);
+  assert.equal(model.factSet.findingIds.length, 0);
+  assert.equal('importance' in model, false);
+  assert.equal('relevance' in model, false);
+  assert.equal('weight' in model, false);
+  assert.equal('score' in model, false);
+  assert.equal('ranking' in model, false);
+  assert.equal('architecturalRole' in model.structureRoot, false);
 });
 
 function flattenDistribution(node: ReturnType<typeof createExplorerStructuralEvidenceDistribution>['root']) {

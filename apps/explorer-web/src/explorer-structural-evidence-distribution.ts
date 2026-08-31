@@ -9,10 +9,12 @@ import { orderedTerritoryChildren } from './explorer-territory-projection.js';
 
 export interface ExplorerResponsibilityFindingCount {
   responsibility: Responsibility;
+  /** Raw factual finding volume emitted for this Responsibility, not normalized architectural weight. */
   findingCount: number;
 }
 
 export interface ExplorerStructuralEvidenceSummary {
+  /** Raw factual finding volume, not importance, relevance, risk, priority, or normalized architectural weight. */
   findingCount: number;
   responsibilityFindingCounts: ExplorerResponsibilityFindingCount[];
 }

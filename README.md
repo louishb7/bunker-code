@@ -101,7 +101,22 @@ The System remains the root and zero-finding Territories remain present. This
 experimental model neither selects a preferred scale nor interprets a
 directory, package, finding concentration, or structural boundary as an
 architectural role. It is not integrated into Overview; the final L0 visual
-grammar remains undecided.
+grammar remains undecided. Every finding count is raw detector output volume,
+not normalized architectural weight, importance, relevance, risk, or priority.
+The distribution proves that this volume can be decomposed by factual
+containment; whether that decomposition reduces cognitive load or belongs in
+L0 remains unvalidated.
+
+An isolated Experiment 3 harness compares two controlled L0 references over
+exactly that same fact set. Append `?l0-experiment=structure-first` to inspect
+direct structural children progressively, or
+`?l0-experiment=evidence-first` to inspect positive Responsibility evidence by
+its factual structural locations. Without either query value, the normal
+Overview is unchanged. Both variants reuse the same comprehension and
+distribution projections, keep Relations and Uncertainty identical, and show
+finding counts only as raw text. The harness is removable experimental
+infrastructure: neither variant, their starting scale, nor any automatic
+selection between them is a product decision.
 
 Its sole structural navigation model is `ExplorerLocation`
 over an `ExplorerTerritoryProjection`: root shows direct Territories and files;
