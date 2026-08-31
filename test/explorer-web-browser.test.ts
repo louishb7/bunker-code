@@ -36,11 +36,13 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
 
     assert.equal(await page.$eval('[data-surface="overview"]', (element) => element.getAttribute('aria-pressed')), 'true');
     assert.equal(await page.$eval('[data-surface="responsibility"]', (element) => (element as HTMLButtonElement).disabled), false);
-    assert.ok(await page.$('[data-overview-territory="directory:src"]'));
-    assert.ok(await page.$('[data-overview-responsibility="http-entry-point"]'));
+    assert.ok(await page.$('[data-observable-part="directory:src"]'));
+    assert.ok(await page.$('[data-known-responsibility="finding:http"]'));
     assert.equal(await page.$('.react-flow'), null);
     assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 220), true);
-    assert.equal(await page.$eval('[data-overview-responsibility-coverage]', (element) => element.textContent?.includes('coverage is incomplete')), true);
+    assert.equal(await page.$eval('[data-responsibility-coverage="partially-evaluated"]', (element) => element.textContent?.includes('partially-evaluated')), true);
+    assert.equal(await page.$('[data-comprehension-section="uncertainty"] [data-responsibility-coverage="evaluated"]'), null);
+    assert.ok(await page.$('[data-architectural-meaning-undetermined="directory:src"]'));
 
     await page.focus('[data-surface="responsibility"]');
     await page.keyboard.press('Enter');
@@ -144,16 +146,19 @@ test('Explorer navigates factual territories and focused file relationships in a
     assert.equal(await page.$eval('[data-surface="territory"]', (element) => (element as HTMLButtonElement).disabled), false);
     assert.equal(await page.$eval('[data-overview-responsibility-unavailable]', (element) => {
       const text = element.textContent ?? '';
-      return text.includes('No supported factual responsibility findings are available') && text.includes('does not establish that the system has no architectural responsibilities');
+      return text.includes('No factual Responsibility finding is available') && text.includes('does not establish that the system has no architectural responsibilities');
     }), true);
-    assert.ok(await page.$('[data-system-connections]'));
+    assert.ok(await page.$('[data-comprehension-section="observable-parts"]'));
+    assert.ok(await page.$('[data-comprehension-section="known-responsibilities"]'));
+    assert.ok(await page.$('[data-comprehension-section="factual-relations"]'));
+    assert.ok(await page.$('[data-comprehension-section="uncertainty"]'));
     assert.equal(await page.$$('[data-system-connection]').then((connections) => connections.length > 0), true);
-    assert.ok(await page.$('[data-external-module-usage]'));
-    assert.ok(await page.$('[data-structural-observations]'));
+    assert.ok(await page.$('[data-factual-relation="external-module-touchpoint"]'));
+    assert.ok(await page.$('[data-architectural-meaning-undetermined]'));
     assert.equal(await page.$('.react-flow'), null);
     assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 220), true);
     if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
-      await page.screenshot({ path: '/tmp/bunkercode-system-orientation-1440.png', fullPage: true });
+      await page.screenshot({ path: '/tmp/bunkercode-system-map-overview-1440.png', fullPage: true });
     }
     await page.focus('[data-surface="territory"]');
     await page.keyboard.press('Enter');
@@ -250,7 +255,7 @@ test('Explorer navigates factual territories and focused file relationships in a
     await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
     assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 340), true);
     if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
-      await page.screenshot({ path: '/tmp/bunkercode-system-orientation-640.png', fullPage: true });
+      await page.screenshot({ path: '/tmp/bunkercode-system-map-overview-640.png', fullPage: true });
     }
   } finally {
     await browser.close();

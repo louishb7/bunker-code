@@ -72,16 +72,26 @@ The browser check uses `puppeteer-core` with the system Firefox executable at
 ## Explorer
 
 The Explorer generates a disposable snapshot by analyzing the local BunkerCode
-PNPM workspace. Every project opens on a compact System Overview that composes
-the existing factual WHERE and WHAT ROLE projections for orientation. Overview
-is a Web-local surface, not a semantic Perspective or domain contract.
-Responsibility and Territory remain the two depth lenses, and entering or
-leaving Overview never resets `ExplorerLocation`. System Orientation now adds
-a Web-local, low-resolution view of existing structural facts: factual
-cross-package dependency directions, actually imported external modules, and
-only relevant cycle, isolation, or unresolved-dependency observations. It does
-not create a new semantic contract or turn those facts into architectural
-responsibilities.
+PNPM workspace. Every project opens on a Web-local comprehension reference that
+organizes existing evidence as observable parts, factual Responsibility
+findings, factual relations, and explicit uncertainty/coverage. This is a pure
+presentation projection, not a universal architecture, semantic Perspective,
+or domain contract. Responsibility and Territory remain the two depth lenses,
+and entering or leaving Overview never resets `ExplorerLocation`.
+
+The comprehension projection reuses System Orientation for factual
+cross-package dependency directions, actually imported external-module
+touchpoints, cycles, isolated files, and unresolved dependencies. Territory,
+file, and subject IDs remain the anchors back to existing evidence. Observable
+parts are exactly the direct structural children already projected at System
+scale; workspace packages are not promoted over an aggregate Territory. A
+Responsibility finding proves only localized subject evidence and never
+establishes the architectural meaning of its containing part. That meaning
+remains explicitly undetermined whether findings exist or not. Only partial,
+not-evaluated, unsupported, and failed coverage belongs to comprehension
+uncertainty; evaluated coverage remains available from the original
+Responsibility projection. No analyzer, detector, contract, graph-engine fact,
+score, or architectural category is introduced by this presentation layer.
 
 Its sole structural navigation model is `ExplorerLocation`
 over an `ExplorerTerritoryProjection`: root shows direct Territories and files;

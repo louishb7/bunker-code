@@ -52,6 +52,7 @@ import {
 } from './explorer-responsibility-projection.js';
 import { ExplorerSystemOverview } from './explorer-system-overview.js';
 import { createExplorerSystemOrientationProjection } from './explorer-system-orientation.js';
+import { createExplorerComprehensionProjection } from './explorer-comprehension-projection.js';
 import {
   createSpatialTerritoryMapModel,
   SpatialTerritoryMap,
@@ -97,13 +98,13 @@ export function Explorer({
     [location, territories, projectLabel, graph],
   );
   const projection = useMemo(() => createExplorerProjection(source, location), [source, location]);
-  const overviewProjection = useMemo(
-    () => createExplorerProjection(source, createInitialExplorerLocation(territories)),
-    [source, territories],
-  );
   const systemOrientation = useMemo(
     () => createExplorerSystemOrientationProjection(graph, structure),
     [graph, structure],
+  );
+  const comprehension = useMemo(
+    () => createExplorerComprehensionProjection(territories, systemOrientation, responsibilityProjection),
+    [territories, systemOrientation, responsibilityProjection],
   );
   const projectedElements = useMemo(
     () => projection.mode === 'focus' ? createExplorerElements(projection) : null,
@@ -241,7 +242,6 @@ export function Explorer({
   const spatialMapModel = projection.mode === 'focus'
     ? null
     : createSpatialTerritoryMapModel(projection, currentTerritory);
-  const overviewTerritoryModel = createSpatialTerritoryMapModel(overviewProjection, territories.system);
   const showTerritoryInspector = surface === 'territory' && Boolean(selectedTerritory || fileExploration);
   const showResponsibilityInspector = surface === 'responsibility' && selectedResponsibility !== null;
 
@@ -270,9 +270,7 @@ export function Explorer({
         {surface === 'overview' ? (
           <ExplorerSystemOverview
             projectLabel={projectLabel}
-            territoryModel={overviewTerritoryModel}
-            systemOrientation={systemOrientation}
-            responsibilities={responsibilityProjection}
+            comprehension={comprehension}
             responsibilityAvailable={responsibilityAvailable}
             onExploreResponsibilities={() => setViewState((current) => switchExplorerSurface(current, 'responsibility'))}
             onExploreStructure={() => setViewState((current) => switchExplorerSurface(current, 'territory'))}

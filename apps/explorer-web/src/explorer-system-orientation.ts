@@ -25,6 +25,7 @@ export interface ExplorerPackageConnection {
 export interface ExplorerOrientationPackage {
   id: string;
   label: string;
+  rootPath: string;
 }
 
 export interface ExplorerExternalModuleUsage {
@@ -55,7 +56,11 @@ export function createExplorerSystemOrientationProjection(
 ): ExplorerSystemOrientationProjection {
   const packagesById = new Map(getWorkspacePackages(structure).map((workspacePackage) => [
     workspacePackage.id,
-    { id: workspacePackage.id, label: workspacePackage.name ?? workspacePackage.rootPath },
+    {
+      id: workspacePackage.id,
+      label: workspacePackage.name ?? workspacePackage.rootPath,
+      rootPath: workspacePackage.rootPath,
+    },
   ] as const));
   const packageConnections = aggregatePackageDependencies(graph, structure).flatMap((dependency) => {
     const source = packagesById.get(dependency.sourcePackageId);

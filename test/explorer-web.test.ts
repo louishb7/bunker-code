@@ -15,6 +15,7 @@ import { buildProjectGraph, buildProjectStructure, type ProjectGraph } from '../
 import { createExplorerAttention } from '../apps/explorer-web/src/explorer-attention.js';
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
 import { createExplorerSystemOrientationProjection } from '../apps/explorer-web/src/explorer-system-orientation.js';
+import { createExplorerComprehensionProjection } from '../apps/explorer-web/src/explorer-comprehension-projection.js';
 import {
   createExplorerProjection,
   type ExplorerProjection,
@@ -175,8 +176,8 @@ test('System Orientation derives package directions, external module use, and st
 
   assert.deepEqual(orientation.packageConnections, [{
     id: 'workspace-package:apps/application -> workspace-package:packages/library',
-    source: { id: 'workspace-package:apps/application', label: '@fixture/application' },
-    target: { id: 'workspace-package:packages/library', label: 'packages/library' },
+    source: { id: 'workspace-package:apps/application', label: '@fixture/application', rootPath: 'apps/application' },
+    target: { id: 'workspace-package:packages/library', label: 'packages/library', rootPath: 'packages/library' },
     fileDependencyCount: 2,
   }]);
   assert.deepEqual(orientation.externalModules, [{
@@ -227,6 +228,175 @@ test('System Orientation preserves cycle and unresolved-dependency observations 
     moduleSpecifier: './missing.js',
     reason: 'relative-target-not-found',
   }]);
+});
+
+test('comprehension projection keeps factual Responsibilities linked to their existing subjects and observable parts', () => {
+  const source = workspaceSource();
+  const orientation = createExplorerSystemOrientationProjection(source.graph, source.structure);
+  const responsibilities = createExplorerResponsibilityProjection(
+    responsibilityResult([responsibilityFinding('http-entry-point', 'apps/application/src/main.ts')]),
+    source.territories,
+  );
+  const comprehension = createExplorerComprehensionProjection(source.territories, orientation, responsibilities);
+
+  assert.equal(comprehension.observableParts.length > 0, true);
+  assert.deepEqual(comprehension.knownResponsibilities.map((finding) => ({
+    id: finding.id,
+    kind: finding.kind,
+    responsibility: finding.responsibility,
+    observablePartId: finding.observablePartId,
+    anchor: finding.anchor,
+  })), [{
+    id: 'finding:http-entry-point:apps/application/src/main.ts:1',
+    kind: 'responsibility-finding',
+    responsibility: 'http-entry-point',
+    observablePartId: 'workspace-package:apps/application',
+    anchor: {
+      kind: 'subject',
+      subjectId: 'subject:apps/application/src/main.ts:method:subject',
+      fileId: 'apps/application/src/main.ts',
+      territoryId: 'directory:apps/application/src',
+      location: { filePath: 'apps/application/src/main.ts', line: 1, column: 1 },
+    },
+  }]);
+  assert.equal(
+    comprehension.uncertainty.architecturalMeaningUndetermined
+      .some((item) => item.observablePartId === 'workspace-package:apps/application'),
+    true,
+  );
+});
+
+test('multiple factual Responsibilities remain localized evidence without establishing part-level meaning', () => {
+  const source = workspaceSource();
+  const responsibilities = createExplorerResponsibilityProjection(responsibilityResult([
+    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http' }),
+    responsibilityFinding('access-control', 'apps/application/src/main.ts', { id: 'finding:access', line: 2 }),
+  ]), source.territories);
+  const comprehension = createExplorerComprehensionProjection(
+    source.territories,
+    createExplorerSystemOrientationProjection(source.graph, source.structure),
+    responsibilities,
+  );
+
+  assert.deepEqual(comprehension.knownResponsibilities.map((finding) => finding.id), ['finding:access', 'finding:http']);
+  assert.equal(
+    comprehension.uncertainty.architecturalMeaningUndetermined
+      .some((item) => item.observablePartId === 'workspace-package:apps/application'),
+    true,
+  );
+});
+
+test('comprehension projection preserves structural orientation when no Responsibility finding exists', () => {
+  const source = workspaceSource();
+  const comprehension = createExplorerComprehensionProjection(
+    source.territories,
+    createExplorerSystemOrientationProjection(source.graph, source.structure),
+    createExplorerResponsibilityProjection(responsibilityResult([]), source.territories),
+  );
+
+  assert.equal(comprehension.observableParts.some((part) => part.id === 'workspace-package:apps/application'), true);
+  assert.equal(comprehension.observableParts.some((part) => part.id === 'workspace-package:packages/library'), false);
+  assert.equal(comprehension.observableParts.some((part) => part.id === 'orphan.ts' && part.kind === 'file'), true);
+  assert.equal(comprehension.observableParts.some((part) => part.id === 'directory:packages'), true);
+  assert.deepEqual(comprehension.knownResponsibilities, []);
+  assert.deepEqual(
+    comprehension.uncertainty.architecturalMeaningUndetermined.map((item) => item.observablePartId),
+    comprehension.observableParts.map((part) => part.id),
+  );
+  assert.equal('architecture' in comprehension.observableParts[0]!, false);
+  assert.equal('subsystem' in comprehension.observableParts[0]!, false);
+});
+
+test('comprehension projection preserves package direction and classifies external imports only as factual touchpoints', () => {
+  const source = workspaceSource();
+  const comprehension = createExplorerComprehensionProjection(
+    source.territories,
+    createExplorerSystemOrientationProjection(source.graph, source.structure),
+    createExplorerResponsibilityProjection(responsibilityResult([]), source.territories),
+  );
+  const packageRelation = comprehension.factualRelations.find((relation) => relation.kind === 'package-dependency');
+  const externalTouchpoint = comprehension.factualRelations.find((relation) => relation.kind === 'external-module-touchpoint');
+
+  assert.ok(packageRelation && packageRelation.kind === 'package-dependency');
+  assert.deepEqual({ source: packageRelation.source.id, target: packageRelation.target.id }, {
+    source: 'workspace-package:apps/application',
+    target: 'workspace-package:packages/library',
+  });
+  assert.deepEqual({ source: packageRelation.source.anchor, target: packageRelation.target.anchor }, {
+    source: { kind: 'territory', territoryId: 'workspace-package:apps/application', path: './apps/application' },
+    target: { kind: 'territory', territoryId: 'workspace-package:packages/library', path: './packages/library' },
+  });
+  assert.ok(externalTouchpoint && externalTouchpoint.kind === 'external-module-touchpoint');
+  assert.equal(externalTouchpoint.moduleSpecifier, 'external-package');
+  assert.deepEqual(externalTouchpoint.sourceAnchors, [{
+    kind: 'file',
+    fileId: 'apps/application/src/main.ts',
+    path: 'apps/application/src/main.ts',
+  }]);
+  assert.equal('integration' in externalTouchpoint, false);
+  assert.equal('responsibility' in externalTouchpoint, false);
+  assert.equal(comprehension.factualRelations.some((relation) => relation.kind === 'dependency-isolation'), true);
+
+  const rootPackageComprehension = createExplorerComprehensionProjection(source.territories, {
+    packageConnections: [{
+      id: 'workspace-package:. -> workspace-package:packages/library',
+      source: { id: 'workspace-package:.', label: 'root', rootPath: '.' },
+      target: { id: 'workspace-package:packages/library', label: 'packages/library', rootPath: 'packages/library' },
+      fileDependencyCount: 1,
+    }],
+    externalModules: [],
+    cycles: [],
+    isolatedFiles: [],
+    unresolvedDependencies: [],
+  }, createExplorerResponsibilityProjection(responsibilityResult([]), source.territories));
+  const rootPackageRelation = rootPackageComprehension.factualRelations[0];
+
+  assert.ok(rootPackageRelation && rootPackageRelation.kind === 'package-dependency');
+  assert.deepEqual(rootPackageRelation.source.anchor, {
+    kind: 'territory',
+    territoryId: source.territories.system.id,
+    path: '.',
+  });
+});
+
+test('comprehension projection exposes coverage limits and unresolved dependencies as distinct uncertainty', () => {
+  const source = workspaceSource();
+  const orientation = createExplorerSystemOrientationProjection(source.graph, source.structure);
+  const responsibilities = createExplorerResponsibilityProjection(responsibilityResult([], [
+    { capability: 'http-entry-point', scope: { kind: 'project' }, status: 'partially-evaluated', limitationIds: ['limitation:http'] },
+    { capability: 'graphql-entry-point', scope: { kind: 'project' }, status: 'evaluated', limitationIds: [] },
+    { capability: 'access-control', scope: { kind: 'project' }, status: 'failed', failure: { code: 'detector-failed', message: 'Failure.' }, limitationIds: [] },
+    { capability: 'cache-interaction', scope: { kind: 'project' }, status: 'unsupported' },
+    { capability: 'scheduled-job', scope: { kind: 'project' }, status: 'not-evaluated' },
+  ]), source.territories);
+  const comprehension = createExplorerComprehensionProjection(source.territories, {
+    ...orientation,
+    unresolvedDependencies: [{
+      id: 'orphan.ts -> ./missing.js ? 1:1',
+      sourceFileId: 'orphan.ts',
+      moduleSpecifier: './missing.js',
+      reason: 'relative-target-not-found',
+    }],
+  }, responsibilities);
+
+  assert.deepEqual(comprehension.uncertainty.responsibilityCoverage.map(({ coverage }) => coverage.status), [
+    'partially-evaluated',
+    'failed',
+    'unsupported',
+    'not-evaluated',
+  ]);
+  assert.equal(
+    comprehension.uncertainty.responsibilityCoverage.some(({ coverage }) => coverage.status === 'evaluated'),
+    false,
+  );
+  assert.deepEqual(comprehension.uncertainty.unresolvedDependencies, [{
+    id: 'orphan.ts -> ./missing.js ? 1:1',
+    kind: 'unresolved-dependency',
+    moduleSpecifier: './missing.js',
+    reason: 'relative-target-not-found',
+    sourceAnchor: { kind: 'file', fileId: 'orphan.ts', path: 'orphan.ts' },
+  }]);
+  assert.equal(comprehension.knownResponsibilities.length, 0);
 });
 
 test('responsibility projection keeps zero findings empty and chooses Territory', () => {
