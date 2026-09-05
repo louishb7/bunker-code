@@ -66,7 +66,7 @@ type CalleeResolution =
   | { kind: 'exact'; declaration: FunctionDeclaration }
   | { kind: 'unclassified'; reason: ExperimentalUnclassifiedInvocationReason };
 
-function resolveImportedFunction(
+function resolveIdentifierFunction(
   session: TypeScriptAnalysisSession,
   call: Node,
 ): CalleeResolution {
@@ -76,7 +76,7 @@ function resolveImportedFunction(
   if (!Node.isIdentifier(expression)) return { kind: 'unclassified', reason: 'unsupported-call-form' };
 
   const symbol = expression.getSymbol();
-  const target = symbol?.getAliasedSymbol();
+  const target = symbol?.getAliasedSymbol() ?? symbol;
   if (!target) return { kind: 'unclassified', reason: 'unresolved-target' };
 
   const declarations = target.getDeclarations();
@@ -112,10 +112,10 @@ function compareUnclassifiedCalls(
 }
 
 /**
- * Extracts the deliberately narrow Phase 8A proof: a named imported function
- * invoked from a named function declaration, where ts-morph resolves exactly
- * one analyzed function declaration. Every other observed call keeps only its
- * site and the narrow factual reason it could not be classified as exact.
+ * Extracts the deliberately narrow Phase 8A proof: a named identifier called
+ * from a named function declaration, where ts-morph resolves exactly one
+ * analyzed function declaration. Every other observed call keeps only its site
+ * and the narrow factual reason it could not be classified as exact.
  */
 export function extractExactInternalInvocationRelations(
   session: TypeScriptAnalysisSession,
@@ -134,7 +134,7 @@ export function extractExactInternalInvocationRelations(
         continue;
       }
 
-      const calleeResolution = resolveImportedFunction(session, call);
+      const calleeResolution = resolveIdentifierFunction(session, call);
       if (calleeResolution.kind === 'unclassified') {
         unclassifiedCalls.push({ callSite, reason: calleeResolution.reason });
         continue;

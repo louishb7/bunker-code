@@ -100,6 +100,60 @@ test('extracts the exact imported function invocation in simple-import determini
   });
 });
 
+test('extracts exact local and renamed imported function invocations deterministically', (context) => {
+  const projectPath = createTempProject(context);
+
+  writeProjectFile(
+    projectPath,
+    'tsconfig.json',
+    JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', strict: true }, include: ['src/**/*.ts'] }),
+  );
+  writeProjectFile(
+    projectPath,
+    'src/main.ts',
+    [
+      "import { service as renamedService } from './service';",
+      '',
+      "function helper(): string { return 'local'; }",
+      '',
+      'export function main(): string {',
+      '  return `${helper()}${renamedService()}`;',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  writeProjectFile(projectPath, 'src/service.ts', "export function service(): string { return 'imported'; }\n");
+
+  const session = createTypeScriptAnalysisSession(projectPath, [path.join(projectPath, 'tsconfig.json')], () => true);
+  const first = extractExactInternalInvocationRelations(session);
+  const second = extractExactInternalInvocationRelations(session);
+
+  assert.deepEqual(first, second);
+  assert.deepEqual(first.unclassifiedCalls, []);
+  assert.deepEqual(
+    first.exactRelations.map(({ caller, callee, callSite, confidence }) => ({
+      caller: { fileId: caller.fileId, name: caller.name },
+      callee: { fileId: callee.fileId, name: callee.name },
+      callSite,
+      confidence,
+    })),
+    [
+      {
+        caller: { fileId: 'src/main.ts', name: 'main' },
+        callee: { fileId: 'src/main.ts', name: 'helper' },
+        callSite: { filePath: 'src/main.ts', line: 6, column: 13 },
+        confidence: 'exact',
+      },
+      {
+        caller: { fileId: 'src/main.ts', name: 'main' },
+        callee: { fileId: 'src/service.ts', name: 'service' },
+        callSite: { filePath: 'src/main.ts', line: 6, column: 24 },
+        confidence: 'exact',
+      },
+    ],
+  );
+});
+
 test('does not classify overloaded imported functions as exact invocations', (context) => {
   const projectPath = createTempProject(context);
 
