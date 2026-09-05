@@ -40,6 +40,39 @@ function dependencySummary(result: ReturnType<typeof analyzeProject>) {
   });
 }
 
+function callRange(fileId: string, line: number, column: number, text: string) {
+  return {
+    fileId,
+    start: { line, column },
+    end: { line, column: column + text.length },
+  };
+}
+
+function invocationSummary(extraction: ReturnType<typeof extractExactInternalInvocationRelations>) {
+  return extraction.exactRelations.map(({ caller, callee, callSite, confidence }) => ({
+    caller: { id: caller.id, fileId: caller.fileId, name: caller.name, kind: 'kind' in caller ? caller.kind : undefined },
+    callee: { id: callee.id, fileId: callee.fileId, name: callee.name, kind: 'kind' in callee ? callee.kind : undefined },
+    callSite,
+    confidence,
+  }));
+}
+
+function astRange(
+  fileId: string,
+  node: {
+    getSourceFile(): { getLineAndColumnAtPos(position: number): { line: number; column: number } };
+    getStart(): number;
+    getEnd(): number;
+  },
+) {
+  const sourceFile = node.getSourceFile();
+  return {
+    fileId,
+    start: sourceFile.getLineAndColumnAtPos(node.getStart()),
+    end: sourceFile.getLineAndColumnAtPos(node.getEnd()),
+  };
+}
+
 test('analyze simple-import deterministically', () => {
   const first = analyzeProject(fixturePath);
   const second = analyzeProject(fixturePath);
@@ -79,25 +112,13 @@ test('extracts the exact imported function invocation in simple-import determini
   const second = extractExactInternalInvocationRelations(session);
 
   assert.deepEqual(first, second);
-  assert.deepEqual(first, {
-    exactRelations: [
-      {
-        caller: {
-          id: 'experimental-invocation:function:src/main.ts:38',
-          fileId: 'src/main.ts',
-          name: 'main',
-        },
-        callee: {
-          id: 'experimental-invocation:function:src/service.ts:0',
-          fileId: 'src/service.ts',
-          name: 'service',
-        },
-        callSite: { filePath: 'src/main.ts', line: 4, column: 10 },
-        confidence: 'exact',
-      },
-    ],
-    unclassifiedCalls: [],
-  });
+  assert.deepEqual(invocationSummary(first), [{
+    caller: { id: 'experimental-invocation:function:src/main.ts:38', fileId: 'src/main.ts', name: 'main', kind: undefined },
+    callee: { id: 'experimental-invocation:function:src/service.ts:0', fileId: 'src/service.ts', name: 'service', kind: undefined },
+    callSite: callRange('src/main.ts', 4, 10, 'service()'),
+    confidence: 'exact',
+  }]);
+  assert.deepEqual(first.unclassifiedCalls, []);
 });
 
 test('extracts exact local and renamed imported function invocations deterministically', (context) => {
@@ -141,13 +162,13 @@ test('extracts exact local and renamed imported function invocations determinist
       {
         caller: { fileId: 'src/main.ts', name: 'main' },
         callee: { fileId: 'src/main.ts', name: 'helper' },
-        callSite: { filePath: 'src/main.ts', line: 6, column: 13 },
+        callSite: callRange('src/main.ts', 6, 13, 'helper()'),
         confidence: 'exact',
       },
       {
         caller: { fileId: 'src/main.ts', name: 'main' },
         callee: { fileId: 'src/service.ts', name: 'service' },
-        callSite: { filePath: 'src/main.ts', line: 6, column: 24 },
+        callSite: callRange('src/main.ts', 6, 24, 'renamedService()'),
         confidence: 'exact',
       },
     ],
@@ -178,15 +199,13 @@ test('resolves a directly owned internal static method from a function caller de
 
   assert.deepEqual(first, extractExactInternalInvocationRelations(session));
   assert.deepEqual(first, extractExactInternalInvocationRelations(freshSession));
-  assert.deepEqual(first, {
-    exactRelations: [{
-      caller: { id: 'experimental-invocation:function:src/main.ts:69', fileId: 'src/main.ts', name: 'main' },
-      callee: { id: 'experimental-invocation:static-method:src/main.ts:18', kind: 'static-method', fileId: 'src/main.ts', name: 'execute' },
-      callSite: { filePath: 'src/main.ts', line: 8, column: 10 },
-      confidence: 'exact',
-    }],
-    unclassifiedCalls: [],
-  });
+  assert.deepEqual(invocationSummary(first), [{
+    caller: { id: 'experimental-invocation:function:src/main.ts:69', fileId: 'src/main.ts', name: 'main', kind: undefined },
+    callee: { id: 'experimental-invocation:static-method:src/main.ts:18', kind: 'static-method', fileId: 'src/main.ts', name: 'execute' },
+    callSite: callRange('src/main.ts', 8, 10, 'Service.execute()'),
+    confidence: 'exact',
+  }]);
+  assert.deepEqual(first.unclassifiedCalls, []);
 });
 
 test('preserves unsupported and external method calls without exact relations', (context) => {
@@ -225,8 +244,8 @@ test('preserves unsupported and external method calls without exact relations', 
   assert.deepEqual(first, extractExactInternalInvocationRelations(reordered));
   assert.deepEqual(first, {
     exactRelations: [],
-    unclassifiedCalls: cases.map(({ file, reason }) => ({
-      callSite: { filePath: `src/${file}.ts`, line: 3, column: 10 },
+    unclassifiedCalls: cases.map(({ file, reason, call }) => ({
+      callSite: callRange(`src/${file}.ts`, 3, 10, call),
       reason,
     })),
   });
@@ -250,7 +269,7 @@ test('does not attribute a nested constructor call to its enclosing function', (
   assert.deepEqual(extractExactInternalInvocationRelations(session), {
     exactRelations: [],
     unclassifiedCalls: [{
-      callSite: { filePath: 'src/main.ts', line: 5, column: 7 },
+      callSite: callRange('src/main.ts', 5, 7, 'Service.execute()'),
       reason: 'unsupported-call-form',
     }],
   });
@@ -273,7 +292,7 @@ test('does not classify overloaded imported functions as exact invocations', (co
     exactRelations: [],
     unclassifiedCalls: [
       {
-        callSite: { filePath: 'src/main.ts', line: 2, column: 41 },
+        callSite: callRange('src/main.ts', 2, 41, "service('ok')"),
         reason: 'multiple-target-declarations',
       },
     ],
@@ -301,11 +320,154 @@ test('preserves external calls as unclassified without inferring an internal tar
     exactRelations: [],
     unclassifiedCalls: [
       {
-        callSite: { filePath: 'src/main.ts', line: 2, column: 32 },
+        callSite: callRange('src/main.ts', 2, 32, 'external()'),
         reason: 'target-outside-analyzed-files',
       },
     ],
   });
+});
+
+test('uses source ranges as deterministic local addresses for declarations and call expressions', (context) => {
+  const projectPath = createTempProject(context);
+  writeProjectFile(projectPath, 'tsconfig.json', JSON.stringify({
+    compilerOptions: { strict: true, module: 'ESNext', moduleResolution: 'Bundler' },
+    include: ['src/**/*.ts'],
+  }));
+  writeProjectFile(projectPath, 'src/service.ts', "export function service(): string { return 'service'; }\n");
+  writeProjectFile(projectPath, 'src/main.ts', [
+    "import { service as alias } from './service';",
+    '',
+    "function alpha(): string { return 'alpha'; }",
+    "function beta(): string { return 'beta'; }",
+    'class First { static execute(): string { return \'first\'; } }',
+    'class Second { static execute(): string { return \'second\'; } }',
+    "function factory(): () => string { return () => 'factory'; }",
+    '',
+    'export function main(): string {',
+    '  alias();',
+    '  alias();',
+    '  First.execute();',
+    '  Second.execute();',
+    '  factory()();',
+    '  return alpha() + beta();',
+    '}',
+    '',
+  ].join('\n'));
+
+  const tsconfigPath = path.join(projectPath, 'tsconfig.json');
+  const session = createTypeScriptAnalysisSession(projectPath, [tsconfigPath], () => true);
+  const freshSession = createTypeScriptAnalysisSession(projectPath, [tsconfigPath], () => true);
+  const first = extractExactInternalInvocationRelations(session);
+
+  assert.deepEqual(first, extractExactInternalInvocationRelations(session));
+  assert.deepEqual(first, extractExactInternalInvocationRelations(freshSession));
+  assert.equal(first.exactRelations.length, 7);
+  assert.equal(first.unclassifiedCalls.length, 1);
+
+  const callRanges = [
+    ...first.exactRelations.map((relation) => relation.callSite),
+    ...first.unclassifiedCalls.map((call) => call.callSite),
+  ];
+  assert.equal(new Set(callRanges.map((range) => JSON.stringify(range))).size, callRanges.length);
+
+  const callNodes = [...session.sourceFiles.values()].flatMap((sourceFile) => (
+    sourceFile.getDescendants()
+      .filter((node) => node.getKindName() === 'CallExpression')
+      .map((call) => astRange(session.locationFor(sourceFile).filePath, call))
+  ));
+  assert.deepEqual(
+    callRanges.map((range) => JSON.stringify(range)).sort(),
+    callNodes.map((range) => JSON.stringify(range)).sort(),
+  );
+
+  const declarationNodes = [...session.sourceFiles.values()].flatMap((sourceFile) => (
+    sourceFile.getDescendants()
+      .filter((node) => node.getKindName() === 'FunctionDeclaration' || node.getKindName() === 'MethodDeclaration')
+      .map((declaration) => astRange(session.locationFor(sourceFile).filePath, declaration))
+  ));
+  for (const relation of first.exactRelations) {
+    assert.ok(declarationNodes.some((range) => JSON.stringify(range) === JSON.stringify(relation.caller.declaration)));
+    assert.ok(declarationNodes.some((range) => JSON.stringify(range) === JSON.stringify(relation.callee.declaration)));
+  }
+
+  const nestedCalls = callRanges.filter((range) => range.start.line === 14 && range.start.column === 3);
+  assert.equal(nestedCalls.length, 2);
+  assert.notDeepEqual(nestedCalls[0]?.end, nestedCalls[1]?.end);
+
+  const aliasRelations = first.exactRelations.filter((relation) => relation.callee.name === 'service');
+  assert.equal(aliasRelations.length, 2);
+  assert.deepEqual(aliasRelations[0]?.callee.declaration, aliasRelations[1]?.callee.declaration);
+  assert.notDeepEqual(aliasRelations[0]?.callSite, aliasRelations[1]?.callSite);
+
+  const staticMethods = first.exactRelations
+    .filter((relation) => relation.callee.kind === 'static-method' && relation.callee.name === 'execute')
+    .map((relation) => relation.callee.declaration);
+  assert.equal(staticMethods.length, 2);
+  assert.notDeepEqual(staticMethods[0], staticMethods[1]);
+
+  const localFunctions = first.exactRelations
+    .filter((relation) => relation.callee.fileId === 'src/main.ts' && ['alpha', 'beta'].includes(relation.callee.name))
+    .map((relation) => relation.callee.declaration);
+  assert.equal(localFunctions.length, 2);
+  assert.notDeepEqual(localFunctions[0], localFunctions[1]);
+});
+
+test('preserves every optional call form as unclassified before symbol resolution', (context) => {
+  const projectPath = createTempProject(context);
+  writeProjectFile(projectPath, 'tsconfig.json', JSON.stringify({ include: ['src/**/*.ts'] }));
+  writeProjectFile(projectPath, 'src/main.ts', [
+    'function fn(): void {}',
+    'class Service { static execute(): void {} }',
+    'export function main(): void {',
+    '  fn?.();',
+    '  Service?.execute();',
+    '  Service.execute?.();',
+    '}',
+  ].join('\n'));
+
+  const session = createTypeScriptAnalysisSession(projectPath, [path.join(projectPath, 'tsconfig.json')], () => true);
+
+  assert.deepEqual(extractExactInternalInvocationRelations(session), {
+    exactRelations: [],
+    unclassifiedCalls: [
+      { callSite: callRange('src/main.ts', 4, 3, 'fn?.()'), reason: 'unsupported-call-form' },
+      { callSite: callRange('src/main.ts', 5, 3, 'Service?.execute()'), reason: 'unsupported-call-form' },
+      { callSite: callRange('src/main.ts', 6, 3, 'Service.execute?.()'), reason: 'unsupported-call-form' },
+    ],
+  });
+});
+
+test('uses the last TypeScript context for an overlapping source path', (context) => {
+  const projectPath = createTempProject(context);
+  writeProjectFile(projectPath, 'src/main.ts', [
+    "import { service } from '@service';",
+    'export function main(): string { return service(); }',
+  ].join('\n'));
+  writeProjectFile(projectPath, 'targets/a.ts', "export function service(): string { return 'a'; }\n");
+  writeProjectFile(projectPath, 'targets/b.ts', "export function service(): string { return 'b'; }\n");
+  writeProjectFile(projectPath, 'configs/a.json', JSON.stringify({
+    compilerOptions: { strict: true, module: 'ESNext', moduleResolution: 'Bundler', baseUrl: '..', paths: { '@service': ['targets/a.ts'] } },
+    files: ['../src/main.ts', '../targets/a.ts'],
+  }));
+  writeProjectFile(projectPath, 'configs/b.json', JSON.stringify({
+    compilerOptions: { strict: true, module: 'ESNext', moduleResolution: 'Bundler', baseUrl: '..', paths: { '@service': ['targets/b.ts'] } },
+    files: ['../src/main.ts', '../targets/b.ts'],
+  }));
+
+  const a = path.join(projectPath, 'configs/a.json');
+  const b = path.join(projectPath, 'configs/b.json');
+  const forward = createTypeScriptAnalysisSession(projectPath, [a, b], () => true);
+  const reverse = createTypeScriptAnalysisSession(projectPath, [b, a], () => true);
+  const forwardResult = extractExactInternalInvocationRelations(forward);
+  const reverseResult = extractExactInternalInvocationRelations(reverse);
+
+  assert.deepEqual(forwardResult, extractExactInternalInvocationRelations(
+    createTypeScriptAnalysisSession(projectPath, [a, b], () => true),
+  ));
+  assert.equal(forward.sourceFiles.get('src/main.ts')?.getFilePath(), reverse.sourceFiles.get('src/main.ts')?.getFilePath());
+  assert.equal(forwardResult.exactRelations[0]?.callee.fileId, 'targets/b.ts');
+  assert.equal(reverseResult.exactRelations[0]?.callee.fileId, 'targets/a.ts');
+  assert.notDeepEqual(forwardResult, reverseResult);
 });
 
 test('classifies only analyzed source files as internal dependencies', (context) => {

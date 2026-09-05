@@ -1,6 +1,21 @@
 import { Node, SyntaxKind, type FunctionDeclaration, type MethodDeclaration, type PropertyAccessExpression, type SourceFile } from 'ts-morph';
-import type { SourceLocation } from '@bunker-code/contracts';
 import type { TypeScriptAnalysisSession } from './typescript-analysis-session.js';
+
+export interface ExperimentalSourcePosition {
+  line: number;
+  column: number;
+}
+
+/**
+ * A deterministic AST address within one analyzed source snapshot. It does
+ * not identify the same declaration after source edits or across sessions
+ * built from different TypeScript contexts.
+ */
+export interface ExperimentalSourceRange {
+  fileId: string;
+  start: ExperimentalSourcePosition;
+  end: ExperimentalSourcePosition;
+}
 
 /**
  * Experimental local identity for a function subject. It is intentionally
@@ -10,6 +25,7 @@ export interface ExperimentalInvocationSubject {
   id: string;
   fileId: string;
   name: string;
+  declaration: ExperimentalSourceRange;
 }
 
 export interface ExperimentalStaticMethodInvocationSubject extends ExperimentalInvocationSubject {
@@ -19,7 +35,7 @@ export interface ExperimentalStaticMethodInvocationSubject extends ExperimentalI
 export interface ExperimentalInvocationRelation {
   caller: ExperimentalInvocationSubject;
   callee: ExperimentalInvocationSubject | ExperimentalStaticMethodInvocationSubject;
-  callSite: SourceLocation;
+  callSite: ExperimentalSourceRange;
   confidence: 'exact';
 }
 
@@ -30,7 +46,7 @@ export type ExperimentalUnclassifiedInvocationReason =
   | 'target-outside-analyzed-files';
 
 export interface ExperimentalUnclassifiedInvocationCall {
-  callSite: SourceLocation;
+  callSite: ExperimentalSourceRange;
   reason: ExperimentalUnclassifiedInvocationReason;
 }
 
@@ -44,14 +60,26 @@ function fileIdFor(session: TypeScriptAnalysisSession, sourceFile: SourceFile): 
   return session.sourceFiles.get(fileId) === sourceFile ? fileId : undefined;
 }
 
+function sourceRangeFor(session: TypeScriptAnalysisSession, node: Node): ExperimentalSourceRange | undefined {
+  const sourceFile = node.getSourceFile();
+  const fileId = fileIdFor(session, sourceFile);
+  if (!fileId) return undefined;
+
+  const start = sourceFile.getLineAndColumnAtPos(node.getStart());
+  const end = sourceFile.getLineAndColumnAtPos(node.getEnd());
+
+  return { fileId, start, end };
+}
+
 function subjectFor(
   session: TypeScriptAnalysisSession,
   declaration: FunctionDeclaration | MethodDeclaration,
 ): ExperimentalInvocationSubject | ExperimentalStaticMethodInvocationSubject | undefined {
   const name = declaration.getName();
   const fileId = fileIdFor(session, declaration.getSourceFile());
+  const declarationRange = sourceRangeFor(session, declaration);
 
-  if (!name || !fileId) return undefined;
+  if (!name || !fileId || !declarationRange) return undefined;
 
   if (Node.isMethodDeclaration(declaration)) {
     return {
@@ -59,6 +87,7 @@ function subjectFor(
       kind: 'static-method',
       fileId,
       name,
+      declaration: declarationRange,
     };
   }
 
@@ -66,6 +95,7 @@ function subjectFor(
     id: `experimental-invocation:function:${fileId}:${declaration.getStart()}`,
     fileId,
     name,
+    declaration: declarationRange,
   };
 }
 
@@ -92,6 +122,7 @@ function resolveIdentifierFunction(
   call: Node,
 ): CalleeResolution {
   if (!Node.isCallExpression(call)) return { kind: 'unclassified', reason: 'unsupported-call-form' };
+  if (call.hasQuestionDotToken()) return { kind: 'unclassified', reason: 'unsupported-call-form' };
 
   const expression = call.getExpression();
   if (!Node.isIdentifier(expression)) return { kind: 'unclassified', reason: 'unsupported-call-form' };
@@ -146,9 +177,11 @@ function compareRelations(left: ExperimentalInvocationRelation, right: Experimen
   return (
     left.caller.id.localeCompare(right.caller.id) ||
     left.callee.id.localeCompare(right.callee.id) ||
-    left.callSite.filePath.localeCompare(right.callSite.filePath) ||
-    left.callSite.line - right.callSite.line ||
-    left.callSite.column - right.callSite.column
+    left.callSite.fileId.localeCompare(right.callSite.fileId) ||
+    left.callSite.start.line - right.callSite.start.line ||
+    left.callSite.start.column - right.callSite.start.column ||
+    left.callSite.end.line - right.callSite.end.line ||
+    left.callSite.end.column - right.callSite.end.column
   );
 }
 
@@ -157,9 +190,11 @@ function compareUnclassifiedCalls(
   right: ExperimentalUnclassifiedInvocationCall,
 ): number {
   return (
-    left.callSite.filePath.localeCompare(right.callSite.filePath) ||
-    left.callSite.line - right.callSite.line ||
-    left.callSite.column - right.callSite.column ||
+    left.callSite.fileId.localeCompare(right.callSite.fileId) ||
+    left.callSite.start.line - right.callSite.start.line ||
+    left.callSite.start.column - right.callSite.start.column ||
+    left.callSite.end.line - right.callSite.end.line ||
+    left.callSite.end.column - right.callSite.end.column ||
     left.reason.localeCompare(right.reason)
   );
 }
@@ -180,7 +215,8 @@ export function extractExactInternalInvocationRelations(
     session.locationFor(left).filePath.localeCompare(session.locationFor(right).filePath),
   )) {
     for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-      const callSite = session.locationFor(call);
+      const callSite = sourceRangeFor(session, call);
+      if (!callSite) continue;
       const callerDeclaration = closestFunctionLikeAncestor(call);
       if (!callerDeclaration || !Node.isFunctionDeclaration(callerDeclaration)) {
         unclassifiedCalls.push({ callSite, reason: 'unsupported-call-form' });
