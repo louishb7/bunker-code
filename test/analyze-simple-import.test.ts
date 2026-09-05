@@ -79,22 +79,25 @@ test('extracts the exact imported function invocation in simple-import determini
   const second = extractExactInternalInvocationRelations(session);
 
   assert.deepEqual(first, second);
-  assert.deepEqual(first, [
-    {
-      caller: {
-        id: 'experimental-invocation:function:src/main.ts:38',
-        fileId: 'src/main.ts',
-        name: 'main',
+  assert.deepEqual(first, {
+    exactRelations: [
+      {
+        caller: {
+          id: 'experimental-invocation:function:src/main.ts:38',
+          fileId: 'src/main.ts',
+          name: 'main',
+        },
+        callee: {
+          id: 'experimental-invocation:function:src/service.ts:0',
+          fileId: 'src/service.ts',
+          name: 'service',
+        },
+        callSite: { filePath: 'src/main.ts', line: 4, column: 10 },
+        confidence: 'exact',
       },
-      callee: {
-        id: 'experimental-invocation:function:src/service.ts:0',
-        fileId: 'src/service.ts',
-        name: 'service',
-      },
-      callSite: { filePath: 'src/main.ts', line: 4, column: 10 },
-      confidence: 'exact',
-    },
-  ]);
+    ],
+    unclassifiedCalls: [],
+  });
 });
 
 test('does not classify overloaded imported functions as exact invocations', (context) => {
@@ -106,11 +109,47 @@ test('does not classify overloaded imported functions as exact invocations', (co
     JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', strict: true }, include: ['src/**/*.ts'] }),
   );
   writeProjectFile(projectPath, 'src/main.ts', "import { service } from './service';\nexport function main(): string { return service('ok'); }\n");
-  writeProjectFile(projectPath, 'src/service.ts', "export function service(value: string): string;\nexport function service(value: number): string;\nexport function service(value: string | number): string { return String(value); }\n");
+  writeProjectFile(projectPath, 'src/service.ts', "export function service(value: string): string;\nexport function service(value: number): string;\nexport function service(value: string | number): string { return value as string; }\n");
 
   const session = createTypeScriptAnalysisSession(projectPath, [path.join(projectPath, 'tsconfig.json')], () => true);
 
-  assert.deepEqual(extractExactInternalInvocationRelations(session), []);
+  assert.deepEqual(extractExactInternalInvocationRelations(session), {
+    exactRelations: [],
+    unclassifiedCalls: [
+      {
+        callSite: { filePath: 'src/main.ts', line: 2, column: 41 },
+        reason: 'multiple-target-declarations',
+      },
+    ],
+  });
+});
+
+test('preserves external calls as unclassified without inferring an internal target', (context) => {
+  const projectPath = createTempProject(context);
+
+  writeProjectFile(
+    projectPath,
+    'tsconfig.json',
+    JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', strict: true }, include: ['src/**/*.ts'] }),
+  );
+  writeProjectFile(projectPath, 'src/main.ts', "import { external } from 'fixture-external';\nexport function main(): void { external(); }\n");
+  writeProjectFile(projectPath, 'node_modules/fixture-external/package.json', JSON.stringify({ types: 'index.d.ts' }));
+  writeProjectFile(projectPath, 'node_modules/fixture-external/index.d.ts', 'export declare function external(): void;\n');
+
+  const session = createTypeScriptAnalysisSession(projectPath, [path.join(projectPath, 'tsconfig.json')], () => true);
+  const first = extractExactInternalInvocationRelations(session);
+  const second = extractExactInternalInvocationRelations(session);
+
+  assert.deepEqual(first, second);
+  assert.deepEqual(first, {
+    exactRelations: [],
+    unclassifiedCalls: [
+      {
+        callSite: { filePath: 'src/main.ts', line: 2, column: 32 },
+        reason: 'target-outside-analyzed-files',
+      },
+    ],
+  });
 });
 
 test('classifies only analyzed source files as internal dependencies', (context) => {
