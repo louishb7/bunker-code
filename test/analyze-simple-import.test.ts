@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { analyzeProject } from '../packages/analyzer-typescript/src/index.js';
+import { extractExactInternalInvocationRelations } from '../packages/analyzer-typescript/src/invocation-relations.js';
+import { createTypeScriptAnalysisSession } from '../packages/analyzer-typescript/src/typescript-analysis-session.js';
 import { buildProjectGraph, createProjectDiagnostics } from '../packages/graph-engine/src/index.js';
 
 const fixturePath = path.resolve('fixtures/simple-import');
@@ -69,6 +71,46 @@ test('analyze simple-import deterministically', () => {
   assert.equal(importEntry.evidence.location.column > 0, true);
   assert.deepEqual(first.unresolvedDependencies, []);
   assert.deepEqual(first.diagnostics, []);
+});
+
+test('extracts the exact imported function invocation in simple-import deterministically', () => {
+  const session = createTypeScriptAnalysisSession(fixturePath, [path.join(fixturePath, 'tsconfig.json')], () => true);
+  const first = extractExactInternalInvocationRelations(session);
+  const second = extractExactInternalInvocationRelations(session);
+
+  assert.deepEqual(first, second);
+  assert.deepEqual(first, [
+    {
+      caller: {
+        id: 'experimental-invocation:function:src/main.ts:38',
+        fileId: 'src/main.ts',
+        name: 'main',
+      },
+      callee: {
+        id: 'experimental-invocation:function:src/service.ts:0',
+        fileId: 'src/service.ts',
+        name: 'service',
+      },
+      callSite: { filePath: 'src/main.ts', line: 4, column: 10 },
+      confidence: 'exact',
+    },
+  ]);
+});
+
+test('does not classify overloaded imported functions as exact invocations', (context) => {
+  const projectPath = createTempProject(context);
+
+  writeProjectFile(
+    projectPath,
+    'tsconfig.json',
+    JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', strict: true }, include: ['src/**/*.ts'] }),
+  );
+  writeProjectFile(projectPath, 'src/main.ts', "import { service } from './service';\nexport function main(): string { return service('ok'); }\n");
+  writeProjectFile(projectPath, 'src/service.ts', "export function service(value: string): string;\nexport function service(value: number): string;\nexport function service(value: string | number): string { return String(value); }\n");
+
+  const session = createTypeScriptAnalysisSession(projectPath, [path.join(projectPath, 'tsconfig.json')], () => true);
+
+  assert.deepEqual(extractExactInternalInvocationRelations(session), []);
 });
 
 test('classifies only analyzed source files as internal dependencies', (context) => {
