@@ -1,4 +1,4 @@
-import { Node, SyntaxKind, type FunctionDeclaration, type SourceFile } from 'ts-morph';
+import { Node, SyntaxKind, type FunctionDeclaration, type MethodDeclaration, type PropertyAccessExpression, type SourceFile } from 'ts-morph';
 import type { SourceLocation } from '@bunker-code/contracts';
 import type { TypeScriptAnalysisSession } from './typescript-analysis-session.js';
 
@@ -12,9 +12,13 @@ export interface ExperimentalInvocationSubject {
   name: string;
 }
 
+export interface ExperimentalStaticMethodInvocationSubject extends ExperimentalInvocationSubject {
+  kind: 'static-method';
+}
+
 export interface ExperimentalInvocationRelation {
   caller: ExperimentalInvocationSubject;
-  callee: ExperimentalInvocationSubject;
+  callee: ExperimentalInvocationSubject | ExperimentalStaticMethodInvocationSubject;
   callSite: SourceLocation;
   confidence: 'exact';
 }
@@ -40,11 +44,23 @@ function fileIdFor(session: TypeScriptAnalysisSession, sourceFile: SourceFile): 
   return session.sourceFiles.get(fileId) === sourceFile ? fileId : undefined;
 }
 
-function subjectFor(session: TypeScriptAnalysisSession, declaration: FunctionDeclaration): ExperimentalInvocationSubject | undefined {
+function subjectFor(
+  session: TypeScriptAnalysisSession,
+  declaration: FunctionDeclaration | MethodDeclaration,
+): ExperimentalInvocationSubject | ExperimentalStaticMethodInvocationSubject | undefined {
   const name = declaration.getName();
   const fileId = fileIdFor(session, declaration.getSourceFile());
 
   if (!name || !fileId) return undefined;
+
+  if (Node.isMethodDeclaration(declaration)) {
+    return {
+      id: `experimental-invocation:static-method:${fileId}:${declaration.getStart()}`,
+      kind: 'static-method',
+      fileId,
+      name,
+    };
+  }
 
   return {
     id: `experimental-invocation:function:${fileId}:${declaration.getStart()}`,
@@ -58,12 +74,17 @@ function closestFunctionLikeAncestor(call: Node): Node | undefined {
     Node.isFunctionDeclaration(ancestor) ||
     Node.isArrowFunction(ancestor) ||
     Node.isFunctionExpression(ancestor) ||
-    Node.isMethodDeclaration(ancestor),
+    Node.isMethodDeclaration(ancestor) ||
+    Node.isConstructorDeclaration(ancestor) ||
+    Node.isGetAccessorDeclaration(ancestor) ||
+    Node.isSetAccessorDeclaration(ancestor) ||
+    Node.isClassDeclaration(ancestor) ||
+    Node.isClassExpression(ancestor),
   );
 }
 
 type CalleeResolution =
-  | { kind: 'exact'; declaration: FunctionDeclaration }
+  | { kind: 'exact'; declaration: FunctionDeclaration | MethodDeclaration }
   | { kind: 'unclassified'; reason: ExperimentalUnclassifiedInvocationReason };
 
 function resolveIdentifierFunction(
@@ -85,6 +106,38 @@ function resolveIdentifierFunction(
   const [declaration] = declarations;
   if (!declaration || !Node.isFunctionDeclaration(declaration)) return { kind: 'unclassified', reason: 'unsupported-call-form' };
   if (!fileIdFor(session, declaration.getSourceFile())) return { kind: 'unclassified', reason: 'target-outside-analyzed-files' };
+
+  return { kind: 'exact', declaration };
+}
+
+function resolveStaticMethod(
+  session: TypeScriptAnalysisSession,
+  expression: PropertyAccessExpression,
+): CalleeResolution {
+  const receiver = expression.getExpression();
+  if (expression.hasQuestionDotToken() || !Node.isIdentifier(receiver)) {
+    return { kind: 'unclassified', reason: 'unsupported-call-form' };
+  }
+
+  const symbol = receiver.getSymbol();
+  const classes = (symbol?.getAliasedSymbol() ?? symbol)?.getDeclarations() ?? [];
+  if (classes.length === 0) return { kind: 'unclassified', reason: 'unresolved-target' };
+  if (classes.length !== 1) return { kind: 'unclassified', reason: 'multiple-target-declarations' };
+  const [classDeclaration] = classes;
+  if (!classDeclaration || !Node.isClassDeclaration(classDeclaration)) return { kind: 'unclassified', reason: 'unsupported-call-form' };
+  if (!fileIdFor(session, classDeclaration.getSourceFile())) return { kind: 'unclassified', reason: 'target-outside-analyzed-files' };
+  if (classDeclaration.getExtends()) return { kind: 'unclassified', reason: 'unsupported-call-form' };
+
+  const declarations = expression.getNameNode().getSymbol()?.getDeclarations() ?? [];
+  if (declarations.length === 0) return { kind: 'unclassified', reason: 'unresolved-target' };
+  if (declarations.length !== 1) return { kind: 'unclassified', reason: 'multiple-target-declarations' };
+  const [declaration] = declarations;
+  if (!declaration || !Node.isMethodDeclaration(declaration)) return { kind: 'unclassified', reason: 'unsupported-call-form' };
+  if (!fileIdFor(session, declaration.getSourceFile())) return { kind: 'unclassified', reason: 'target-outside-analyzed-files' };
+  if (!declaration.isStatic() || declaration.getParent() !== classDeclaration ||
+      !Node.isIdentifier(declaration.getNameNode())) {
+    return { kind: 'unclassified', reason: 'unsupported-call-form' };
+  }
 
   return { kind: 'exact', declaration };
 }
@@ -112,10 +165,10 @@ function compareUnclassifiedCalls(
 }
 
 /**
- * Extracts the deliberately narrow Phase 8A proof: a named identifier called
- * from a named function declaration, where ts-morph resolves exactly one
- * analyzed function declaration. Every other observed call keeps only its site
- * and the narrow factual reason it could not be classified as exact.
+ * Resolves named functions and directly owned static methods from named
+ * function callers. Exactness describes a unique analyzed declaration, not
+ * runtime execution. Other observed CallExpressions retain their site and
+ * technical limitation; NewExpressions are outside this experiment.
  */
 export function extractExactInternalInvocationRelations(
   session: TypeScriptAnalysisSession,
@@ -134,7 +187,12 @@ export function extractExactInternalInvocationRelations(
         continue;
       }
 
-      const calleeResolution = resolveIdentifierFunction(session, call);
+      const expression = call.getExpression();
+      const calleeResolution: CalleeResolution = Node.isPropertyAccessExpression(expression)
+        ? call.hasQuestionDotToken()
+          ? { kind: 'unclassified', reason: 'unsupported-call-form' }
+          : resolveStaticMethod(session, expression)
+        : resolveIdentifierFunction(session, call);
       if (calleeResolution.kind === 'unclassified') {
         unclassifiedCalls.push({ callSite, reason: calleeResolution.reason });
         continue;

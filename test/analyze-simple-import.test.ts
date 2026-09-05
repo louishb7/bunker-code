@@ -154,6 +154,108 @@ test('extracts exact local and renamed imported function invocations determinist
   );
 });
 
+test('resolves a directly owned internal static method from a function caller deterministically', (context) => {
+  const projectPath = createTempProject(context);
+  writeProjectFile(projectPath, 'tsconfig.json', JSON.stringify({ compilerOptions: { strict: true }, include: ['src/**/*.ts'] }));
+  writeProjectFile(projectPath, 'src/main.ts', [
+    'class Service {',
+    '  static execute(): string {',
+    "    return 'ok';",
+    '  }',
+    '}',
+    '',
+    'export function main(): string {',
+    '  return Service.execute();',
+    '}',
+    '',
+    "class Other { static execute(): string { return 'other'; } }",
+    '',
+  ].join('\n'));
+
+  const session = createTypeScriptAnalysisSession(projectPath, [path.join(projectPath, 'tsconfig.json')], () => true);
+  const first = extractExactInternalInvocationRelations(session);
+  const freshSession = createTypeScriptAnalysisSession(projectPath, [path.join(projectPath, 'tsconfig.json')], () => true);
+
+  assert.deepEqual(first, extractExactInternalInvocationRelations(session));
+  assert.deepEqual(first, extractExactInternalInvocationRelations(freshSession));
+  assert.deepEqual(first, {
+    exactRelations: [{
+      caller: { id: 'experimental-invocation:function:src/main.ts:69', fileId: 'src/main.ts', name: 'main' },
+      callee: { id: 'experimental-invocation:static-method:src/main.ts:18', kind: 'static-method', fileId: 'src/main.ts', name: 'execute' },
+      callSite: { filePath: 'src/main.ts', line: 8, column: 10 },
+      confidence: 'exact',
+    }],
+    unclassifiedCalls: [],
+  });
+});
+
+test('preserves unsupported and external method calls without exact relations', (context) => {
+  const projectPath = createTempProject(context);
+  writeProjectFile(projectPath, 'tsconfig.json', JSON.stringify({
+    compilerOptions: { strict: true, module: 'ESNext', moduleResolution: 'Bundler' },
+    include: ['src/**/*.ts'],
+  }));
+  writeProjectFile(projectPath, 'node_modules/fixture-external/package.json', JSON.stringify({ types: 'index.d.ts' }));
+  writeProjectFile(projectPath, 'node_modules/fixture-external/index.d.ts', 'export declare class Service { static execute(): string; }\n');
+  const cases = [
+    { file: 'computed', declaration: "class Service { static execute() { return 'ok'; } }", parameters: '', call: 'Service["execute"]()', reason: 'unsupported-call-form' },
+    { file: 'external', declaration: "import { Service } from 'fixture-external';", parameters: '', call: 'Service.execute()', reason: 'target-outside-analyzed-files' },
+    { file: 'inherited', declaration: "class Base { static execute() { return 'ok'; } } class Service extends Base {}", parameters: '', call: 'Service.execute()', reason: 'unsupported-call-form' },
+    { file: 'instance', declaration: "class Service { execute() { return 'ok'; } }", parameters: 'service: Service', call: 'service.execute()', reason: 'unsupported-call-form' },
+    { file: 'interface', declaration: 'interface Service { execute(): string; }', parameters: 'service: Service', call: 'service.execute()', reason: 'unsupported-call-form' },
+    { file: 'optional-call', declaration: "class Service { static execute() { return 'ok'; } }", parameters: '', call: 'Service.execute?.()', reason: 'unsupported-call-form' },
+    { file: 'optional-receiver', declaration: "class Service { static execute() { return 'ok'; } }", parameters: '', call: 'Service?.execute()', reason: 'unsupported-call-form' },
+    { file: 'overload', declaration: "class Service { static execute(): string; static execute(value: string): string; static execute(value?: string): string { return value ?? 'ok'; } }", parameters: '', call: 'Service.execute()', reason: 'multiple-target-declarations' },
+    { file: 'property', declaration: "class Service { static execute = () => 'ok'; }", parameters: '', call: 'Service.execute()', reason: 'unsupported-call-form' },
+    { file: 'unresolved', declaration: 'class Service {}', parameters: '', call: 'Service.execute()', reason: 'unresolved-target' },
+  ];
+  for (const scenario of cases) {
+    writeProjectFile(projectPath, `src/${scenario.file}.ts`, [
+      scenario.declaration,
+      `export function main(${scenario.parameters}) {`,
+      `  return ${scenario.call};`,
+      '}',
+      '',
+    ].join('\n'));
+  }
+  const session = createTypeScriptAnalysisSession(projectPath, [path.join(projectPath, 'tsconfig.json')], () => true);
+  const first = extractExactInternalInvocationRelations(session);
+  const reordered = { ...session, sourceFiles: new Map([...session.sourceFiles].reverse()) };
+
+  assert.deepEqual(first, extractExactInternalInvocationRelations(reordered));
+  assert.deepEqual(first, {
+    exactRelations: [],
+    unclassifiedCalls: cases.map(({ file, reason }) => ({
+      callSite: { filePath: `src/${file}.ts`, line: 3, column: 10 },
+      reason,
+    })),
+  });
+});
+
+test('does not attribute a nested constructor call to its enclosing function', (context) => {
+  const projectPath = createTempProject(context);
+  writeProjectFile(projectPath, 'tsconfig.json', JSON.stringify({ include: ['src/**/*.ts'] }));
+  writeProjectFile(projectPath, 'src/main.ts', [
+    "class Service { static execute() { return 'ok'; } }",
+    'export function main() {',
+    '  class Nested {',
+    '    constructor() {',
+    '      Service.execute();',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n'));
+  const session = createTypeScriptAnalysisSession(projectPath, [path.join(projectPath, 'tsconfig.json')], () => true);
+
+  assert.deepEqual(extractExactInternalInvocationRelations(session), {
+    exactRelations: [],
+    unclassifiedCalls: [{
+      callSite: { filePath: 'src/main.ts', line: 5, column: 7 },
+      reason: 'unsupported-call-form',
+    }],
+  });
+});
+
 test('does not classify overloaded imported functions as exact invocations', (context) => {
   const projectPath = createTempProject(context);
 
