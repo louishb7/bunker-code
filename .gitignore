@@ -8,7 +8,6 @@ apps/explorer-web/src/generated/
 *.log
 
 # Local AI agent instructions and planning
-/AGENTS.md
 /AI_PROJECT_CHECKLIST.md
 /ENGINEERING_LOG.md
 /DECISIONS.md
