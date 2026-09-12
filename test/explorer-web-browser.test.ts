@@ -37,7 +37,15 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
     assert.equal(await page.$eval('[data-surface="overview"]', (element) => element.getAttribute('aria-pressed')), 'true');
     assert.equal(await page.$eval('[data-surface="responsibility"]', (element) => (element as HTMLButtonElement).disabled), false);
     assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-item-count')), '4');
-    assert.ok(await page.$('.system-map-direct-files-band'));
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-grammar')), 'field');
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.textContent?.includes('Controlled experiment')), false);
+    assert.ok(await page.$('.system-map-field-band'));
+    assert.ok(await page.$('.system-map-field-rail'));
+    assert.equal(await page.$eval('.system-map-field-workspace', (workspace) => {
+      const canvas = workspace.querySelector('.system-map-field-canvas');
+      const rail = workspace.querySelector('.system-map-field-rail');
+      return Boolean(canvas && rail && canvas.parentElement === rail.parentElement && !canvas.contains(rail));
+    }), true);
     assert.equal(await page.$$eval('[data-system-map-item-kind="file"]', (items) => items.length), 4);
     assert.ok(await page.$('.system-map-canvas .react-flow'));
     assert.equal(await page.$('[data-known-responsibility="finding:http"]'), null);
@@ -45,10 +53,58 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
     const directFilePointerTarget = await page.$eval('[data-system-map-item-kind="file"] button', (button) => {
       const rect = button.getBoundingClientRect();
       const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-      return { tagName: target?.tagName, className: target?.getAttribute('class'), text: target?.textContent };
+      const interactiveTarget = target?.closest('button');
+      return { tagName: interactiveTarget?.tagName, className: interactiveTarget?.getAttribute('class'), text: interactiveTarget?.textContent };
     });
-    assert.deepEqual(directFilePointerTarget, { tagName: 'BUTTON', className: 'nodrag nopan', text: 'Inspect file' });
+    assert.deepEqual(directFilePointerTarget, { tagName: 'BUTTON', className: 'nodrag nopan', text: 'prisma.service.ts' });
     await page.click('[data-system-map-item-kind="file"] button');
+    await page.waitForSelector('[data-system-map-field-inspector="src/prisma.service.ts"]', { timeout: 5000 });
+    await clickButton(page, 'Inspect file');
+    await page.waitForSelector('.details-panel .file-exploration', { timeout: 5000 });
+    assert.equal(await page.$eval('[data-file-landmark][aria-pressed="true"]', (element) => element.textContent?.includes('prisma.service.ts')), true);
+
+    await page.goto(`http://127.0.0.1:${address.port}/?system-map-field-fixture=1`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('[data-system-map-grammar="field"]', { timeout: 5000 });
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-item-count')), '6');
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-relation-count')), '3');
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-dependency-count')), '3');
+    assert.equal(await page.$$eval('.react-flow__edge', (edges) => edges.length), 3);
+    assert.equal(await page.$('.system-map-field-edge-label'), null);
+    assert.equal(await page.$$eval('.system-map-field-item .react-flow__handle', (handles) => handles.every((handle) => getComputedStyle(handle).opacity === '0')), true);
+    const fieldPositions = await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
+      id: item.getAttribute('data-system-map-item-id'),
+      transform: item.parentElement?.style.transform,
+    })));
+    await page.focus('[aria-label="Territory auth"]');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-system-map-field-inspector="directory:src/auth"]', { timeout: 5000 });
+    assert.equal(await page.$eval('.system-map-field-workspace', (workspace) => {
+      const canvas = workspace.querySelector('.system-map-field-canvas');
+      const inspector = workspace.querySelector('[data-system-map-field-inspector]');
+      return Boolean(canvas && inspector && !canvas.contains(inspector));
+    }), true);
+    assert.equal(await page.$$eval('[data-field-relation-group="outgoing"] li', (items) => items.length), 1);
+    assert.equal(await page.$$eval('[data-field-relation-group="incoming"] li', (items) => items.length), 1);
+    assert.equal(await page.$$eval('[data-field-attention="outgoing"]', (items) => items.length), 1);
+    assert.equal(await page.$$eval('[data-field-attention="incoming"]', (items) => items.length), 1);
+    assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
+      id: item.getAttribute('data-system-map-item-id'),
+      transform: item.parentElement?.style.transform,
+    }))), fieldPositions);
+    await page.click('[data-field-relation-group="outgoing"] li button');
+    await page.waitForSelector('[data-system-map-field-relation]', { timeout: 5000 });
+    assert.ok(await page.$('.system-map-field-edge-label'));
+    await page.click('[data-system-map-field-relation] summary');
+    assert.equal(await page.$eval('[data-system-map-field-relation]', (element) => element.textContent?.includes('src/auth/auth.service.ts') && element.textContent.includes('exact')), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.$('[data-system-map-field-inspector]'), null);
+    assert.equal(await page.$('[data-system-map-field-relation]'), null);
+    assert.equal(await page.$$eval('[data-field-attention="resting"]', (items) => items.length), 6);
+    await page.focus('[aria-label="Direct file prisma.service.ts"]');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-system-map-field-inspector="src/prisma.service.ts"]', { timeout: 5000 });
+    assert.equal(await page.$$eval('[data-field-relation-group="incoming"] li', (items) => items.length), 1);
+    await clickButton(page, 'Inspect file');
     await page.waitForSelector('.details-panel .file-exploration', { timeout: 5000 });
     assert.equal(await page.$eval('[data-file-landmark][aria-pressed="true"]', (element) => element.textContent?.includes('prisma.service.ts')), true);
 
@@ -359,6 +415,7 @@ async function buildResponsibilityHarness(harnessRoot: string): Promise<string> 
   const reactFlowStyles = path.join(appRoot, 'node_modules', '@xyflow', 'react', 'dist', 'style.css');
   const explorerStyles = path.join(appRoot, 'src', 'styles.css');
   const controlledSnapshot = responsibilityBrowserSnapshot();
+  const fieldSnapshot = systemMapFieldBrowserSnapshot();
 
   writeFileSync(entryPath, `
     import { createRoot } from 'react-dom/client';
@@ -368,11 +425,14 @@ async function buildResponsibilityHarness(harnessRoot: string): Promise<string> 
     import ${JSON.stringify(reactFlowStyles)};
     import ${JSON.stringify(explorerStyles)};
 
-    const runtime = createExplorerRuntime(${JSON.stringify(controlledSnapshot)});
+    const selectedSnapshot = new URLSearchParams(window.location.search).has('system-map-field-fixture')
+      ? ${JSON.stringify(fieldSnapshot)}
+      : ${JSON.stringify(controlledSnapshot)};
+    const runtime = createExplorerRuntime(selectedSnapshot);
     if (runtime.kind !== 'ready') throw new Error('Controlled Explorer runtime is not ready.');
     const root = document.getElementById('root');
     if (!root) throw new Error('Harness root not found.');
-    createRoot(root).render(<Explorer graph={runtime.graph} structure={runtime.structure} responsibilities={runtime.responsibilities} projectLabel={runtime.projectLabel} experimentalL0Variant={readExplorerL0ExperimentVariant(window.location.search) ?? undefined} />);
+    createRoot(root).render(<Explorer graph={runtime.graph} structure={runtime.structure} responsibilities={runtime.responsibilities} projectLabel={runtime.projectLabel} experimentalL0Variant={readExplorerL0ExperimentVariant(window.location.search) ?? undefined} useLegacySystemMap={new URLSearchParams(window.location.search).get('system-map-renderer') === 'legacy'} />);
   `);
 
   await build({
@@ -484,6 +544,27 @@ function responsibilityBrowserSnapshot() {
       ],
       detectorExecutions: [],
       limitations: [{ id: 'limitation:http', scope: { kind: 'project' }, code: 'partial-fixture', message: 'Controlled partial coverage.' }],
+    },
+  };
+}
+
+function systemMapFieldBrowserSnapshot() {
+  const snapshot = responsibilityBrowserSnapshot();
+  return {
+    ...snapshot,
+    projectLabel: 'Territory Field fixture',
+    analysis: {
+      ...snapshot.analysis,
+      files: [
+        { id: 'src/auth/auth.service.ts', path: 'src/auth/auth.service.ts' },
+        { id: 'src/data/data.service.ts', path: 'src/data/data.service.ts' },
+        ...snapshot.analysis.files,
+      ],
+      dependencies: [
+        { sourceFileId: 'src/auth/auth.service.ts', targetFileId: 'src/data/data.service.ts', moduleSpecifier: '../data/data.service', kind: 'internal', evidence: { location: { filePath: 'src/auth/auth.service.ts', line: 1, column: 1 } }, confidence: 'exact' },
+        { sourceFileId: 'src/users.controller.ts', targetFileId: 'src/auth/auth.service.ts', moduleSpecifier: './auth/auth.service', kind: 'internal', evidence: { location: { filePath: 'src/users.controller.ts', line: 1, column: 1 } }, confidence: 'exact' },
+        { sourceFileId: 'src/data/data.service.ts', targetFileId: 'src/prisma.service.ts', moduleSpecifier: '../prisma.service', kind: 'internal', evidence: { location: { filePath: 'src/data/data.service.ts', line: 1, column: 1 } }, confidence: 'exact' },
+      ],
     },
   };
 }

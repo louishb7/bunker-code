@@ -54,6 +54,7 @@ import { createExplorerSystemOrientationProjection } from './explorer-system-ori
 import { createExplorerComprehensionProjection } from './explorer-comprehension-projection.js';
 import { ExplorerSystemMap } from './explorer-system-map.js';
 import { createExplorerSystemMapProjection } from './explorer-system-map-projection.js';
+import { ExplorerSystemMapField } from './explorer-system-map-field.js';
 import { ExplorerL0Experiment } from './explorer-l0-experiment.js';
 import {
   createExplorerL0ExperimentModel,
@@ -79,12 +80,14 @@ export function Explorer({
   responsibilities,
   projectLabel,
   experimentalL0Variant,
+  useLegacySystemMap = false,
 }: {
   graph: ProjectGraph;
   structure: ProjectStructure;
   responsibilities: ResponsibilityAnalysisResult;
   projectLabel: string;
   experimentalL0Variant?: ExplorerL0ExperimentVariant;
+  useLegacySystemMap?: boolean;
 }) {
   const territories = useMemo(() => createExplorerTerritoryProjection(
     structure,
@@ -314,13 +317,20 @@ export function Explorer({
             variant={experimentalL0Variant}
             model={l0ExperimentModel}
           />
-        ) : surface === 'overview' ? (
+        ) : surface === 'overview' && (systemMap.status !== 'ready' || useLegacySystemMap) ? (
           <ExplorerSystemMap
             projectLabel={projectLabel}
             projection={systemMap}
             onOpenTerritory={openSystemMapTerritory}
             onOpenFile={openSystemMapFile}
             onExploreStructure={() => setViewState((current) => switchExplorerSurface(current, 'territory'))}
+          />
+        ) : surface === 'overview' && systemMap.status === 'ready' ? (
+          <ExplorerSystemMapField
+            projectLabel={projectLabel}
+            projection={systemMap}
+            onOpenTerritory={openSystemMapTerritory}
+            onOpenFile={openSystemMapFile}
           />
         ) : surface === 'territory' ? (
           projection.mode === 'focus' && elements ? (

@@ -16,6 +16,11 @@ import { createExplorerAttention } from '../apps/explorer-web/src/explorer-atten
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
 import { createExplorerSystemOrientationProjection } from '../apps/explorer-web/src/explorer-system-orientation.js';
 import { createExplorerSystemMapProjection } from '../apps/explorer-web/src/explorer-system-map-projection.js';
+import {
+  createSystemMapFieldModel,
+  createSystemMapFieldRelationRoute,
+  createSystemMapFieldSelection,
+} from '../apps/explorer-web/src/explorer-system-map-field-model.js';
 import { createExplorerComprehensionProjection } from '../apps/explorer-web/src/explorer-comprehension-projection.js';
 import {
   createExplorerL0ExperimentModel,
@@ -859,6 +864,46 @@ test('System Map projects direct src Territories, direct files, and traceable cr
     reordered.relations.map((relation) => ({ id: relation.id, fileEdgeIds: relation.fileEdges.map((edge) => edge.id) })),
     projection.relations.map((relation) => ({ id: relation.id, fileEdgeIds: relation.fileEdges.map((edge) => edge.id) })),
   );
+
+  const field = createSystemMapFieldModel(projection);
+  const reorderedField = createSystemMapFieldModel(reordered);
+  assert.deepEqual(
+    field.items.map(({ item, position }) => ({ id: item.id, kind: item.kind, position })),
+    reorderedField.items.map(({ item, position }) => ({ id: item.id, kind: item.kind, position })),
+  );
+  assert.equal(field.relations, projection.relations);
+  assert.equal(field.items.filter(({ item }) => item.kind === 'file').every(({ item }) => item.kind === 'file' && item.file.kind === 'file'), true);
+  const authToPrismaRoute = createSystemMapFieldRelationRoute(field, authToPrisma);
+  assert.deepEqual(authToPrismaRoute, { sourceSide: 'right', targetSide: 'left' });
+  const mainToAuth = projection.relations.find((relation) => (
+    relation.sourceItemId === 'src/main.ts' && relation.targetItemId === 'directory:src/auth'
+  ));
+  assert.ok(mainToAuth);
+  assert.deepEqual(createSystemMapFieldRelationRoute(field, mainToAuth), { sourceSide: 'left', targetSide: 'right' });
+  assert.deepEqual(createSystemMapFieldRelationRoute(field, {
+    ...authToPrisma,
+    sourceItemId: 'directory:src/prisma',
+    targetItemId: 'src/main.ts',
+  }), { sourceSide: 'bottom', targetSide: 'top' });
+
+  const positionsBeforeSelection = field.items.map(({ item, position }) => ({ id: item.id, position }));
+  const authSelection = createSystemMapFieldSelection(field, 'directory:src/auth');
+  assert.deepEqual(
+    [...authSelection.relationDirections.values()].sort(),
+    ['incoming', 'outgoing', 'outgoing'],
+  );
+  assert.equal(authSelection.itemAttention.get('src/main.ts'), 'incoming');
+  assert.equal(authSelection.itemAttention.get('directory:src/prisma'), 'outgoing');
+  assert.equal(authSelection.itemAttention.get('src/root.ts'), 'outgoing');
+  assert.deepEqual(field.items.map(({ item, position }) => ({ id: item.id, position })), positionsBeforeSelection);
+
+  const rootSelection = createSystemMapFieldSelection(field, 'src/root.ts');
+  assert.deepEqual([...rootSelection.relationDirections.values()].sort(), ['incoming', 'incoming']);
+  assert.equal(rootSelection.itemAttention.get('directory:src/auth'), 'incoming');
+  assert.equal(rootSelection.itemAttention.get('src/app.module.ts'), 'incoming');
+  const clearedSelection = createSystemMapFieldSelection(field, null);
+  assert.equal([...clearedSelection.relationDirections].length, 0);
+  assert.equal([...clearedSelection.itemAttention.values()].every((attention) => attention === 'resting'), true);
 });
 
 test('perspective and Responsibility selection preserve structural location until factual Locate', () => {

@@ -1,0 +1,333 @@
+.system-map-field-heading {
+  grid-template-columns: minmax(210px, 0.75fr) auto minmax(280px, 1fr);
+}
+
+.system-map-field-key {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px 16px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.system-map-field-key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.system-map-field-key i {
+  width: 20px;
+  height: 2px;
+}
+
+.system-map-field-workspace {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  overflow: hidden;
+}
+
+.system-map-field-canvas {
+  min-width: 0;
+  min-height: 0;
+}
+
+.system-map-field-rail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-left: 1px solid var(--color-border-subtle);
+  padding: 18px;
+  background: color-mix(in srgb, var(--color-panel) 82%, var(--color-technical));
+}
+
+.field-key-outgoing {
+  background: var(--color-uses);
+}
+
+.field-key-incoming {
+  background: var(--color-used-by);
+}
+
+.system-map-field-canvas .react-flow__node-fieldItem,
+.system-map-field-canvas .react-flow__node-fieldBand {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.system-map-field-canvas .react-flow__node-fieldBand {
+  pointer-events: none;
+}
+
+.system-map-field-item {
+  width: 100%;
+  height: 100%;
+  transition: opacity 140ms ease, filter 140ms ease;
+}
+
+.system-map-field-item button {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 5px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 62%, var(--color-border));
+  border-radius: 30px 12px 28px 14px;
+  padding: 16px 20px;
+  color: var(--color-text);
+  text-align: left;
+  background:
+    radial-gradient(circle at 82% 22%, color-mix(in srgb, var(--color-accent) 13%, transparent), transparent 34%),
+    color-mix(in srgb, var(--color-accent-deep) 56%, var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 2%), var(--shadow-card);
+}
+
+.system-map-field-item button > span {
+  color: var(--color-accent);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.system-map-field-item strong {
+  width: 100%;
+  padding-block: 2px;
+  font-size: 17px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.system-map-field-item small {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.system-map-field-item-file button {
+  gap: 0;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-contextual) 62%, var(--color-border));
+  border-radius: 8px;
+  padding: 12px 15px;
+  background: color-mix(in srgb, var(--color-contextual) 12%, var(--color-surface));
+}
+
+.system-map-field-item-file strong {
+  font-size: 13px;
+}
+
+.system-map-field-item .react-flow__handle {
+  width: 1px;
+  height: 1px;
+  min-width: 1px;
+  min-height: 1px;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.system-map-field-band {
+  width: 100%;
+  height: 100%;
+  border-top: 1px solid color-mix(in srgb, var(--color-contextual) 52%, var(--color-border));
+  padding: 10px 2px;
+  color: var(--color-text-secondary);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--color-contextual) 5%, transparent), transparent 48%);
+}
+
+.system-map-field-band strong {
+  font-size: 11px;
+}
+
+.field-attention-selected button {
+  border-color: var(--color-selected);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-selected) 45%, transparent), var(--shadow-raised);
+}
+
+.field-attention-outgoing button {
+  border-color: var(--color-uses);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-uses) 38%, transparent);
+}
+
+.field-attention-incoming button {
+  border-color: var(--color-used-by);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-used-by) 38%, transparent);
+}
+
+.field-attention-both button {
+  border-color: var(--color-selected);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-uses) 20%, var(--color-surface)), color-mix(in srgb, var(--color-used-by) 20%, var(--color-surface)));
+}
+
+.field-attention-dimmed {
+  opacity: 0.28;
+  filter: saturate(0.55);
+}
+
+.field-relation {
+  transition: opacity 140ms ease, stroke 140ms ease, stroke-width 140ms ease;
+}
+
+.field-relation-resting {
+  opacity: 0.38;
+}
+
+.system-map-field[data-selected-system-map-item]:not([data-selected-system-map-item=""]) .field-relation-resting {
+  opacity: 0.1;
+}
+
+.field-relation-outgoing,
+.field-relation-incoming,
+.field-relation-investigated {
+  opacity: 1;
+}
+
+.system-map-field-edge-label {
+  position: absolute;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 5px;
+  padding: 3px 6px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-technical) 94%, transparent);
+  font-size: 10px;
+  font-weight: 750;
+  pointer-events: none;
+}
+
+.system-map-field-inspector {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.system-map-field-inspector {
+  width: 100%;
+}
+
+.system-map-field-inspector > div {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.system-map-field-inspector > div span,
+.system-map-field-inspector h3 {
+  color: var(--color-text-muted);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.system-map-field-inspector h3 {
+  margin: 8px 0 4px;
+}
+
+.system-map-field-inspector p {
+  margin: 3px 0 8px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.system-map-field-inspector ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.system-map-field-inspector li button {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 0;
+  padding: 4px 7px;
+  text-align: left;
+  background: var(--color-surface-quiet);
+}
+
+.system-map-field-inspector li small,
+.system-map-field-relation-inspector li span {
+  color: var(--color-text-muted);
+  font-size: 9px;
+}
+
+.system-map-field-inspector > button {
+  min-height: 32px;
+  margin-top: 11px;
+  padding: 5px 9px;
+}
+
+.system-map-field-relation-inspector details {
+  margin-top: 8px;
+}
+
+.system-map-field-relation-inspector summary {
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.system-map-field-relation-inspector li {
+  display: grid;
+  gap: 2px;
+  padding: 7px;
+  border-radius: 5px;
+  background: var(--color-surface-quiet);
+  font-size: 10px;
+}
+
+.system-map-field-empty-inspector {
+  display: grid;
+  gap: 8px;
+  align-content: center;
+  min-height: 150px;
+}
+
+.system-map-field-empty-inspector span {
+  color: var(--color-accent);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.system-map-field-empty-inspector p {
+  max-width: 240px;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+@media (max-width: 940px) {
+  .system-map-field-heading {
+    grid-template-columns: minmax(180px, 0.7fr) 1fr;
+  }
+
+  .system-map-field-key {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 760px) {
+  .system-map-field-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(540px, 1fr) auto;
+    overflow: auto;
+  }
+
+  .system-map-field-rail {
+    min-height: 150px;
+    border-top: 1px solid var(--color-border-subtle);
+    border-left: 0;
+  }
+}

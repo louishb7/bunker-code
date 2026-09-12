@@ -75,8 +75,8 @@ The Explorer generates a disposable snapshot from an explicit supported target.
 Overview now opens on a Web-local factual System Map of the structural content
 directly inside `src`: its direct Territory children, files directly contained
 by `src`, and directed internal dependencies aggregated between those visual
-items. Direct files remain file landmarks in a labelled band rather than being
-turned into an invented Territory. Each aggregate preserves its originating
+items. Direct files remain file landmarks on a compact auxiliary shelf rather
+than being turned into an invented Territory. Each aggregate preserves its originating
 file-level `ProjectGraphEdge` records; its count is observed dependency volume,
 not importance, runtime frequency, or architectural weight. If no `src`
 Territory is observed, the boundary is reported explicitly instead of choosing
@@ -89,6 +89,16 @@ files represented by its target. Territory and direct-file actions enter the
 existing structural/file investigation, while Responsibility remains a
 separate depth surface. Entering or leaving Overview does not reset
 `ExplorerLocation`.
+
+The normal Overview renders that projection as a deterministic, neutral
+Territory grid with a compact direct-file shelf. Aggregate relations remain
+materialized but are quiet at rest; selecting a Territory or direct file
+emphasizes every incident direction as **Uses** or **Used by**, and selecting a
+relation discloses its observed count and originating file-edge evidence in a
+stable inspector rail outside the canvas. Position follows factual item order
+only; dependency direction, counts, project identity, and selection do not
+affect geography. The former layered renderer remains available only for local
+comparison through the system-map-renderer=legacy query parameter.
 
 The retained comprehension projection used by the controlled L0 experiment
 reuses System Orientation for factual cross-package dependency directions,

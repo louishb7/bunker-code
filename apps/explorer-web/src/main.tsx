@@ -34,6 +34,7 @@ function App() {
       responsibilities={runtime.responsibilities}
       projectLabel={runtime.projectLabel}
       experimentalL0Variant={readExplorerL0ExperimentVariant(window.location.search) ?? undefined}
+      useLegacySystemMap={new URLSearchParams(window.location.search).get('system-map-renderer') === 'legacy'}
     />
   );
 }
