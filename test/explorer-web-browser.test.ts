@@ -85,7 +85,32 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
     assert.ok(await page.$('[data-responsibility-subject-preview]'));
     assert.ok(await page.$('[data-responsibility-subject-preview-item="finding:http"]'));
     assert.ok(await page.$('.details-panel'));
-    assert.equal(await page.$eval('[data-responsibility-details]', (element) => element.textContent?.includes('UsersController.list') && element.textContent.includes('1 subject')), true);
+    assert.equal(await page.$eval('[data-responsibility-details]', (element) => element.textContent?.includes('UsersController.list') && element.textContent.includes('8 subjects')), true);
+    assert.equal(await page.$eval('[aria-label="Filter responsibility findings"]', (element) => element instanceof HTMLInputElement && element.value === ''), true);
+    assert.equal(await page.$eval('[data-disclosure="responsibility-subjects"] summary', (element) => element.textContent), 'Show 2 more factual findings');
+    await page.type('[aria-label="Filter responsibility findings"]', 'CREATE');
+    await page.waitForSelector('[data-responsibility-subject="finding:create-task"]', { timeout: 5000 });
+    assert.equal(await page.$('[data-disclosure="responsibility-subjects"]'), null);
+    assert.equal(await page.$eval('[data-responsibility-filter-count]', (element) => element.textContent), '1 of 8 factual findings');
+    await page.click('[data-responsibility="access-control"]');
+    await page.waitForFunction(() => (document.querySelector('[aria-label="Filter responsibility findings"]') as HTMLInputElement | null)?.value === '', { timeout: 5000 });
+    await page.click('[data-responsibility="http-entry-point"]');
+    await page.type('[aria-label="Filter responsibility findings"]', '@Post("tasks")');
+    await page.waitForSelector('[data-responsibility-subject="finding:create-task"]', { timeout: 5000 });
+    await page.focus('[aria-label="Filter responsibility findings"]');
+    await page.keyboard.down('Control');
+    await page.keyboard.press('A');
+    await page.keyboard.up('Control');
+    await page.keyboard.press('Backspace');
+    await page.type('[aria-label="Filter responsibility findings"]', 'criação');
+    await page.waitForSelector('[data-responsibility-filter-empty]', { timeout: 5000 });
+    assert.equal(await page.$('[data-responsibility-subject]'), null);
+    await page.focus('[aria-label="Filter responsibility findings"]');
+    await page.keyboard.down('Control');
+    await page.keyboard.press('A');
+    await page.keyboard.up('Control');
+    await page.keyboard.press('Backspace');
+    await page.waitForSelector('[data-disclosure="responsibility-subjects"]', { timeout: 5000 });
     if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
       await page.screenshot({ path: '/tmp/bunkercode-responsibility-1440.png', fullPage: true });
     }
@@ -391,6 +416,36 @@ function responsibilityBrowserSnapshot() {
     signal,
     location,
   }];
+  const notificationSubjects = [
+    'NotificationsController.list',
+    'NotificationsController.get',
+    'NotificationsController.open',
+    'NotificationsController.dismiss',
+    'NotificationsController.clear',
+  ].map((name, index) => ({
+    id: `subject:src/z-notifications.controller.ts:${name}`,
+    kind: 'method' as const,
+    fileId: 'src/z-notifications.controller.ts',
+    symbolId: name,
+    name,
+    location: { filePath: 'src/z-notifications.controller.ts', line: 10 + index, column: 3 },
+  }));
+  const createTaskSubject = {
+    id: 'subject:src/z-tasks.controller.ts:TasksController.createTask',
+    kind: 'method' as const,
+    fileId: 'src/z-tasks.controller.ts',
+    symbolId: 'TasksController.createTask',
+    name: 'TasksController.createTask',
+    location: { filePath: 'src/z-tasks.controller.ts', line: 20, column: 3 },
+  };
+  const archiveTaskSubject = {
+    id: 'subject:src/z-tasks.controller.ts:TasksController.archiveTask',
+    kind: 'method' as const,
+    fileId: 'src/z-tasks.controller.ts',
+    symbolId: 'TasksController.archiveTask',
+    name: 'TasksController.archiveTask',
+    location: { filePath: 'src/z-tasks.controller.ts', line: 21, column: 3 },
+  };
 
   return {
     projectLabel: 'Responsibility fixture',
@@ -401,6 +456,8 @@ function responsibilityBrowserSnapshot() {
       files: [
         { id: 'src/prisma.service.ts', path: 'src/prisma.service.ts' },
         { id: 'src/users.controller.ts', path: 'src/users.controller.ts' },
+        { id: 'src/z-notifications.controller.ts', path: 'src/z-notifications.controller.ts' },
+        { id: 'src/z-tasks.controller.ts', path: 'src/z-tasks.controller.ts' },
       ],
       dependencies: [],
       unresolvedDependencies: [],
@@ -412,6 +469,9 @@ function responsibilityBrowserSnapshot() {
       projectPath: '.',
       findings: [
         { id: 'finding:http', subject: methodSubject, responsibility: 'http-entry-point', confidence: 'exact', provenance, evidence: evidence('evidence:http', '@Get()', methodSubject.location) },
+        ...notificationSubjects.map((subject, index) => ({ id: `finding:notification:${index}`, subject, responsibility: 'http-entry-point' as const, confidence: 'exact' as const, provenance, evidence: evidence(`evidence:notification:${index}`, '@Get()', subject.location) })),
+        { id: 'finding:create-task', subject: createTaskSubject, responsibility: 'http-entry-point', confidence: 'exact', provenance, evidence: evidence('evidence:create-task', '@Post("tasks")', createTaskSubject.location) },
+        { id: 'finding:archive-task', subject: archiveTaskSubject, responsibility: 'http-entry-point', confidence: 'exact', provenance, evidence: evidence('evidence:archive-task', '@Delete("tasks")', archiveTaskSubject.location) },
         { id: 'finding:access', subject: methodSubject, responsibility: 'access-control', confidence: 'inferred', provenance: { ...provenance, ruleId: 'guard' }, evidence: evidence('evidence:access', '@UseGuards()', methodSubject.location) },
         { id: 'finding:persistence', subject: persistenceSubject, responsibility: 'persistence-interaction', confidence: 'exact', provenance: { ...provenance, detector: { id: 'test.prisma', version: '1' }, ruleId: 'client' }, evidence: evidence('evidence:persistence', 'PrismaClient', persistenceSubject.location) },
       ],

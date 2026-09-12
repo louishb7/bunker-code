@@ -41,6 +41,7 @@ import {
   RESPONSIBILITY_SUBJECT_PREVIEW_LIMIT,
 } from '../apps/explorer-web/src/explorer-responsibility-spatial-model.js';
 import { resolveExplorerSearchDestination } from '../apps/explorer-web/src/explorer-search.js';
+import { filterResponsibilityFindings } from '../apps/explorer-web/src/explorer-responsibility-details.js';
 import { createSpatialTerritoryMapModel } from '../apps/explorer-web/src/explorer-spatial-territory-map.js';
 import {
   createInitialExplorerLocation,
@@ -138,6 +139,37 @@ function responsibilityFinding(
     evidence: [{ id: `evidence:${responsibility}:${fileId}:${line}`, kind: 'declaration', technology: { id: 'test', displayName: 'Test' }, signal: 'test', location: { filePath: fileId, line, column: 1 } }],
   };
 }
+
+test('Responsibility finding filter matches factual subject, file, and evidence fields without reordering', () => {
+  const createFinding = responsibilityFinding('http-entry-point', 'src/tasks.controller.ts', { id: 'finding:create', line: 20 });
+  const first = {
+    ...createFinding,
+    subject: {
+      ...createFinding.subject,
+      name: 'TasksController.createTask',
+    },
+    evidence: [{
+      ...createFinding.evidence[0]!,
+      signal: '@Post("tasks")',
+    }],
+  };
+  const statusFinding = responsibilityFinding('http-entry-point', 'src/status.controller.ts', { id: 'finding:status', line: 10 });
+  const second = {
+    ...statusFinding,
+    subject: {
+      ...statusFinding.subject,
+      name: 'StatusController.list',
+    },
+  };
+  const findings = [first, second];
+
+  assert.deepEqual(filterResponsibilityFindings(findings, ''), findings);
+  assert.deepEqual(filterResponsibilityFindings(findings, 'CREATE').map(({ id }) => id), ['finding:create']);
+  assert.deepEqual(filterResponsibilityFindings(findings, 'tasks.controller').map(({ id }) => id), ['finding:create']);
+  assert.deepEqual(filterResponsibilityFindings(findings, '@post("tasks")').map(({ id }) => id), ['finding:create']);
+  assert.deepEqual(filterResponsibilityFindings(findings, 'controller').map(({ id }) => id), ['finding:create', 'finding:status']);
+  assert.deepEqual(filterResponsibilityFindings(findings, 'criação'), []);
+});
 
 function responsibilityResult(
   findings: ResponsibilityFinding[],

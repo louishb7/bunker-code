@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import type { Responsibility, ResponsibilityFinding } from '@bunker-code/contracts';
 import {
   responsibilityFamilyLabel,
@@ -13,6 +14,20 @@ import {
 import type { ExplorerTerritoryProjection } from './explorer-territory-projection.js';
 
 const RESPONSIBILITY_INSPECTOR_INITIAL_SUBJECT_LIMIT = 6;
+
+export function filterResponsibilityFindings(
+  findings: ResponsibilityFinding[],
+  query: string,
+): ResponsibilityFinding[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.length === 0) return findings;
+
+  return findings.filter((finding) => [
+    finding.subject.kind === 'file' ? undefined : finding.subject.name,
+    finding.subject.fileId,
+    ...finding.evidence.map((evidence) => evidence.signal),
+  ].some((value) => value?.toLowerCase().includes(normalizedQuery)));
+}
 
 export function ResponsibilityDetails({
   projection,
@@ -31,9 +46,15 @@ export function ResponsibilityDetails({
   onBackToResponsibility(): void;
   onLocateFinding(finding: ResponsibilityFinding): void;
 }) {
+  const [filterQuery, setFilterQuery] = useState('');
   const selection = projection.groups.flatMap((group) => group.responsibilities.map((item) => ({ family: group.family, item })))
     .find(({ item }) => item.responsibility === selectedResponsibility);
   const finding = selection?.item.findings.find((candidate) => candidate.id === selectedFindingId);
+  const hasActiveFilter = filterQuery.trim().length > 0;
+  const filteredFindings = useMemo(
+    () => selection ? filterResponsibilityFindings(selection.item.findings, filterQuery) : [],
+    [filterQuery, selection],
+  );
 
   if (!selection) {
     return null;
@@ -97,12 +118,30 @@ export function ResponsibilityDetails({
       <section className="responsibility-subject-list" aria-labelledby="responsibility-subjects-title">
         <p className="detail-section-label">Subjects</p>
         <h3 id="responsibility-subjects-title">Factual findings</h3>
-        <SubjectFindingList
-          findings={selection.item.findings.slice(0, RESPONSIBILITY_INSPECTOR_INITIAL_SUBJECT_LIMIT)}
-          responsibility={selection.item.responsibility}
-          onSelectFinding={onSelectFinding}
-        />
-        {selection.item.findings.length > RESPONSIBILITY_INSPECTOR_INITIAL_SUBJECT_LIMIT ? (
+        <label className="responsibility-findings-filter">
+          <span>Filter these Responsibility findings</span>
+          <input
+            type="search"
+            aria-label="Filter responsibility findings"
+            value={filterQuery}
+            onChange={(event) => setFilterQuery(event.target.value)}
+          />
+        </label>
+        {hasActiveFilter ? (
+          <p className="responsibility-filter-result-count" data-responsibility-filter-count role="status">
+            {filteredFindings.length} of {selection.item.findings.length} factual findings
+          </p>
+        ) : null}
+        {hasActiveFilter && filteredFindings.length === 0 ? (
+          <p className="responsibility-filter-empty" data-responsibility-filter-empty role="status">No factual findings match this filter.</p>
+        ) : (
+          <SubjectFindingList
+            findings={hasActiveFilter ? filteredFindings : selection.item.findings.slice(0, RESPONSIBILITY_INSPECTOR_INITIAL_SUBJECT_LIMIT)}
+            responsibility={selection.item.responsibility}
+            onSelectFinding={onSelectFinding}
+          />
+        )}
+        {!hasActiveFilter && selection.item.findings.length > RESPONSIBILITY_INSPECTOR_INITIAL_SUBJECT_LIMIT ? (
           <details className="responsibility-subject-overflow" data-disclosure="responsibility-subjects">
             <summary>Show {selection.item.findings.length - RESPONSIBILITY_INSPECTOR_INITIAL_SUBJECT_LIMIT} more factual findings</summary>
             <SubjectFindingList

@@ -342,6 +342,7 @@ export function Explorer({
           )}
           {surface === 'responsibility' ? (
             <ResponsibilityDetails
+              key={selectedResponsibility}
               projection={responsibilityProjection}
               territories={territories}
               selectedResponsibility={selectedResponsibility}
