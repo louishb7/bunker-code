@@ -108,6 +108,9 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
       id: item.getAttribute('data-system-map-item-id'),
       transform: item.parentElement?.style.transform,
     }))), fieldPositions);
+    await page.select('[aria-label="Responsibility overlay"]', 'http-entry-point');
+    assert.ok(await page.$('[data-system-map-item-id="directory:src/auth"][data-responsibility-overlay-state="observed"]'));
+    assert.ok(await page.$('[data-system-map-item-id="directory:src/data"][data-responsibility-overlay-state="not-observed"]'));
     await page.select('[aria-label="Responsibility overlay"]', 'persistence-interaction');
     assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-selected-system-map-item')), 'directory:src/auth');
     assert.ok(await page.$('[data-system-map-item-id="directory:src/data"][data-responsibility-overlay-state="observed"]'));
@@ -136,6 +139,71 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
     await clickButton(page, 'Inspect file');
     await page.waitForSelector('.details-panel .file-exploration', { timeout: 5000 });
     assert.equal(await page.$eval('[data-file-landmark][aria-pressed="true"]', (element) => element.textContent?.includes('prisma.service.ts')), true);
+
+    await page.setViewport({ width: 768, height: 1024 });
+    await page.goto(`http://127.0.0.1:${address.port}/?system-map-field-fixture=1`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('[data-system-map-grammar="field"]', { timeout: 5000 });
+    assert.equal(await page.$eval('[aria-label="Responsibility overlay"] option[value="http-entry-point"]', (option) => option.textContent), 'HTTP Entry Point');
+    assert.equal(await page.$$eval('.react-flow__controls button', (buttons) => (
+      buttons.length === 3 && buttons.every((button) => button.getClientRects().length > 0)
+    )), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    assert.equal(await page.$eval('.system-map-field-workspace', (workspace) => {
+      const canvas = workspace.querySelector('.system-map-field-canvas');
+      const rail = workspace.querySelector('.system-map-field-rail');
+      if (!canvas || !rail) return false;
+      const canvasRect = canvas.getBoundingClientRect();
+      const railRect = rail.getBoundingClientRect();
+      return railRect.top >= canvasRect.bottom - 1 && railRect.right <= window.innerWidth;
+    }), true);
+    assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
+      id: item.getAttribute('data-system-map-item-id'),
+      transform: item.parentElement?.style.transform,
+    }))), fieldPositions);
+    await page.select('[aria-label="Responsibility overlay"]', 'http-entry-point');
+    await page.click('[data-system-map-item-id="directory:src/auth"] button');
+    await page.waitForSelector('[data-system-map-field-inspector="directory:src/auth"]', { timeout: 5000 });
+    assert.ok(await page.$('[data-field-relation-group="outgoing"]'));
+    assert.ok(await page.$('[data-field-relation-group="incoming"]'));
+    assert.ok(await page.$('[data-system-map-responsibility-evidence="http-entry-point"]'));
+
+    await page.setViewport({ width: 390, height: 844 });
+    await page.goto(`http://127.0.0.1:${address.port}/?system-map-field-fixture=1`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('[data-system-map-grammar="field"]', { timeout: 5000 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    assert.equal(await page.$eval('[aria-label="Responsibility overlay"]', (selector) => {
+      const rect = selector.getBoundingClientRect();
+      return rect.left >= 0 && rect.right <= window.innerWidth && rect.width > 0;
+    }), true);
+    assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
+      id: item.getAttribute('data-system-map-item-id'),
+      transform: item.parentElement?.style.transform,
+    }))), fieldPositions);
+    await page.select('[aria-label="Responsibility overlay"]', 'persistence-interaction');
+    assert.ok(await page.$('[data-system-map-item-id="src/prisma.service.ts"][data-responsibility-overlay-state="observed"]'));
+    await page.focus('[aria-label="Direct file prisma.service.ts"]');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-system-map-field-inspector="src/prisma.service.ts"]', { timeout: 5000 });
+    assert.equal(await page.$eval('.system-map-field-workspace', (workspace) => {
+      const canvas = workspace.querySelector('.system-map-field-canvas');
+      const inspector = workspace.querySelector('[data-system-map-field-inspector]');
+      if (!canvas || !inspector) return false;
+      return inspector.getBoundingClientRect().top >= canvas.getBoundingClientRect().bottom - 1;
+    }), true);
+    assert.ok(await page.$('[data-field-relation-group="incoming"]'));
+    assert.ok(await page.$('[data-system-map-responsibility-evidence="persistence-interaction"]'));
+    await page.click('[data-system-map-responsibility-finding] summary');
+    assert.equal(await page.$eval('[data-system-map-responsibility-finding]', (finding) => {
+      finding.scrollIntoView({ block: 'nearest' });
+      return finding.textContent?.includes('How BunkerCode knows') && finding.getClientRects().length > 0;
+    }), true);
+    await page.select('[aria-label="Responsibility overlay"]', '');
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-overlay')), 'structure');
+    await clickButton(page, 'Inspect file');
+    await page.waitForSelector('.details-panel .file-exploration', { timeout: 5000 });
+    assert.equal(await page.$eval('[data-file-landmark][aria-pressed="true"]', (element) => element.textContent?.includes('prisma.service.ts')), true);
+
+    await page.setViewport({ width: 1440, height: 900 });
 
     await page.goto(`http://127.0.0.1:${address.port}/?l0-experiment=structure-first`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('[data-l0-experiment="structure-first"]', { timeout: 5000 });

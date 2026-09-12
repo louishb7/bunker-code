@@ -60,6 +60,10 @@
   min-height: 0;
 }
 
+.system-map-field-canvas .react-flow__controls {
+  display: none;
+}
+
 .system-map-field-rail {
   min-width: 0;
   min-height: 0;
@@ -436,9 +440,7 @@
     grid-column: 1 / -1;
     justify-content: flex-start;
   }
-}
 
-@media (max-width: 760px) {
   .system-map-field-workspace {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(540px, 1fr) auto;
@@ -449,5 +451,9 @@
     min-height: 150px;
     border-top: 1px solid var(--color-border-subtle);
     border-left: 0;
+  }
+
+  .system-map-field-canvas .react-flow__controls {
+    display: flex;
   }
 }

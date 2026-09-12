@@ -1,6 +1,7 @@
 import type { Responsibility, ResponsibilityFamily, ResponsibilitySubject } from '@bunker-code/contracts';
 
 export function responsibilityLabel(responsibility: Responsibility): string {
+  if (responsibility === 'http-entry-point') return 'HTTP Entry Point';
   return titleCase(responsibility);
 }
 

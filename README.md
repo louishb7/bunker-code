@@ -109,6 +109,9 @@ shows raw observed-finding counts only as secondary information. Selection
 continues to prioritize Uses / Used by, while the inspector separates those
 structural connections from the active Responsibility evidence and provenance.
 Overlay counts do not affect position, size, relation meaning, or importance.
+At narrow widths the same canvas and model positions remain in use while the
+inspector moves below the map; touch-independent zoom/fit controls and page
+scroll keep dense systems investigable without hiding Territories or relations.
 
 The retained comprehension projection used by the controlled L0 experiment
 reuses System Orientation for factual cross-package dependency directions,

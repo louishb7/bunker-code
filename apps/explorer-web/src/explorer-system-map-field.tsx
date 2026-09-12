@@ -3,6 +3,7 @@ import type { Responsibility, ResponsibilityFinding } from '@bunker-code/contrac
 import {
   Background,
   BaseEdge,
+  Controls,
   EdgeLabelRenderer,
   getBezierPath,
   Handle,
@@ -223,6 +224,7 @@ export function ExplorerSystemMapField({
             }}
           >
             <Background color="#24343d" gap={36} size={0.65} />
+            <Controls showInteractive={false} />
           </ReactFlow>
         </div>
         <aside className="system-map-field-rail" aria-label="System Map inspector">

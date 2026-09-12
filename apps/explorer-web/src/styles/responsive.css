@@ -9,6 +9,10 @@
     grid-template-columns: minmax(0, 1fr) minmax(320px, 34vw);
   }
 
+  .explorer-main-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .details-panel {
     padding-inline: 22px;
   }
@@ -44,6 +48,10 @@
 
   .explorer-main {
     grid-template-columns: minmax(0, 1fr) 320px;
+  }
+
+  .explorer-main-overview {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .details-panel {
