@@ -71,16 +71,28 @@ The browser check uses `puppeteer-core` with the system Firefox executable at
 
 ## Explorer
 
-The Explorer generates a disposable snapshot by analyzing the local BunkerCode
-PNPM workspace. Every project opens on a Web-local comprehension reference that
-organizes existing evidence as observable parts, factual Responsibility
-findings, factual relations, and explicit uncertainty/coverage. This is a pure
-presentation projection, not a universal architecture, semantic Perspective,
-or domain contract. Responsibility and Territory remain the two depth lenses,
-and entering or leaving Overview never resets `ExplorerLocation`.
+The Explorer generates a disposable snapshot from an explicit supported target.
+Overview now opens on a Web-local factual System Map of the structural content
+directly inside `src`: its direct Territory children, files directly contained
+by `src`, and directed internal dependencies aggregated between those visual
+items. Direct files remain file landmarks in a labelled band rather than being
+turned into an invented Territory. Each aggregate preserves its originating
+file-level `ProjectGraphEdge` records; its count is observed dependency volume,
+not importance, runtime frequency, or architectural weight. If no `src`
+Territory is observed, the boundary is reported explicitly instead of choosing
+another root heuristically.
 
-The comprehension projection reuses System Orientation for factual
-cross-package dependency directions, actually imported external-module
+The System Map is a pure Explorer presentation projection, not a universal
+architecture, semantic Perspective, or domain contract. An arrow means only
+that files represented by its source have observed internal dependencies on
+files represented by its target. Territory and direct-file actions enter the
+existing structural/file investigation, while Responsibility remains a
+separate depth surface. Entering or leaving Overview does not reset
+`ExplorerLocation`.
+
+The retained comprehension projection used by the controlled L0 experiment
+reuses System Orientation for factual cross-package dependency directions,
+actually imported external-module
 touchpoints, cycles, isolated files, and unresolved dependencies. Territory,
 file, and subject IDs remain the anchors back to existing evidence. Observable
 parts are exactly the direct structural children already projected at System
@@ -112,10 +124,10 @@ exactly that same fact set. Append `?l0-experiment=structure-first` to inspect
 direct structural children progressively, or
 `?l0-experiment=evidence-first` to inspect positive Responsibility evidence by
 its factual structural locations. Without either query value, the normal
-Overview is unchanged. Both variants reuse the same comprehension and
-distribution projections, keep Relations and Uncertainty identical, and show
-finding counts only as raw text. The harness is removable experimental
-infrastructure: neither variant, their starting scale, nor any automatic
+Overview remains the factual System Map. Both variants reuse the same
+comprehension and distribution projections, keep Relations and Uncertainty
+identical, and show finding counts only as raw text. The harness is removable
+experimental infrastructure: neither variant, their starting scale, nor any automatic
 selection between them is a product decision.
 
 Its sole structural navigation model is `ExplorerLocation`

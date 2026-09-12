@@ -15,6 +15,7 @@ import { buildProjectGraph, buildProjectStructure, type ProjectGraph } from '../
 import { createExplorerAttention } from '../apps/explorer-web/src/explorer-attention.js';
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
 import { createExplorerSystemOrientationProjection } from '../apps/explorer-web/src/explorer-system-orientation.js';
+import { createExplorerSystemMapProjection } from '../apps/explorer-web/src/explorer-system-map-projection.js';
 import { createExplorerComprehensionProjection } from '../apps/explorer-web/src/explorer-comprehension-projection.js';
 import {
   createExplorerL0ExperimentModel,
@@ -785,6 +786,79 @@ test('Explorer view state always starts in Overview independently from Responsib
   assert.equal(isResponsibilityPerspectiveEligible(qualifying), true);
   assert.equal(isResponsibilityPerspectiveEligible(wiringOnly), false);
   assert.equal(isResponsibilityPerspectiveEligible(responsibilityResult([])), false);
+});
+
+test('System Map projects direct src Territories, direct files, and traceable cross-item dependencies deterministically', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-system-map-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  mkdirSync(path.join(projectPath, 'src', 'auth'), { recursive: true });
+  mkdirSync(path.join(projectPath, 'src', 'prisma'), { recursive: true });
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022' }, include: ['src/**/*.ts'] }));
+  writeFileSync(path.join(projectPath, 'src', 'prisma', 'one.ts'), 'export const one = 1;\n');
+  writeFileSync(path.join(projectPath, 'src', 'prisma', 'two.ts'), 'export const two = 2;\n');
+  writeFileSync(path.join(projectPath, 'src', 'root.ts'), 'export const root = 0;\n');
+  writeFileSync(path.join(projectPath, 'src', 'auth', 'b.ts'), "import '../prisma/one'; import '../root'; export const b = 1;\n");
+  writeFileSync(path.join(projectPath, 'src', 'auth', 'a.ts'), "import './b'; import '../prisma/one'; import '../prisma/two'; export const a = 1;\n");
+  writeFileSync(path.join(projectPath, 'src', 'app.module.ts'), "import './root'; export const app = 1;\n");
+  writeFileSync(path.join(projectPath, 'src', 'main.ts'), "import './auth/a'; import './app.module'; export const main = 1;\n");
+
+  const analysis = analyzeProject(projectPath);
+  const graph = buildProjectGraph(analysis);
+  const territories = createExplorerTerritoryProjection(
+    buildProjectStructure(analysis),
+    graph.nodes.filter((node): node is Extract<typeof node, { kind: 'file' }> => node.kind === 'file'),
+  );
+  const projection = createExplorerSystemMapProjection(graph, territories);
+  assert.equal(projection.status, 'ready');
+  if (projection.status !== 'ready') return;
+
+  assert.equal(projection.sourceTerritory.normalizedStructuralPath, './src');
+  assert.deepEqual(projection.items.map(({ id, kind }) => ({ id, kind })), [
+    { id: 'src/app.module.ts', kind: 'file' },
+    { id: 'directory:src/auth', kind: 'territory' },
+    { id: 'src/main.ts', kind: 'file' },
+    { id: 'directory:src/prisma', kind: 'territory' },
+    { id: 'src/root.ts', kind: 'file' },
+  ]);
+  assert.equal(projection.items.filter((item) => item.kind === 'file').every((item) => item.file.kind === 'file'), true);
+
+  const relationSummary = projection.relations.map((relation) => ({
+    source: relation.sourceItemId,
+    target: relation.targetItemId,
+    count: relation.observedDependencyCount,
+  }));
+  assert.deepEqual(relationSummary, [
+    { source: 'directory:src/auth', target: 'directory:src/prisma', count: 3 },
+    { source: 'directory:src/auth', target: 'src/root.ts', count: 1 },
+    { source: 'src/app.module.ts', target: 'src/root.ts', count: 1 },
+    { source: 'src/main.ts', target: 'directory:src/auth', count: 1 },
+    { source: 'src/main.ts', target: 'src/app.module.ts', count: 1 },
+  ]);
+  assert.equal(projection.relations.some((relation) => relation.sourceItemId === relation.targetItemId), false);
+  assert.equal(projection.relations.some((relation) => relation.fileEdges.some((edge) => edge.sourceNodeId === 'src/auth/a.ts' && edge.targetNodeId === 'src/auth/b.ts')), false);
+
+  const authToPrisma = projection.relations.find((relation) => (
+    relation.sourceItemId === 'directory:src/auth' && relation.targetItemId === 'directory:src/prisma'
+  ));
+  assert.ok(authToPrisma);
+  assert.equal(authToPrisma.observedDependencyCount, authToPrisma.fileEdges.length);
+  assert.deepEqual(
+    authToPrisma.fileEdges,
+    graph.edges.filter((edge) => edge.sourceNodeId.startsWith('src/auth/') && edge.targetNodeId.startsWith('src/prisma/')).sort((left, right) => left.id.localeCompare(right.id)),
+  );
+  assert.equal(authToPrisma.fileEdges.every((edge) => edge.evidence.location.filePath === edge.sourceNodeId), true);
+
+  const reordered = createExplorerSystemMapProjection(
+    { ...graph, nodes: [...graph.nodes].reverse(), edges: [...graph.edges].reverse() },
+    territories,
+  );
+  assert.equal(reordered.status, 'ready');
+  if (reordered.status !== 'ready') return;
+  assert.deepEqual(reordered.items.map(({ id, kind }) => ({ id, kind })), projection.items.map(({ id, kind }) => ({ id, kind })));
+  assert.deepEqual(
+    reordered.relations.map((relation) => ({ id: relation.id, fileEdgeIds: relation.fileEdges.map((edge) => edge.id) })),
+    projection.relations.map((relation) => ({ id: relation.id, fileEdgeIds: relation.fileEdges.map((edge) => edge.id) })),
+  );
 });
 
 test('perspective and Responsibility selection preserve structural location until factual Locate', () => {

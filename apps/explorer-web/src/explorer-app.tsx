@@ -50,9 +50,10 @@ import {
   createExplorerResponsibilityProjection,
   isResponsibilityPerspectiveEligible,
 } from './explorer-responsibility-projection.js';
-import { ExplorerSystemOverview } from './explorer-system-overview.js';
 import { createExplorerSystemOrientationProjection } from './explorer-system-orientation.js';
 import { createExplorerComprehensionProjection } from './explorer-comprehension-projection.js';
+import { ExplorerSystemMap } from './explorer-system-map.js';
+import { createExplorerSystemMapProjection } from './explorer-system-map-projection.js';
 import { ExplorerL0Experiment } from './explorer-l0-experiment.js';
 import {
   createExplorerL0ExperimentModel,
@@ -94,6 +95,10 @@ export function Explorer({
     [responsibilities, territories],
   );
   const source: ExplorerSource = useMemo(() => ({ graph, structure, territories }), [graph, structure, territories]);
+  const systemMap = useMemo(
+    () => createExplorerSystemMapProjection(graph, territories),
+    [graph, territories],
+  );
   const [viewState, setViewState] = useState(() => createInitialExplorerViewState(territories));
   const { location, surface, selectedResponsibility, selectedFindingId } = viewState;
   const responsibilityAvailable = isResponsibilityPerspectiveEligible(responsibilities);
@@ -219,6 +224,29 @@ export function Explorer({
     setLocation(navigateToTerritory(location, territory.id, territory.structuralPath));
   }
 
+  function openSystemMapTerritory(territoryId: string): void {
+    const territory = territories.territoriesById.get(territoryId);
+    if (!territory) throw new Error(`Territory not found: ${territoryId}`);
+    setViewState((current) => ({
+      ...current,
+      surface: 'territory',
+      location: navigateToTerritory(current.location, territory.id, territory.structuralPath),
+    }));
+  }
+
+  function openSystemMapFile(fileId: string): void {
+    if (systemMap.status !== 'ready') return;
+    setViewState((current) => ({
+      ...current,
+      surface: 'territory',
+      location: navigateToDestination(current.location, {
+        territoryId: systemMap.sourceTerritory.id,
+        structuralPath: systemMap.sourceTerritory.structuralPath,
+        itemId: fileId,
+      }),
+    }));
+  }
+
   function navigateTo(target: ExplorerNavigationTarget): void {
     if (target.kind === 'territory') {
       setViewState((current) => ({
@@ -278,7 +306,7 @@ export function Explorer({
       />
       <section
         className={`explorer-main explorer-main-${surface} ${(showResponsibilityInspector || showTerritoryInspector) ? 'explorer-main-has-inspector' : ''}`}
-        aria-label={surface === 'overview' ? 'System overview' : surface === 'responsibility' ? 'Responsibility explorer' : 'Territory explorer'}
+        aria-label={surface === 'overview' ? 'System Map' : surface === 'responsibility' ? 'Responsibility explorer' : 'Territory explorer'}
       >
         {surface === 'overview' && experimentalL0Variant && l0ExperimentModel ? (
           <ExplorerL0Experiment
@@ -287,11 +315,11 @@ export function Explorer({
             model={l0ExperimentModel}
           />
         ) : surface === 'overview' ? (
-          <ExplorerSystemOverview
+          <ExplorerSystemMap
             projectLabel={projectLabel}
-            comprehension={comprehension}
-            responsibilityAvailable={responsibilityAvailable}
-            onExploreResponsibilities={() => setViewState((current) => switchExplorerSurface(current, 'responsibility'))}
+            projection={systemMap}
+            onOpenTerritory={openSystemMapTerritory}
+            onOpenFile={openSystemMapFile}
             onExploreStructure={() => setViewState((current) => switchExplorerSurface(current, 'territory'))}
           />
         ) : surface === 'territory' ? (
