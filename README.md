@@ -86,8 +86,10 @@ The System Map is a pure Explorer presentation projection, not a universal
 architecture, semantic Perspective, or domain contract. An arrow means only
 that files represented by its source have observed internal dependencies on
 files represented by its target. Territory and direct-file actions enter the
-existing structural/file investigation, while Responsibility remains a
-separate depth surface. Entering or leaving Overview does not reset
+existing structural/file investigation. Responsibility remains available as a
+separate depth surface while factual categories observed in this `src` slice
+can also be applied one at a time as overlays on the unchanged map. Entering or
+leaving Overview does not reset
 `ExplorerLocation`.
 
 The normal Overview renders that projection as a deterministic, neutral
@@ -99,6 +101,14 @@ stable inspector rail outside the canvas. Position follows factual item order
 only; dependency direction, counts, project identity, and selection do not
 affect geography. The former layered renderer remains available only for local
 comparison through the system-map-renderer=legacy query parameter.
+
+The default **Structure** view contains no Responsibility emphasis. An active
+overlay highlights only Territory or direct-file items containing findings for
+that factual category, keeps all other items present at lower contrast, and
+shows raw observed-finding counts only as secondary information. Selection
+continues to prioritize Uses / Used by, while the inspector separates those
+structural connections from the active Responsibility evidence and provenance.
+Overlay counts do not affect position, size, relation meaning, or importance.
 
 The retained comprehension projection used by the controlled L0 experiment
 reuses System Orientation for factual cross-package dependency directions,

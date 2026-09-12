@@ -54,6 +54,7 @@ import { createExplorerSystemOrientationProjection } from './explorer-system-ori
 import { createExplorerComprehensionProjection } from './explorer-comprehension-projection.js';
 import { ExplorerSystemMap } from './explorer-system-map.js';
 import { createExplorerSystemMapProjection } from './explorer-system-map-projection.js';
+import { createExplorerSystemMapResponsibilityOverlayProjection } from './explorer-system-map-responsibility-overlay.js';
 import { ExplorerSystemMapField } from './explorer-system-map-field.js';
 import { ExplorerL0Experiment } from './explorer-l0-experiment.js';
 import {
@@ -71,6 +72,7 @@ import {
   locateResponsibilityFinding,
   selectExplorerResponsibility,
   selectExplorerResponsibilityFinding,
+  selectSystemMapResponsibilityOverlay,
   switchExplorerSurface,
 } from './explorer-view-state.js';
 
@@ -102,8 +104,20 @@ export function Explorer({
     () => createExplorerSystemMapProjection(graph, territories),
     [graph, territories],
   );
+  const systemMapResponsibilityOverlays = useMemo(
+    () => systemMap.status === 'ready'
+      ? createExplorerSystemMapResponsibilityOverlayProjection(systemMap, responsibilityProjection, territories)
+      : null,
+    [responsibilityProjection, systemMap, territories],
+  );
   const [viewState, setViewState] = useState(() => createInitialExplorerViewState(territories));
-  const { location, surface, selectedResponsibility, selectedFindingId } = viewState;
+  const {
+    location,
+    surface,
+    selectedResponsibility,
+    selectedFindingId,
+    systemMapResponsibilityOverlay,
+  } = viewState;
   const responsibilityAvailable = isResponsibilityPerspectiveEligible(responsibilities);
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingCenterNodeId, setPendingCenterNodeId] = useState<string | null>(null);
@@ -329,6 +343,11 @@ export function Explorer({
           <ExplorerSystemMapField
             projectLabel={projectLabel}
             projection={systemMap}
+            responsibilityOverlays={systemMapResponsibilityOverlays ?? { overlays: [] }}
+            activeResponsibility={systemMapResponsibilityOverlay}
+            onResponsibilityOverlayChange={(responsibility) => setViewState((current) => (
+              selectSystemMapResponsibilityOverlay(current, responsibility)
+            ))}
             onOpenTerritory={openSystemMapTerritory}
             onOpenFile={openSystemMapFile}
           />

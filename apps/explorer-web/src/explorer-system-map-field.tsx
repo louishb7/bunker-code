@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import type { Responsibility, ResponsibilityFinding } from '@bunker-code/contracts';
 import {
   Background,
   BaseEdge,
@@ -27,12 +28,26 @@ import {
   type SystemMapFieldHandleSide,
   type SystemMapFieldRelationDirection,
 } from './explorer-system-map-field-model.js';
+import {
+  systemMapResponsibilityOverlay,
+  type ExplorerSystemMapResponsibilityLocation,
+  type ExplorerSystemMapResponsibilityOverlay,
+  type ExplorerSystemMapResponsibilityOverlayProjection,
+} from './explorer-system-map-responsibility-overlay.js';
+import {
+  responsibilityLabel,
+  responsibilityLocationLabel,
+  responsibilitySubjectLabel,
+} from './explorer-responsibility-language.js';
 
 interface FieldNodeData extends Record<string, unknown> {
   item?: ExplorerSystemMapItem;
   kind: 'territory' | 'file' | 'direct-files-band';
   label: string;
   attention: SystemMapFieldItemAttention;
+  overlay: 'inactive' | 'observed' | 'not-observed';
+  overlayLabel?: string;
+  overlayFindingCount?: number;
   onSelect?: () => void;
   onOpen?: () => void;
 }
@@ -54,11 +69,17 @@ const edgeTypes = { fieldRelation: FieldRelationEdge };
 export function ExplorerSystemMapField({
   projectLabel,
   projection,
+  responsibilityOverlays,
+  activeResponsibility,
+  onResponsibilityOverlayChange,
   onOpenTerritory,
   onOpenFile,
 }: {
   projectLabel: string;
   projection: Extract<ExplorerSystemMapProjection, { status: 'ready' }>;
+  responsibilityOverlays: ExplorerSystemMapResponsibilityOverlayProjection;
+  activeResponsibility: Responsibility | null;
+  onResponsibilityOverlayChange(responsibility: Responsibility | null): void;
   onOpenTerritory(territoryId: string): void;
   onOpenFile(fileId: string): void;
 }) {
@@ -69,16 +90,26 @@ export function ExplorerSystemMapField({
     () => createSystemMapFieldSelection(model, selectedItemId),
     [model, selectedItemId],
   );
+  const activeOverlay = useMemo(
+    () => systemMapResponsibilityOverlay(responsibilityOverlays, activeResponsibility),
+    [activeResponsibility, responsibilityOverlays],
+  );
+  const overlayLocationsByItemId = useMemo(
+    () => new Map(activeOverlay?.locations.map((location) => [location.itemId, location] as const) ?? []),
+    [activeOverlay],
+  );
   const itemsById = useMemo(() => new Map(projection.items.map((item) => [item.id, item] as const)), [projection.items]);
   const nodes = useMemo(() => createFieldNodes(
     model,
     selection.itemAttention,
+    activeOverlay,
+    overlayLocationsByItemId,
     (item) => {
       setSelectedRelationId(null);
       setSelectedItemId(item.id);
     },
     (item) => item.kind === 'territory' ? onOpenTerritory(item.territory.id) : onOpenFile(item.file.id),
-  ), [model, onOpenFile, onOpenTerritory, selection.itemAttention]);
+  ), [activeOverlay, model, onOpenFile, onOpenTerritory, overlayLocationsByItemId, selection.itemAttention]);
   const edges = useMemo(() => model.relations.map((relation): FieldEdge => {
     const direction = selection.relationDirections.get(relation.id);
     const route = createSystemMapFieldRelationRoute(model, relation);
@@ -127,6 +158,7 @@ export function ExplorerSystemMapField({
       data-system-map-relation-count={projection.relations.length}
       data-system-map-dependency-count={dependencyCount}
       data-selected-system-map-item={selectedItemId ?? ''}
+      data-system-map-overlay={activeOverlay?.responsibility ?? 'structure'}
       onKeyDown={(event) => {
         if (event.key !== 'Escape') return;
         setSelectedItemId(null);
@@ -145,6 +177,22 @@ export function ExplorerSystemMapField({
           <div><dt>File dependencies represented</dt><dd>{dependencyCount}</dd></div>
         </dl>
         <div className="system-map-field-key" aria-label="Territory Field selection legend">
+          <label className="system-map-overlay-control">
+            <span>Overlay</span>
+            <select
+              aria-label="Responsibility overlay"
+              value={activeOverlay?.responsibility ?? ''}
+              onChange={(event) => {
+                const overlay = responsibilityOverlays.overlays.find((candidate) => candidate.responsibility === event.target.value);
+                onResponsibilityOverlayChange(overlay?.responsibility ?? null);
+              }}
+            >
+              <option value="">Structure</option>
+              {responsibilityOverlays.overlays.map((overlay) => (
+                <option key={overlay.responsibility} value={overlay.responsibility}>{responsibilityLabel(overlay.responsibility)}</option>
+              ))}
+            </select>
+          </label>
           <span><i className="field-key-outgoing" />Uses</span>
           <span><i className="field-key-incoming" />Used by</span>
           <span>Uses / Used by = observed static dependencies</span>
@@ -183,6 +231,8 @@ export function ExplorerSystemMapField({
               item={selectedItem}
               relations={projection.relations}
               itemsById={itemsById}
+              activeOverlay={activeOverlay}
+              overlayLocation={overlayLocationsByItemId.get(selectedItem.id)}
               onOpen={() => selectedItem.kind === 'territory'
                 ? onOpenTerritory(selectedItem.territory.id)
                 : onOpenFile(selectedItem.file.id)}
@@ -193,6 +243,8 @@ export function ExplorerSystemMapField({
             />
           ) : selectedRelation ? (
             <FieldRelationInspector relation={selectedRelation} itemsById={itemsById} />
+          ) : activeOverlay ? (
+            <FieldOverlaySummary overlay={activeOverlay} />
           ) : (
             <div className="system-map-field-empty-inspector">
               <span>System Map inspector</span>
@@ -208,6 +260,8 @@ export function ExplorerSystemMapField({
 function createFieldNodes(
   model: ReturnType<typeof createSystemMapFieldModel>,
   attention: Map<string, SystemMapFieldItemAttention>,
+  activeOverlay: ExplorerSystemMapResponsibilityOverlay | null,
+  overlayLocationsByItemId: ReadonlyMap<string, ExplorerSystemMapResponsibilityLocation>,
   onSelect: (item: ExplorerSystemMapItem) => void,
   onOpen: (item: ExplorerSystemMapItem) => void,
 ): FieldNode[] {
@@ -219,25 +273,31 @@ function createFieldNodes(
     selectable: false,
     focusable: false,
     zIndex: 0,
-    data: { kind: 'direct-files-band' as const, label: 'Direct files in src', attention: 'resting' as const },
+    data: { kind: 'direct-files-band' as const, label: 'Direct files in src', attention: 'resting' as const, overlay: 'inactive' as const },
   }] : [];
   return [
     ...band,
-    ...model.items.map(({ item, position }): FieldNode => ({
-      id: item.id,
-      type: 'fieldItem',
-      position,
-      style: systemMapFieldDimensions[item.kind],
-      zIndex: attention.get(item.id) === 'selected' ? 5 : 2,
-      data: {
-        item,
-        kind: item.kind,
-        label: item.label,
-        attention: attention.get(item.id) ?? 'resting',
-        onSelect: () => onSelect(item),
-        onOpen: () => onOpen(item),
-      },
-    })),
+    ...model.items.map(({ item, position }): FieldNode => {
+      const overlayLocation = overlayLocationsByItemId.get(item.id);
+      return {
+        id: item.id,
+        type: 'fieldItem',
+        position,
+        style: systemMapFieldDimensions[item.kind],
+        zIndex: attention.get(item.id) === 'selected' ? 5 : 2,
+        data: {
+          item,
+          kind: item.kind,
+          label: item.label,
+          attention: attention.get(item.id) ?? 'resting',
+          overlay: activeOverlay === null ? 'inactive' : overlayLocation ? 'observed' : 'not-observed',
+          overlayLabel: activeOverlay ? responsibilityLabel(activeOverlay.responsibility) : undefined,
+          overlayFindingCount: overlayLocation?.findingCount,
+          onSelect: () => onSelect(item),
+          onOpen: () => onOpen(item),
+        },
+      };
+    }),
   ];
 }
 
@@ -247,10 +307,12 @@ function FieldItemNode({ data }: NodeProps<FieldNode>) {
   const fileCount = item.kind === 'territory' ? item.territory.analyzedFileCount : null;
   return (
     <div
-      className={`system-map-field-item system-map-field-item-${data.kind} field-attention-${data.attention}`}
+      className={`system-map-field-item system-map-field-item-${data.kind} field-attention-${data.attention} field-overlay-${data.overlay}`}
       data-system-map-item-kind={data.kind}
       data-system-map-item-id={item.id}
       data-field-attention={data.attention}
+      data-responsibility-overlay-state={data.overlay}
+      data-responsibility-finding-count={data.overlayFindingCount ?? 0}
     >
       <FieldHandles type="target" />
       <button
@@ -264,6 +326,11 @@ function FieldItemNode({ data }: NodeProps<FieldNode>) {
         {data.kind === 'territory' ? <span>Territory</span> : null}
         <strong>{data.label}</strong>
         {fileCount !== null ? <small>{fileCount} analyzed file{fileCount === 1 ? '' : 's'}</small> : null}
+        {data.overlay === 'observed' ? (
+          <small className="system-map-overlay-marker" title={`${data.overlayLabel}: ${data.overlayFindingCount} observed finding${data.overlayFindingCount === 1 ? '' : 's'}`}>
+            {data.overlayFindingCount} observed
+          </small>
+        ) : null}
       </button>
       <FieldHandles type="source" />
     </div>
@@ -317,12 +384,16 @@ function FieldItemInspector({
   item,
   relations,
   itemsById,
+  activeOverlay,
+  overlayLocation,
   onOpen,
   onInspectRelation,
 }: {
   item: ExplorerSystemMapItem;
   relations: ExplorerSystemMapRelation[];
   itemsById: Map<string, ExplorerSystemMapItem>;
+  activeOverlay: ExplorerSystemMapResponsibilityOverlay | null;
+  overlayLocation?: ExplorerSystemMapResponsibilityLocation;
   onOpen(): void;
   onInspectRelation(relationId: string): void;
 }) {
@@ -331,10 +402,67 @@ function FieldItemInspector({
   return (
     <div className="system-map-field-inspector" data-system-map-field-inspector={item.id} aria-live="polite">
       <div><span>{item.kind === 'territory' ? 'Territory' : 'Direct file'}</span><strong>{item.label}</strong></div>
-      <RelationList label="Uses" direction="outgoing" relations={outgoing} itemsById={itemsById} onInspect={onInspectRelation} />
-      <RelationList label="Used by" direction="incoming" relations={incoming} itemsById={itemsById} onInspect={onInspectRelation} />
+      <section className="system-map-field-inspector-section" aria-labelledby="structural-connections-title">
+        <h3 id="structural-connections-title">Structural connections</h3>
+        <RelationList label="Uses" direction="outgoing" relations={outgoing} itemsById={itemsById} onInspect={onInspectRelation} />
+        <RelationList label="Used by" direction="incoming" relations={incoming} itemsById={itemsById} onInspect={onInspectRelation} />
+      </section>
+      {activeOverlay ? (
+        <FieldResponsibilityEvidence overlay={activeOverlay} location={overlayLocation} />
+      ) : null}
       <button type="button" onClick={onOpen}>{item.kind === 'territory' ? 'Open Territory' : 'Inspect file'}</button>
     </div>
+  );
+}
+
+function FieldOverlaySummary({ overlay }: { overlay: ExplorerSystemMapResponsibilityOverlay }) {
+  return (
+    <div className="system-map-field-empty-inspector system-map-overlay-summary" data-system-map-overlay-summary={overlay.responsibility}>
+      <span>Responsibility overlay</span>
+      <strong>{responsibilityLabel(overlay.responsibility)}</strong>
+      <p>Observed in {overlay.locations.length} map location{overlay.locations.length === 1 ? '' : 's'}.</p>
+      <p>{overlay.findingCount} factual finding{overlay.findingCount === 1 ? '' : 's'} in this System Map slice.</p>
+    </div>
+  );
+}
+
+function FieldResponsibilityEvidence({
+  overlay,
+  location,
+}: {
+  overlay: ExplorerSystemMapResponsibilityOverlay;
+  location?: ExplorerSystemMapResponsibilityLocation;
+}) {
+  return (
+    <section className="system-map-field-inspector-section system-map-overlay-evidence" data-system-map-responsibility-evidence={overlay.responsibility}>
+      <h3>Responsibility evidence</h3>
+      <strong>{responsibilityLabel(overlay.responsibility)}</strong>
+      {!location ? (
+        <p>No finding for this Responsibility was observed in this map item.</p>
+      ) : (
+        <>
+          <p>{location.findingCount} observed finding{location.findingCount === 1 ? '' : 's'}.</p>
+          <ul>{location.findings.map((finding) => <ResponsibilityFindingEvidence key={finding.id} finding={finding} />)}</ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+function ResponsibilityFindingEvidence({ finding }: { finding: ResponsibilityFinding }) {
+  return (
+    <li className="system-map-overlay-finding" data-system-map-responsibility-finding={finding.id}>
+      <strong>{responsibilitySubjectLabel(finding.subject)}</strong>
+      <span>{responsibilityLocationLabel(finding.subject)} · {finding.confidence}</span>
+      <details>
+        <summary>How BunkerCode knows</summary>
+        <span>Detector {finding.provenance.detector.id}@{finding.provenance.detector.version} · Rule {finding.provenance.ruleId}@{finding.provenance.ruleVersion}</span>
+        <ul>{finding.evidence.map((evidence) => <li key={evidence.id}>
+          <strong>{evidence.technology.displayName}: {evidence.signal}</strong>
+          <span>{evidence.location.filePath}:{evidence.location.line}:{evidence.location.column}</span>
+        </li>)}</ul>
+      </details>
+    </li>
   );
 }
 

@@ -70,11 +70,24 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
     assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-dependency-count')), '3');
     assert.equal(await page.$$eval('.react-flow__edge', (edges) => edges.length), 3);
     assert.equal(await page.$('.system-map-field-edge-label'), null);
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-overlay')), 'structure');
+    assert.equal(await page.$$eval('[data-responsibility-overlay-state="inactive"]', (items) => items.length), 6);
     assert.equal(await page.$$eval('.system-map-field-item .react-flow__handle', (handles) => handles.every((handle) => getComputedStyle(handle).opacity === '0')), true);
     const fieldPositions = await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
       id: item.getAttribute('data-system-map-item-id'),
       transform: item.parentElement?.style.transform,
     })));
+    await page.focus('[aria-label="Responsibility overlay"]');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-system-map-overlay="http-entry-point"]', { timeout: 5000 });
+    assert.ok(await page.$('[data-system-map-item-id="directory:src/auth"][data-responsibility-overlay-state="observed"]'));
+    assert.ok(await page.$('[data-system-map-item-id="directory:src/data"][data-responsibility-overlay-state="not-observed"]'));
+    assert.equal(await page.$eval('[data-system-map-overlay-summary="http-entry-point"]', (element) => element.textContent?.includes('map locations') && element.textContent.includes('factual findings')), true);
+    assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
+      id: item.getAttribute('data-system-map-item-id'),
+      transform: item.parentElement?.style.transform,
+    }))), fieldPositions);
     await page.focus('[aria-label="Territory auth"]');
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-system-map-field-inspector="directory:src/auth"]', { timeout: 5000 });
@@ -87,10 +100,23 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
     assert.equal(await page.$$eval('[data-field-relation-group="incoming"] li', (items) => items.length), 1);
     assert.equal(await page.$$eval('[data-field-attention="outgoing"]', (items) => items.length), 1);
     assert.equal(await page.$$eval('[data-field-attention="incoming"]', (items) => items.length), 1);
+    assert.ok(await page.$('[data-system-map-responsibility-evidence="http-entry-point"] [data-system-map-responsibility-finding="finding:http:auth"]'));
+    assert.equal(await page.$eval('[data-system-map-field-inspector]', (element) => element.textContent?.includes('Structural connections') && element.textContent.includes('Responsibility evidence')), true);
+    await page.click('[data-system-map-responsibility-finding="finding:http:auth"] summary');
+    assert.equal(await page.$eval('[data-system-map-responsibility-finding="finding:http:auth"]', (element) => element.textContent?.includes('test.nestjs') && element.textContent.includes('@Controller("auth")')), true);
     assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
       id: item.getAttribute('data-system-map-item-id'),
       transform: item.parentElement?.style.transform,
     }))), fieldPositions);
+    await page.select('[aria-label="Responsibility overlay"]', 'persistence-interaction');
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-selected-system-map-item')), 'directory:src/auth');
+    assert.ok(await page.$('[data-system-map-item-id="directory:src/data"][data-responsibility-overlay-state="observed"]'));
+    assert.equal(await page.$eval('[data-system-map-responsibility-evidence="persistence-interaction"]', (element) => element.textContent?.includes('No finding for this Responsibility')), true);
+    assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
+      id: item.getAttribute('data-system-map-item-id'),
+      transform: item.parentElement?.style.transform,
+    }))), fieldPositions);
+    await page.select('[aria-label="Responsibility overlay"]', 'http-entry-point');
     await page.click('[data-field-relation-group="outgoing"] li button');
     await page.waitForSelector('[data-system-map-field-relation]', { timeout: 5000 });
     assert.ok(await page.$('.system-map-field-edge-label'));
@@ -100,6 +126,9 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
     assert.equal(await page.$('[data-system-map-field-inspector]'), null);
     assert.equal(await page.$('[data-system-map-field-relation]'), null);
     assert.equal(await page.$$eval('[data-field-attention="resting"]', (items) => items.length), 6);
+    await page.select('[aria-label="Responsibility overlay"]', '');
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-overlay')), 'structure');
+    assert.equal(await page.$$eval('[data-responsibility-overlay-state="inactive"]', (items) => items.length), 6);
     await page.focus('[aria-label="Direct file prisma.service.ts"]');
     await page.keyboard.press('Enter');
     await page.waitForSelector('[data-system-map-field-inspector="src/prisma.service.ts"]', { timeout: 5000 });
@@ -550,6 +579,45 @@ function responsibilityBrowserSnapshot() {
 
 function systemMapFieldBrowserSnapshot() {
   const snapshot = responsibilityBrowserSnapshot();
+  const httpSource = snapshot.responsibilities.findings.find((finding) => finding.id === 'finding:http');
+  const persistenceSource = snapshot.responsibilities.findings.find((finding) => finding.id === 'finding:persistence');
+  if (!httpSource || !persistenceSource) throw new Error('Controlled Responsibility findings are unavailable.');
+  const httpInAuth = {
+    ...httpSource,
+    id: 'finding:http:auth',
+    subject: {
+      ...httpSource.subject,
+      id: 'subject:src/auth/auth.service.ts:AuthService',
+      fileId: 'src/auth/auth.service.ts',
+      symbolId: 'AuthService',
+      name: 'AuthService',
+      location: { filePath: 'src/auth/auth.service.ts', line: 4, column: 1 },
+    },
+    evidence: httpSource.evidence.map((item) => ({
+      ...item,
+      id: 'evidence:http:auth',
+      signal: '@Controller("auth")',
+      location: { filePath: 'src/auth/auth.service.ts', line: 4, column: 1 },
+    })),
+  };
+  const persistenceInData = {
+    ...persistenceSource,
+    id: 'finding:persistence:data',
+    subject: {
+      ...persistenceSource.subject,
+      id: 'subject:src/data/data.service.ts:DataService',
+      fileId: 'src/data/data.service.ts',
+      symbolId: 'DataService',
+      name: 'DataService',
+      location: { filePath: 'src/data/data.service.ts', line: 6, column: 1 },
+    },
+    evidence: persistenceSource.evidence.map((item) => ({
+      ...item,
+      id: 'evidence:persistence:data',
+      signal: 'prisma.user.findMany()',
+      location: { filePath: 'src/data/data.service.ts', line: 6, column: 1 },
+    })),
+  };
   return {
     ...snapshot,
     projectLabel: 'Territory Field fixture',
@@ -565,6 +633,10 @@ function systemMapFieldBrowserSnapshot() {
         { sourceFileId: 'src/users.controller.ts', targetFileId: 'src/auth/auth.service.ts', moduleSpecifier: './auth/auth.service', kind: 'internal', evidence: { location: { filePath: 'src/users.controller.ts', line: 1, column: 1 } }, confidence: 'exact' },
         { sourceFileId: 'src/data/data.service.ts', targetFileId: 'src/prisma.service.ts', moduleSpecifier: '../prisma.service', kind: 'internal', evidence: { location: { filePath: 'src/data/data.service.ts', line: 1, column: 1 } }, confidence: 'exact' },
       ],
+    },
+    responsibilities: {
+      ...snapshot.responsibilities,
+      findings: [...snapshot.responsibilities.findings, httpInAuth, persistenceInData],
     },
   };
 }

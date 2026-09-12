@@ -17,6 +17,10 @@ import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-ori
 import { createExplorerSystemOrientationProjection } from '../apps/explorer-web/src/explorer-system-orientation.js';
 import { createExplorerSystemMapProjection } from '../apps/explorer-web/src/explorer-system-map-projection.js';
 import {
+  createExplorerSystemMapResponsibilityOverlayProjection,
+  systemMapResponsibilityOverlay,
+} from '../apps/explorer-web/src/explorer-system-map-responsibility-overlay.js';
+import {
   createSystemMapFieldModel,
   createSystemMapFieldRelationRoute,
   createSystemMapFieldSelection,
@@ -61,6 +65,7 @@ import {
   createInitialExplorerViewState,
   locateResponsibilityFinding,
   selectExplorerResponsibility,
+  selectSystemMapResponsibilityOverlay,
   switchExplorerSurface,
 } from '../apps/explorer-web/src/explorer-view-state.js';
 import {
@@ -906,6 +911,77 @@ test('System Map projects direct src Territories, direct files, and traceable cr
   assert.equal([...clearedSelection.itemAttention.values()].every((attention) => attention === 'resting'), true);
 });
 
+test('System Map Responsibility overlay preserves factual findings and structural geography deterministically', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-system-map-overlay-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  mkdirSync(path.join(projectPath, 'src', 'auth'), { recursive: true });
+  mkdirSync(path.join(projectPath, 'src', 'data'), { recursive: true });
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022' }, include: ['src/**/*.ts'] }));
+  writeFileSync(path.join(projectPath, 'src', 'auth', 'controller.ts'), 'export const controller = 1;\n');
+  writeFileSync(path.join(projectPath, 'src', 'auth', 'guard.ts'), 'export const guard = 1;\n');
+  writeFileSync(path.join(projectPath, 'src', 'data', 'store.ts'), 'export const store = 1;\n');
+  writeFileSync(path.join(projectPath, 'src', 'main.ts'), 'export const main = 1;\n');
+
+  const analysis = analyzeProject(projectPath);
+  const graph = buildProjectGraph(analysis);
+  const territories = createExplorerTerritoryProjection(
+    buildProjectStructure(analysis),
+    graph.nodes.filter((node): node is Extract<typeof node, { kind: 'file' }> => node.kind === 'file'),
+  );
+  const systemMap = createExplorerSystemMapProjection(graph, territories);
+  assert.equal(systemMap.status, 'ready');
+  if (systemMap.status !== 'ready') return;
+
+  const findings = [
+    responsibilityFinding('http-entry-point', 'src/auth/guard.ts', { id: 'finding:http:guard', line: 5 }),
+    responsibilityFinding('http-entry-point', 'src/main.ts', { id: 'finding:http:main', kind: 'file', line: 1 }),
+    responsibilityFinding('http-entry-point', 'src/auth/controller.ts', { id: 'finding:http:controller', line: 2 }),
+    responsibilityFinding('persistence-interaction', 'src/data/store.ts', { id: 'finding:persistence', line: 9 }),
+  ];
+  const responsibilityProjection = createExplorerResponsibilityProjection(responsibilityResult(findings), territories);
+  const overlays = createExplorerSystemMapResponsibilityOverlayProjection(systemMap, responsibilityProjection, territories);
+  const reordered = createExplorerSystemMapResponsibilityOverlayProjection(
+    systemMap,
+    createExplorerResponsibilityProjection(responsibilityResult([...findings].reverse()), territories),
+    territories,
+  );
+  const http = systemMapResponsibilityOverlay(overlays, 'http-entry-point');
+  assert.ok(http);
+  if (!http) return;
+
+  assert.deepEqual(overlays, reordered);
+  assert.deepEqual(overlays.overlays.map(({ responsibility }) => responsibility), [
+    'http-entry-point',
+    'persistence-interaction',
+  ]);
+  assert.equal(http.findingCount, 3);
+  assert.deepEqual(http.locations.map(({ itemId, findingCount }) => ({ itemId, findingCount })), [
+    { itemId: 'directory:src/auth', findingCount: 2 },
+    { itemId: 'src/main.ts', findingCount: 1 },
+  ]);
+  assert.equal(http.locations.some(({ itemId }) => itemId === 'directory:src/data'), false);
+  assert.deepEqual(http.locations[0]?.findings, [findings[2], findings[0]]);
+  assert.deepEqual(http.locations[0]?.fileIds, ['src/auth/controller.ts', 'src/auth/guard.ts']);
+  assert.deepEqual(http.locations[0]?.subjectIds, [findings[2]?.subject.id, findings[0]?.subject.id].sort());
+  assert.deepEqual(http.locations[0]?.evidenceIds, [findings[2]?.evidence[0]?.id, findings[0]?.evidence[0]?.id].sort());
+  assert.deepEqual(http.locations[1]?.findings[0]?.evidence, findings[1]?.evidence);
+
+  const positions = createSystemMapFieldModel(systemMap).items.map(({ item, position }) => ({ id: item.id, position }));
+  const selection = createSystemMapFieldSelection(createSystemMapFieldModel(systemMap), 'directory:src/auth');
+  const moreFindings = createExplorerSystemMapResponsibilityOverlayProjection(
+    systemMap,
+    createExplorerResponsibilityProjection(responsibilityResult([
+      ...findings,
+      responsibilityFinding('http-entry-point', 'src/auth/controller.ts', { id: 'finding:http:extra', line: 12 }),
+    ]), territories),
+    territories,
+  );
+  assert.equal(systemMapResponsibilityOverlay(moreFindings, 'http-entry-point')?.findingCount, 4);
+  assert.deepEqual(createSystemMapFieldModel(systemMap).items.map(({ item, position }) => ({ id: item.id, position })), positions);
+  assert.equal(selection.itemAttention.get('directory:src/auth'), 'selected');
+  assert.equal(systemMapResponsibilityOverlay(overlays, null), null);
+});
+
 test('perspective and Responsibility selection preserve structural location until factual Locate', () => {
   const territories = workspaceSource().territories;
   const finding = responsibilityFinding('http-entry-point', 'packages/library/src/first.ts');
@@ -923,13 +999,19 @@ test('perspective and Responsibility selection preserve structural location unti
   assert.equal(selected.location, locatedElsewhere.location);
   assert.equal(selected.location.currentTerritoryId, 'directory:apps/application/src');
 
-  const overviewFromSelection = switchExplorerSurface(selected, 'overview');
+  const withOverlay = selectSystemMapResponsibilityOverlay(selected, 'http-entry-point');
+  assert.equal(withOverlay.location, selected.location);
+  assert.equal(withOverlay.selectedResponsibility, selected.selectedResponsibility);
+  assert.equal(withOverlay.systemMapResponsibilityOverlay, 'http-entry-point');
+
+  const overviewFromSelection = switchExplorerSurface(withOverlay, 'overview');
   const switched = switchExplorerSurface(overviewFromSelection, 'territory');
   const switchedBack = switchExplorerSurface(switched, 'responsibility');
   assert.equal(overviewFromSelection.location, selected.location);
   assert.equal(switched.location, selected.location);
   assert.equal(switchedBack.location, selected.location);
   assert.equal(switchedBack.selectedResponsibility, 'http-entry-point');
+  assert.equal(switchedBack.systemMapResponsibilityOverlay, 'http-entry-point');
 
   const cleared = clearExplorerResponsibilitySelection(switchedBack);
   assert.equal(cleared.location, switchedBack.location);

@@ -15,6 +15,7 @@ export interface ExplorerViewState {
   location: ExplorerLocation;
   selectedResponsibility: Responsibility | null;
   selectedFindingId: string | null;
+  systemMapResponsibilityOverlay: Responsibility | null;
 }
 
 export type ExplorerSurface = 'overview' | ExplorerPerspective;
@@ -27,7 +28,15 @@ export function createInitialExplorerViewState(
     location: createInitialExplorerLocation(territories),
     selectedResponsibility: null,
     selectedFindingId: null,
+    systemMapResponsibilityOverlay: null,
   };
+}
+
+export function selectSystemMapResponsibilityOverlay(
+  state: ExplorerViewState,
+  responsibility: Responsibility | null,
+): ExplorerViewState {
+  return { ...state, systemMapResponsibilityOverlay: responsibility };
 }
 
 export function switchExplorerSurface(
