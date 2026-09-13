@@ -1,3 +1,8 @@
+.explorer-main-overview {
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--color-canvas);
+}
+
 .system-map {
   min-width: 0;
   min-height: 0;
@@ -30,8 +35,7 @@
   font-size: 17px;
 }
 
-.system-map-heading .eyebrow,
-.system-map-node-kind {
+.system-map-heading .eyebrow {
   color: var(--color-accent);
   font-size: 9px;
   font-weight: 800;
@@ -49,10 +53,7 @@
   gap: 2px;
 }
 
-.system-map-summary dt,
-.system-map-legend,
-.system-map-node > span,
-.system-map-direct-files-band span {
+.system-map-summary dt {
   color: var(--color-text-muted);
   font-size: 9px;
 }
@@ -61,42 +62,6 @@
   color: var(--color-text);
   font-size: 15px;
   font-weight: 750;
-}
-
-.system-map-legend {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px 14px;
-  line-height: 1.35;
-}
-
-.system-map-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.system-map-legend i {
-  display: inline-block;
-  width: 13px;
-  height: 8px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 2px;
-}
-
-.system-map-key-territory {
-  background: var(--color-accent-deep);
-}
-
-.system-map-key-file {
-  background: color-mix(in srgb, var(--color-contextual) 30%, var(--color-surface));
-}
-
-.system-map-key-relation {
-  height: 1px !important;
-  border: 0 !important;
-  background: var(--color-uses);
 }
 
 .system-map-canvas {
@@ -135,92 +100,6 @@
   fill: currentColor;
 }
 
-.react-flow__node-systemMapItem {
-  pointer-events: all !important;
-}
-
-.react-flow__node-directFilesBand {
-  pointer-events: none !important;
-}
-
-.react-flow__node-systemMapItem,
-.react-flow__node-directFilesBand {
-  border: 0;
-  padding: 0;
-  background: transparent;
-}
-
-.system-map-node {
-  width: 100%;
-  height: 100%;
-  display: grid;
-  align-content: center;
-  gap: 4px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-card);
-  padding: 12px 14px;
-  color: var(--color-text);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-card);
-}
-
-.system-map-node-territory {
-  border-top: 3px solid var(--color-accent);
-  background: linear-gradient(150deg, var(--color-accent-deep), var(--color-surface) 48%);
-}
-
-.system-map-node-file {
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--color-contextual) 72%, var(--color-border));
-  background: linear-gradient(150deg, color-mix(in srgb, var(--color-contextual) 17%, var(--color-surface)), var(--color-surface) 58%);
-}
-
-.system-map-node strong {
-  overflow: hidden;
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.system-map-node > span:not(.system-map-node-kind) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.system-map-node button {
-  min-height: auto;
-  justify-self: start;
-  border: 0;
-  padding: 2px 0;
-  color: var(--color-accent-strong);
-  background: transparent;
-  font-size: 10px;
-}
-
-.system-map-node .react-flow__handle {
-  width: 8px;
-  height: 8px;
-  border: 2px solid var(--color-canvas);
-  background: #7f9bab;
-}
-
-.system-map-direct-files-band {
-  width: 100%;
-  height: 100%;
-  border: 1px dashed color-mix(in srgb, var(--color-contextual) 55%, var(--color-border));
-  border-radius: var(--radius-panel);
-  padding: 10px 14px;
-  color: var(--color-text-secondary);
-  background: color-mix(in srgb, var(--color-contextual) 5%, var(--color-technical));
-}
-
-.system-map-direct-files-band strong {
-  display: block;
-  margin-bottom: 2px;
-  font-size: 11px;
-}
-
 .system-map-empty-region {
   min-height: 0;
   display: grid;
@@ -246,10 +125,6 @@
     grid-template-columns: minmax(180px, 0.7fr) 1fr;
   }
 
-  .system-map-legend {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-  }
 }
 
 @media (max-width: 760px) {
@@ -267,7 +142,4 @@
     gap: 12px;
   }
 
-  .system-map-legend {
-    grid-column: 1;
-  }
 }

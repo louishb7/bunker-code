@@ -5,7 +5,12 @@ import {
   getWorkspacePackageForFile,
   getWorkspacePackages,
 } from '@bunker-code/graph-engine';
-import type { ProjectGraph, ProjectStructure } from '@bunker-code/graph-engine';
+import type {
+  ProjectGraph,
+  ProjectGraphEdge,
+  ProjectStructure,
+  UnresolvedGraphDependency,
+} from '@bunker-code/graph-engine';
 
 export interface ExplorerSystemOrientationProjection {
   packageConnections: ExplorerPackageConnection[];
@@ -32,6 +37,7 @@ export interface ExplorerExternalModuleUsage {
   moduleSpecifier: string;
   sourceFileIds: string[];
   sourcePackageIds: string[];
+  fileEdges: ProjectGraphEdge[];
 }
 
 export interface ExplorerCycleObservation {
@@ -48,6 +54,7 @@ export interface ExplorerUnresolvedDependencyObservation {
   sourceFileId: string;
   moduleSpecifier: string;
   reason: string;
+  dependency: UnresolvedGraphDependency;
 }
 
 export function createExplorerSystemOrientationProjection(
@@ -82,8 +89,10 @@ export function createExplorerSystemOrientationProjection(
       moduleSpecifier: edge.moduleSpecifier,
       sourceFileIds: [],
       sourcePackageIds: [],
+      fileEdges: [],
     };
     usage.sourceFileIds.push(edge.sourceNodeId);
+    usage.fileEdges.push(edge);
     const sourcePackage = getWorkspacePackageForFile(structure, edge.sourceNodeId);
     if (sourcePackage) usage.sourcePackageIds.push(sourcePackage.id);
     externalModulesBySpecifier.set(edge.moduleSpecifier, usage);
@@ -96,6 +105,7 @@ export function createExplorerSystemOrientationProjection(
         ...usage,
         sourceFileIds: [...new Set(usage.sourceFileIds)].sort(),
         sourcePackageIds: [...new Set(usage.sourcePackageIds)].sort(),
+        fileEdges: [...usage.fileEdges].sort((left, right) => left.id.localeCompare(right.id)),
       }))
       .sort((left, right) => left.moduleSpecifier.localeCompare(right.moduleSpecifier)),
     cycles: detectCycles(graph).map((cycle) => ({ fileIds: [...cycle.nodeIds] })),
@@ -105,6 +115,7 @@ export function createExplorerSystemOrientationProjection(
       sourceFileId: dependency.sourceNodeId,
       moduleSpecifier: dependency.moduleSpecifier,
       reason: dependency.reason,
+      dependency,
     })),
   };
 }

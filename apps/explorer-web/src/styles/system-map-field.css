@@ -314,6 +314,55 @@
   margin-top: 0;
 }
 
+.system-map-field-summary {
+  display: grid;
+  align-content: start;
+}
+
+.system-map-context > details {
+  border-top: 1px solid color-mix(in srgb, var(--color-border-subtle) 70%, transparent);
+  padding: 7px 0;
+}
+
+.system-map-context > details > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.system-map-context summary small,
+.system-map-context li > span {
+  color: var(--color-text-muted);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.system-map-context > details > ul {
+  margin-top: 7px;
+}
+
+.system-map-context li {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 7px;
+  border-left: 2px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-quiet) 78%, transparent);
+  overflow-wrap: anywhere;
+  font-size: 10px;
+}
+
+.system-map-context li details summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 9px;
+}
+
 .system-map-overlay-evidence > strong,
 .system-map-overlay-summary > strong {
   color: var(--color-text);

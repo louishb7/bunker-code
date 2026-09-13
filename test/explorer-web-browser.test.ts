@@ -73,6 +73,11 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
     assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-overlay')), 'structure');
     assert.equal(await page.$$eval('[data-responsibility-overlay-state="inactive"]', (items) => items.length), 6);
     assert.equal(await page.$$eval('.system-map-field-item .react-flow__handle', (handles) => handles.every((handle) => getComputedStyle(handle).opacity === '0')), true);
+    assert.ok(await page.$('[data-system-map-context="system"]'));
+    assert.ok(await page.$('[data-system-context-section="external-touchpoints"]'));
+    assert.ok(await page.$('[data-system-context-section="analysis-limits"]'));
+    assert.ok(await page.$('[data-system-context-section="unresolved-dependencies"]'));
+    assert.equal(await page.$('[data-analysis-limit="evaluated"]'), null);
     const fieldPositions = await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
       id: item.getAttribute('data-system-map-item-id'),
       transform: item.parentElement?.style.transform,
@@ -101,7 +106,21 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
     assert.equal(await page.$$eval('[data-field-attention="outgoing"]', (items) => items.length), 1);
     assert.equal(await page.$$eval('[data-field-attention="incoming"]', (items) => items.length), 1);
     assert.ok(await page.$('[data-system-map-responsibility-evidence="http-entry-point"] [data-system-map-responsibility-finding="finding:http:auth"]'));
-    assert.equal(await page.$eval('[data-system-map-field-inspector]', (element) => element.textContent?.includes('Structural connections') && element.textContent.includes('Responsibility evidence')), true);
+    assert.equal(await page.$eval('[data-system-map-field-inspector]', (element) => (
+      element.textContent?.includes('Structural connections')
+      && element.textContent.includes('Responsibility evidence')
+      && element.textContent.includes('System context')
+      && element.textContent.includes('architectural role is not inferred')
+    )), true);
+    await page.click('[data-system-map-context="item"] [data-system-context-section="external-touchpoints"] > summary');
+    assert.ok(await page.$('[data-system-map-context="item"] [data-external-touchpoint="@nestjs/common"]'));
+    await page.click('[data-system-map-context="item"] [data-external-touchpoint="@nestjs/common"] details summary');
+    assert.equal(await page.$eval('[data-external-touchpoint="@nestjs/common"]', (element) => element.textContent?.includes('src/auth/auth.service.ts:2:1') && element.textContent.includes('inferred')), true);
+    await page.click('[data-system-map-context="item"] [data-system-context-section="analysis-limits"] > summary');
+    assert.equal(await page.$('[data-system-map-context="item"] [data-analysis-limit="evaluated"]'), null);
+    assert.equal(await page.$eval('[data-system-map-context="item"] [data-system-context-section="analysis-limits"]', (element) => element.textContent?.includes('Partially evaluated') && element.textContent.includes('not evidence that a Responsibility is absent')), true);
+    await page.click('[data-system-map-context="item"] [data-system-context-section="unresolved-dependencies"] > summary');
+    assert.equal(await page.$eval('[data-system-map-context="item"] [data-unresolved-dependency]', (element) => element.textContent?.includes('./missing-auth') && element.textContent.includes('relative-target-not-found') && element.textContent.includes('src/auth/auth.service.ts:3:1')), true);
     await page.click('[data-system-map-responsibility-finding="finding:http:auth"] summary');
     assert.equal(await page.$eval('[data-system-map-responsibility-finding="finding:http:auth"]', (element) => element.textContent?.includes('test.nestjs') && element.textContent.includes('@Controller("auth")')), true);
     assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
@@ -204,26 +223,6 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
     assert.equal(await page.$eval('[data-file-landmark][aria-pressed="true"]', (element) => element.textContent?.includes('prisma.service.ts')), true);
 
     await page.setViewport({ width: 1440, height: 900 });
-
-    await page.goto(`http://127.0.0.1:${address.port}/?l0-experiment=structure-first`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-l0-experiment="structure-first"]', { timeout: 5000 });
-    const factualInput = await page.$eval('[data-l0-experiment]', (element) => element.getAttribute('data-factual-input'));
-    assert.equal(await page.$('.react-flow'), null);
-    assert.equal(await page.$eval('[data-l0-structure-first]', (element) => element.textContent?.includes('Architectural meaning not established.')), true);
-    assert.equal(await page.$eval('[data-l0-structure-first]', (element) => element.getAttribute('data-focused-territory')), 'analysis-root:.');
-    assert.equal(await page.$('[data-l0-structure-first] [data-importance]'), null);
-    await page.click('[data-l0-structural-child="directory:src"] button');
-    assert.equal(await page.$eval('[data-l0-structure-first]', (element) => element.getAttribute('data-focused-territory')), 'directory:src');
-
-    await page.goto(`http://127.0.0.1:${address.port}/?l0-experiment=evidence-first`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-l0-experiment="evidence-first"]', { timeout: 5000 });
-    assert.equal(await page.$eval('[data-l0-experiment]', (element) => element.getAttribute('data-factual-input')), factualInput);
-    assert.ok(await page.$('[data-l0-responsibility="http-entry-point"]'));
-    assert.equal(await page.$('.react-flow'), null);
-    assert.equal(await page.$('[data-l0-uncertainty] [data-responsibility-coverage="evaluated"]'), null);
-    assert.equal(await page.$eval('[data-l0-evidence-first]', (element) => element.getAttribute('data-selected-responsibility')), '');
-    await page.click('[data-l0-responsibility="http-entry-point"] button');
-    assert.ok(await page.$('[data-l0-evidence-location="directory:src"]'));
 
     await page.goto(`http://127.0.0.1:${address.port}/`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('[data-system-map-status="ready"]', { timeout: 5000 });
@@ -357,13 +356,6 @@ test('Explorer navigates factual territories and focused file relationships in a
     assert.equal(await page.$eval('[data-system-map]', (element) => element.textContent?.includes('No alternative area is inferred')), true);
     assert.equal(await page.$('.react-flow'), null);
     assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 220), true);
-    await page.goto(`http://127.0.0.1:${address.port}/?l0-experiment=evidence-first`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-l0-zero-responsibility]', { timeout: 5000 });
-    assert.equal(await page.$$('[data-l0-fallback-part]').then((parts) => parts.length > 0), true);
-    assert.equal(await page.$('.react-flow'), null);
-    assert.equal(await page.$('[data-l0-uncertainty] [data-responsibility-coverage="evaluated"]'), null);
-    await page.goto(`http://127.0.0.1:${address.port}/`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-system-map-status="source-territory-unavailable"]', { timeout: 5000 });
     if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
       await page.screenshot({ path: '/tmp/bunkercode-system-map-overview-1440.png', fullPage: true });
     }
@@ -508,7 +500,6 @@ async function buildResponsibilityHarness(harnessRoot: string): Promise<string> 
   const distDirectory = path.join(harnessRoot, 'dist');
   const explorerModule = path.join(appRoot, 'src', 'explorer-app.tsx');
   const runtimeModule = path.join(appRoot, 'src', 'explorer-runtime.ts');
-  const experimentModelModule = path.join(appRoot, 'src', 'explorer-l0-experiment-model.ts');
   const reactFlowStyles = path.join(appRoot, 'node_modules', '@xyflow', 'react', 'dist', 'style.css');
   const explorerStyles = path.join(appRoot, 'src', 'styles.css');
   const controlledSnapshot = responsibilityBrowserSnapshot();
@@ -518,7 +509,6 @@ async function buildResponsibilityHarness(harnessRoot: string): Promise<string> 
     import { createRoot } from 'react-dom/client';
     import { Explorer } from ${JSON.stringify(explorerModule)};
     import { createExplorerRuntime } from ${JSON.stringify(runtimeModule)};
-    import { readExplorerL0ExperimentVariant } from ${JSON.stringify(experimentModelModule)};
     import ${JSON.stringify(reactFlowStyles)};
     import ${JSON.stringify(explorerStyles)};
 
@@ -529,7 +519,7 @@ async function buildResponsibilityHarness(harnessRoot: string): Promise<string> 
     if (runtime.kind !== 'ready') throw new Error('Controlled Explorer runtime is not ready.');
     const root = document.getElementById('root');
     if (!root) throw new Error('Harness root not found.');
-    createRoot(root).render(<Explorer graph={runtime.graph} structure={runtime.structure} responsibilities={runtime.responsibilities} projectLabel={runtime.projectLabel} experimentalL0Variant={readExplorerL0ExperimentVariant(window.location.search) ?? undefined} useLegacySystemMap={new URLSearchParams(window.location.search).get('system-map-renderer') === 'legacy'} />);
+    createRoot(root).render(<Explorer graph={runtime.graph} structure={runtime.structure} responsibilities={runtime.responsibilities} projectLabel={runtime.projectLabel} />);
   `);
 
   await build({
@@ -698,8 +688,12 @@ function systemMapFieldBrowserSnapshot() {
       ],
       dependencies: [
         { sourceFileId: 'src/auth/auth.service.ts', targetFileId: 'src/data/data.service.ts', moduleSpecifier: '../data/data.service', kind: 'internal', evidence: { location: { filePath: 'src/auth/auth.service.ts', line: 1, column: 1 } }, confidence: 'exact' },
+        { sourceFileId: 'src/auth/auth.service.ts', moduleSpecifier: '@nestjs/common', kind: 'external', evidence: { location: { filePath: 'src/auth/auth.service.ts', line: 2, column: 1 } }, confidence: 'inferred' },
         { sourceFileId: 'src/users.controller.ts', targetFileId: 'src/auth/auth.service.ts', moduleSpecifier: './auth/auth.service', kind: 'internal', evidence: { location: { filePath: 'src/users.controller.ts', line: 1, column: 1 } }, confidence: 'exact' },
         { sourceFileId: 'src/data/data.service.ts', targetFileId: 'src/prisma.service.ts', moduleSpecifier: '../prisma.service', kind: 'internal', evidence: { location: { filePath: 'src/data/data.service.ts', line: 1, column: 1 } }, confidence: 'exact' },
+      ],
+      unresolvedDependencies: [
+        { sourceFileId: 'src/auth/auth.service.ts', moduleSpecifier: './missing-auth', reason: 'relative-target-not-found', evidence: { location: { filePath: 'src/auth/auth.service.ts', line: 3, column: 1 } }, confidence: 'exact' },
       ],
     },
     responsibilities: {

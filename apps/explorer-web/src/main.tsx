@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import '@xyflow/react/dist/style.css';
 import snapshot from './generated/analyzer-typescript.snapshot.json';
 import { Explorer } from './explorer-app.js';
-import { readExplorerL0ExperimentVariant } from './explorer-l0-experiment-model.js';
 import { createExplorerRuntime, type ExplorerRuntimeState } from './explorer-runtime.js';
 import { StatusScreen } from './explorer-shell.js';
 import './styles.css';
@@ -33,8 +32,6 @@ function App() {
       structure={runtime.structure}
       responsibilities={runtime.responsibilities}
       projectLabel={runtime.projectLabel}
-      experimentalL0Variant={readExplorerL0ExperimentVariant(window.location.search) ?? undefined}
-      useLegacySystemMap={new URLSearchParams(window.location.search).get('system-map-renderer') === 'legacy'}
     />
   );
 }

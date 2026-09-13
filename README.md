@@ -99,8 +99,7 @@ emphasizes every incident direction as **Uses** or **Used by**, and selecting a
 relation discloses its observed count and originating file-edge evidence in a
 stable inspector rail outside the canvas. Position follows factual item order
 only; dependency direction, counts, project identity, and selection do not
-affect geography. The former layered renderer remains available only for local
-comparison through the system-map-renderer=legacy query parameter.
+affect geography.
 
 The default **Structure** view contains no Responsibility emphasis. An active
 overlay highlights only Territory or direct-file items containing findings for
@@ -109,49 +108,17 @@ shows raw observed-finding counts only as secondary information. Selection
 continues to prioritize Uses / Used by, while the inspector separates those
 structural connections from the active Responsibility evidence and provenance.
 Overlay counts do not affect position, size, relation meaning, or importance.
+The inspector also carries secondary System context after structural and active
+Responsibility evidence. It summarizes observed external-module imports,
+unresolved dependencies, incomplete Responsibility evaluation, dependency
+cycles, and isolated files; selecting a map item narrows file-scoped context to
+that item. External modules do not become Territories, unresolved targets do
+not become nodes or edges, and evaluated coverage is not presented as a limit.
+Territories remain observed structure whose architectural role is not inferred.
+
 At narrow widths the same canvas and model positions remain in use while the
 inspector moves below the map; touch-independent zoom/fit controls and page
 scroll keep dense systems investigable without hiding Territories or relations.
-
-The retained comprehension projection used by the controlled L0 experiment
-reuses System Orientation for factual cross-package dependency directions,
-actually imported external-module
-touchpoints, cycles, isolated files, and unresolved dependencies. Territory,
-file, and subject IDs remain the anchors back to existing evidence. Observable
-parts are exactly the direct structural children already projected at System
-scale; workspace packages are not promoted over an aggregate Territory. A
-Responsibility finding proves only localized subject evidence and never
-establishes the architectural meaning of its containing part. That meaning
-remains explicitly undetermined whether findings exist or not. Only partial,
-not-evaluated, unsupported, and failed coverage belongs to comprehension
-uncertainty; evaluated coverage remains available from the original
-Responsibility projection. No analyzer, detector, contract, graph-engine fact,
-score, or architectural category is introduced by this presentation layer.
-
-An auxiliary Web-local structural evidence distribution projects only existing
-positive Responsibility findings over that same Territory hierarchy. Each
-Territory keeps direct local findings separate from subtree totals and exposes
-deterministic counts by Responsibility for its direct structural children.
-The System remains the root and zero-finding Territories remain present. This
-experimental model neither selects a preferred scale nor interprets a
-directory, package, finding concentration, or structural boundary as an
-architectural role. It is not integrated into Overview; the final L0 visual
-grammar remains undecided. Every finding count is raw detector output volume,
-not normalized architectural weight, importance, relevance, risk, or priority.
-The distribution proves that this volume can be decomposed by factual
-containment; whether that decomposition reduces cognitive load or belongs in
-L0 remains unvalidated.
-
-An isolated Experiment 3 harness compares two controlled L0 references over
-exactly that same fact set. Append `?l0-experiment=structure-first` to inspect
-direct structural children progressively, or
-`?l0-experiment=evidence-first` to inspect positive Responsibility evidence by
-its factual structural locations. Without either query value, the normal
-Overview remains the factual System Map. Both variants reuse the same
-comprehension and distribution projections, keep Relations and Uncertainty
-identical, and show finding counts only as raw text. The harness is removable
-experimental infrastructure: neither variant, their starting scale, nor any automatic
-selection between them is a product decision.
 
 Its sole structural navigation model is `ExplorerLocation`
 over an `ExplorerTerritoryProjection`: root shows direct Territories and files;

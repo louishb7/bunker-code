@@ -36,10 +36,15 @@ import {
   type ExplorerSystemMapResponsibilityOverlayProjection,
 } from './explorer-system-map-responsibility-overlay.js';
 import {
+  coverageStatusLabel,
   responsibilityLabel,
   responsibilityLocationLabel,
   responsibilitySubjectLabel,
 } from './explorer-responsibility-language.js';
+import {
+  systemMapContextForItem,
+  type ExplorerSystemMapContextProjection,
+} from './explorer-system-map-context.js';
 
 interface FieldNodeData extends Record<string, unknown> {
   item?: ExplorerSystemMapItem;
@@ -71,6 +76,7 @@ export function ExplorerSystemMapField({
   projectLabel,
   projection,
   responsibilityOverlays,
+  systemContext,
   activeResponsibility,
   onResponsibilityOverlayChange,
   onOpenTerritory,
@@ -79,6 +85,7 @@ export function ExplorerSystemMapField({
   projectLabel: string;
   projection: Extract<ExplorerSystemMapProjection, { status: 'ready' }>;
   responsibilityOverlays: ExplorerSystemMapResponsibilityOverlayProjection;
+  systemContext: ExplorerSystemMapContextProjection;
   activeResponsibility: Responsibility | null;
   onResponsibilityOverlayChange(responsibility: Responsibility | null): void;
   onOpenTerritory(territoryId: string): void;
@@ -144,6 +151,10 @@ export function ExplorerSystemMapField({
     };
   }), [itemsById, model.relations, selectedRelationId, selection.relationDirections]);
   const selectedItem = selectedItemId ? itemsById.get(selectedItemId) : undefined;
+  const selectedItemContext = useMemo(
+    () => selectedItemId ? systemMapContextForItem(systemContext, selectedItemId) : systemContext,
+    [selectedItemId, systemContext],
+  );
   const selectedRelation = selectedRelationId
     ? projection.relations.find((relation) => relation.id === selectedRelationId)
     : undefined;
@@ -235,6 +246,7 @@ export function ExplorerSystemMapField({
               itemsById={itemsById}
               activeOverlay={activeOverlay}
               overlayLocation={overlayLocationsByItemId.get(selectedItem.id)}
+              systemContext={selectedItemContext}
               onOpen={() => selectedItem.kind === 'territory'
                 ? onOpenTerritory(selectedItem.territory.id)
                 : onOpenFile(selectedItem.file.id)}
@@ -245,13 +257,8 @@ export function ExplorerSystemMapField({
             />
           ) : selectedRelation ? (
             <FieldRelationInspector relation={selectedRelation} itemsById={itemsById} />
-          ) : activeOverlay ? (
-            <FieldOverlaySummary overlay={activeOverlay} />
           ) : (
-            <div className="system-map-field-empty-inspector">
-              <span>System Map inspector</span>
-              <p>Select a Territory or direct file to inspect its connections.</p>
-            </div>
+            <FieldSystemSummary overlay={activeOverlay} systemContext={systemContext} />
           )}
         </aside>
       </div>
@@ -388,6 +395,7 @@ function FieldItemInspector({
   itemsById,
   activeOverlay,
   overlayLocation,
+  systemContext,
   onOpen,
   onInspectRelation,
 }: {
@@ -396,6 +404,7 @@ function FieldItemInspector({
   itemsById: Map<string, ExplorerSystemMapItem>;
   activeOverlay: ExplorerSystemMapResponsibilityOverlay | null;
   overlayLocation?: ExplorerSystemMapResponsibilityLocation;
+  systemContext: ExplorerSystemMapContextProjection;
   onOpen(): void;
   onInspectRelation(relationId: string): void;
 }) {
@@ -412,9 +421,116 @@ function FieldItemInspector({
       {activeOverlay ? (
         <FieldResponsibilityEvidence overlay={activeOverlay} location={overlayLocation} />
       ) : null}
+      <FieldSystemContext context={systemContext} scope="item" />
       <button type="button" onClick={onOpen}>{item.kind === 'territory' ? 'Open Territory' : 'Inspect file'}</button>
     </div>
   );
+}
+
+function FieldSystemSummary({
+  overlay,
+  systemContext,
+}: {
+  overlay: ExplorerSystemMapResponsibilityOverlay | null;
+  systemContext: ExplorerSystemMapContextProjection;
+}) {
+  return (
+    <div className="system-map-field-summary">
+      {overlay ? <FieldOverlaySummary overlay={overlay} /> : (
+        <div className="system-map-field-empty-inspector">
+          <span>System Map inspector</span>
+          <p>Select a Territory or direct file to inspect its connections.</p>
+        </div>
+      )}
+      <FieldSystemContext context={systemContext} scope="system" />
+    </div>
+  );
+}
+
+function FieldSystemContext({
+  context,
+  scope,
+}: {
+  context: ExplorerSystemMapContextProjection;
+  scope: 'system' | 'item';
+}) {
+  return (
+    <section className="system-map-field-inspector-section system-map-context" data-system-map-context={scope}>
+      <h3>System context</h3>
+      <p>Territories represent observed structure; architectural role is not inferred.</p>
+      {context.externalTouchpoints.length > 0 ? (
+        <details data-system-context-section="external-touchpoints">
+          <summary>External touchpoints <small>{context.externalTouchpoints.length} observed module{context.externalTouchpoints.length === 1 ? '' : 's'}</small></summary>
+          <p>Analyzed files represented here import these external modules. Runtime communication is not established.</p>
+          <ul>{context.externalTouchpoints.map((touchpoint) => (
+            <li key={touchpoint.moduleSpecifier} data-external-touchpoint={touchpoint.moduleSpecifier}>
+              <strong><code>{touchpoint.moduleSpecifier}</code></strong>
+              <span>{touchpoint.sources.length} observed import location{touchpoint.sources.length === 1 ? '' : 's'}</span>
+              <details>
+                <summary>How BunkerCode knows</summary>
+                <ul>{touchpoint.sources.map(({ edge }) => (
+                  <li key={edge.id}>
+                    <code>{edge.sourceNodeId}</code>
+                    <span>{edge.evidence.location.filePath}:{edge.evidence.location.line}:{edge.evidence.location.column} · {edge.confidence}</span>
+                  </li>
+                ))}</ul>
+              </details>
+            </li>
+          ))}</ul>
+        </details>
+      ) : null}
+      {context.analysisLimits.length > 0 ? (
+        <details data-system-context-section="analysis-limits">
+          <summary>Analysis limits <small>{context.analysisLimits.length} incomplete evaluation{context.analysisLimits.length === 1 ? '' : 's'}</small></summary>
+          <p>Incomplete evaluation is not evidence that a Responsibility is absent.</p>
+          <ul>{context.analysisLimits.map((limit) => (
+            <li key={`${limit.coverage.capability}:${coverageScopeKey(limit.coverage)}`} data-analysis-limit={limit.coverage.status}>
+              <strong>{responsibilityLabel(limit.coverage.capability)}</strong>
+              <span>{coverageStatusLabel(limit.coverage.status)} · {coverageScopeLabel(limit.coverage)}</span>
+              {limit.limitations.map((limitation) => <span key={limitation.id}>{limitation.message}</span>)}
+              {limit.coverage.status === 'failed' ? <span>{limit.coverage.failure.message}</span> : null}
+            </li>
+          ))}</ul>
+        </details>
+      ) : null}
+      {context.unresolvedDependencies.length > 0 ? (
+        <details data-system-context-section="unresolved-dependencies">
+          <summary>Unresolved dependencies <small>{context.unresolvedDependencies.length} observed</small></summary>
+          <ul>{context.unresolvedDependencies.map(({ dependency }) => (
+            <li key={dependency.id} data-unresolved-dependency={dependency.id}>
+              <strong><code>{dependency.moduleSpecifier}</code></strong>
+              <span>{dependency.reason}</span>
+              <span>{dependency.evidence.location.filePath}:{dependency.evidence.location.line}:{dependency.evidence.location.column} · {dependency.confidence}</span>
+            </li>
+          ))}</ul>
+        </details>
+      ) : null}
+      {context.cycles.length > 0 ? (
+        <details data-system-context-section="dependency-cycles">
+          <summary>Dependency cycles <small>{context.cycles.length} observed</small></summary>
+          <ul>{context.cycles.map((cycle) => <li key={cycle.id}>{cycle.fileIds.join(' → ')}</li>)}</ul>
+        </details>
+      ) : null}
+      {context.isolatedFiles.length > 0 ? (
+        <details data-system-context-section="isolated-files">
+          <summary>Isolated files <small>{context.isolatedFiles.length} observed</small></summary>
+          <ul>{context.isolatedFiles.map((file) => <li key={file.fileId}><code>{file.fileId}</code></li>)}</ul>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+function coverageScopeLabel(coverage: ExplorerSystemMapContextProjection['analysisLimits'][number]['coverage']): string {
+  if (coverage.scope.kind === 'project') return 'project scope';
+  if (coverage.scope.kind === 'file') return coverage.scope.fileId;
+  return `${coverage.scope.fileId} · subject ${coverage.scope.subjectId}`;
+}
+
+function coverageScopeKey(coverage: ExplorerSystemMapContextProjection['analysisLimits'][number]['coverage']): string {
+  if (coverage.scope.kind === 'project') return 'project';
+  if (coverage.scope.kind === 'file') return `file:${coverage.scope.fileId}`;
+  return `subject:${coverage.scope.fileId}:${coverage.scope.subjectId}`;
 }
 
 function FieldOverlaySummary({ overlay }: { overlay: ExplorerSystemMapResponsibilityOverlay }) {

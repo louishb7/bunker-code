@@ -17,6 +17,10 @@ import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-ori
 import { createExplorerSystemOrientationProjection } from '../apps/explorer-web/src/explorer-system-orientation.js';
 import { createExplorerSystemMapProjection } from '../apps/explorer-web/src/explorer-system-map-projection.js';
 import {
+  createExplorerSystemMapContextProjection,
+  systemMapContextForItem,
+} from '../apps/explorer-web/src/explorer-system-map-context.js';
+import {
   createExplorerSystemMapResponsibilityOverlayProjection,
   systemMapResponsibilityOverlay,
 } from '../apps/explorer-web/src/explorer-system-map-responsibility-overlay.js';
@@ -25,12 +29,6 @@ import {
   createSystemMapFieldRelationRoute,
   createSystemMapFieldSelection,
 } from '../apps/explorer-web/src/explorer-system-map-field-model.js';
-import { createExplorerComprehensionProjection } from '../apps/explorer-web/src/explorer-comprehension-projection.js';
-import {
-  createExplorerL0ExperimentModel,
-  readExplorerL0ExperimentVariant,
-} from '../apps/explorer-web/src/explorer-l0-experiment-model.js';
-import { createExplorerStructuralEvidenceDistribution } from '../apps/explorer-web/src/explorer-structural-evidence-distribution.js';
 import {
   createExplorerProjection,
   type ExplorerProjection,
@@ -228,10 +226,14 @@ test('System Orientation derives package directions, external module use, and st
     target: { id: 'workspace-package:packages/library', label: 'packages/library', rootPath: 'packages/library' },
     fileDependencyCount: 2,
   }]);
-  assert.deepEqual(orientation.externalModules, [{
+  assert.deepEqual(orientation.externalModules.map(({ fileEdges, ...usage }) => ({
+    ...usage,
+    fileEdgeIds: fileEdges.map((edge) => edge.id),
+  })), [{
     moduleSpecifier: 'external-package',
     sourceFileIds: ['apps/application/src/main.ts'],
     sourcePackageIds: ['workspace-package:apps/application'],
+    fileEdgeIds: graph.edges.filter((edge) => edge.dependencyKind === 'external').map((edge) => edge.id),
   }]);
   assert.deepEqual(orientation.cycles, []);
   assert.deepEqual(orientation.isolatedFiles, [
@@ -270,351 +272,19 @@ test('System Orientation preserves cycle and unresolved-dependency observations 
   const orientation = createExplorerSystemOrientationProjection(observedGraph, structure);
 
   assert.deepEqual(orientation.cycles, [{ fileIds: ['packages/library/src/first.ts', 'packages/library/src/second.ts', 'packages/library/src/first.ts'] }]);
-  assert.deepEqual(orientation.unresolvedDependencies, [{
+  assert.deepEqual(orientation.unresolvedDependencies.map(({ dependency, ...observation }) => ({
+    ...observation,
+    evidence: dependency.evidence,
+    confidence: dependency.confidence,
+  })), [{
     id: 'orphan.ts -> ./missing.js ? 1:1',
     sourceFileId: 'orphan.ts',
     moduleSpecifier: './missing.js',
     reason: 'relative-target-not-found',
+    evidence: edge.evidence,
+    confidence: edge.confidence,
   }]);
 });
-
-test('comprehension projection keeps factual Responsibilities linked to their existing subjects and observable parts', () => {
-  const source = workspaceSource();
-  const orientation = createExplorerSystemOrientationProjection(source.graph, source.structure);
-  const responsibilities = createExplorerResponsibilityProjection(
-    responsibilityResult([responsibilityFinding('http-entry-point', 'apps/application/src/main.ts')]),
-    source.territories,
-  );
-  const comprehension = createExplorerComprehensionProjection(source.territories, orientation, responsibilities);
-
-  assert.equal(comprehension.observableParts.length > 0, true);
-  assert.deepEqual(comprehension.knownResponsibilities.map((finding) => ({
-    id: finding.id,
-    kind: finding.kind,
-    responsibility: finding.responsibility,
-    observablePartId: finding.observablePartId,
-    anchor: finding.anchor,
-  })), [{
-    id: 'finding:http-entry-point:apps/application/src/main.ts:1',
-    kind: 'responsibility-finding',
-    responsibility: 'http-entry-point',
-    observablePartId: 'workspace-package:apps/application',
-    anchor: {
-      kind: 'subject',
-      subjectId: 'subject:apps/application/src/main.ts:method:subject',
-      fileId: 'apps/application/src/main.ts',
-      territoryId: 'directory:apps/application/src',
-      location: { filePath: 'apps/application/src/main.ts', line: 1, column: 1 },
-    },
-  }]);
-  assert.equal(
-    comprehension.uncertainty.architecturalMeaningUndetermined
-      .some((item) => item.observablePartId === 'workspace-package:apps/application'),
-    true,
-  );
-});
-
-test('multiple factual Responsibilities remain localized evidence without establishing part-level meaning', () => {
-  const source = workspaceSource();
-  const responsibilities = createExplorerResponsibilityProjection(responsibilityResult([
-    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http' }),
-    responsibilityFinding('access-control', 'apps/application/src/main.ts', { id: 'finding:access', line: 2 }),
-  ]), source.territories);
-  const comprehension = createExplorerComprehensionProjection(
-    source.territories,
-    createExplorerSystemOrientationProjection(source.graph, source.structure),
-    responsibilities,
-  );
-
-  assert.deepEqual(comprehension.knownResponsibilities.map((finding) => finding.id), ['finding:access', 'finding:http']);
-  assert.equal(
-    comprehension.uncertainty.architecturalMeaningUndetermined
-      .some((item) => item.observablePartId === 'workspace-package:apps/application'),
-    true,
-  );
-});
-
-test('comprehension projection preserves structural orientation when no Responsibility finding exists', () => {
-  const source = workspaceSource();
-  const comprehension = createExplorerComprehensionProjection(
-    source.territories,
-    createExplorerSystemOrientationProjection(source.graph, source.structure),
-    createExplorerResponsibilityProjection(responsibilityResult([]), source.territories),
-  );
-
-  assert.equal(comprehension.observableParts.some((part) => part.id === 'workspace-package:apps/application'), true);
-  assert.equal(comprehension.observableParts.some((part) => part.id === 'workspace-package:packages/library'), false);
-  assert.equal(comprehension.observableParts.some((part) => part.id === 'orphan.ts' && part.kind === 'file'), true);
-  assert.equal(comprehension.observableParts.some((part) => part.id === 'directory:packages'), true);
-  assert.deepEqual(comprehension.knownResponsibilities, []);
-  assert.deepEqual(
-    comprehension.uncertainty.architecturalMeaningUndetermined.map((item) => item.observablePartId),
-    comprehension.observableParts.map((part) => part.id),
-  );
-  assert.equal('architecture' in comprehension.observableParts[0]!, false);
-  assert.equal('subsystem' in comprehension.observableParts[0]!, false);
-});
-
-test('comprehension projection preserves package direction and classifies external imports only as factual touchpoints', () => {
-  const source = workspaceSource();
-  const comprehension = createExplorerComprehensionProjection(
-    source.territories,
-    createExplorerSystemOrientationProjection(source.graph, source.structure),
-    createExplorerResponsibilityProjection(responsibilityResult([]), source.territories),
-  );
-  const packageRelation = comprehension.factualRelations.find((relation) => relation.kind === 'package-dependency');
-  const externalTouchpoint = comprehension.factualRelations.find((relation) => relation.kind === 'external-module-touchpoint');
-
-  assert.ok(packageRelation && packageRelation.kind === 'package-dependency');
-  assert.deepEqual({ source: packageRelation.source.id, target: packageRelation.target.id }, {
-    source: 'workspace-package:apps/application',
-    target: 'workspace-package:packages/library',
-  });
-  assert.deepEqual({ source: packageRelation.source.anchor, target: packageRelation.target.anchor }, {
-    source: { kind: 'territory', territoryId: 'workspace-package:apps/application', path: './apps/application' },
-    target: { kind: 'territory', territoryId: 'workspace-package:packages/library', path: './packages/library' },
-  });
-  assert.ok(externalTouchpoint && externalTouchpoint.kind === 'external-module-touchpoint');
-  assert.equal(externalTouchpoint.moduleSpecifier, 'external-package');
-  assert.deepEqual(externalTouchpoint.sourceAnchors, [{
-    kind: 'file',
-    fileId: 'apps/application/src/main.ts',
-    path: 'apps/application/src/main.ts',
-  }]);
-  assert.equal('integration' in externalTouchpoint, false);
-  assert.equal('responsibility' in externalTouchpoint, false);
-  assert.equal(comprehension.factualRelations.some((relation) => relation.kind === 'dependency-isolation'), true);
-
-  const rootPackageComprehension = createExplorerComprehensionProjection(source.territories, {
-    packageConnections: [{
-      id: 'workspace-package:. -> workspace-package:packages/library',
-      source: { id: 'workspace-package:.', label: 'root', rootPath: '.' },
-      target: { id: 'workspace-package:packages/library', label: 'packages/library', rootPath: 'packages/library' },
-      fileDependencyCount: 1,
-    }],
-    externalModules: [],
-    cycles: [],
-    isolatedFiles: [],
-    unresolvedDependencies: [],
-  }, createExplorerResponsibilityProjection(responsibilityResult([]), source.territories));
-  const rootPackageRelation = rootPackageComprehension.factualRelations[0];
-
-  assert.ok(rootPackageRelation && rootPackageRelation.kind === 'package-dependency');
-  assert.deepEqual(rootPackageRelation.source.anchor, {
-    kind: 'territory',
-    territoryId: source.territories.system.id,
-    path: '.',
-  });
-});
-
-test('comprehension projection exposes coverage limits and unresolved dependencies as distinct uncertainty', () => {
-  const source = workspaceSource();
-  const orientation = createExplorerSystemOrientationProjection(source.graph, source.structure);
-  const responsibilities = createExplorerResponsibilityProjection(responsibilityResult([], [
-    { capability: 'http-entry-point', scope: { kind: 'project' }, status: 'partially-evaluated', limitationIds: ['limitation:http'] },
-    { capability: 'graphql-entry-point', scope: { kind: 'project' }, status: 'evaluated', limitationIds: [] },
-    { capability: 'access-control', scope: { kind: 'project' }, status: 'failed', failure: { code: 'detector-failed', message: 'Failure.' }, limitationIds: [] },
-    { capability: 'cache-interaction', scope: { kind: 'project' }, status: 'unsupported' },
-    { capability: 'scheduled-job', scope: { kind: 'project' }, status: 'not-evaluated' },
-  ]), source.territories);
-  const comprehension = createExplorerComprehensionProjection(source.territories, {
-    ...orientation,
-    unresolvedDependencies: [{
-      id: 'orphan.ts -> ./missing.js ? 1:1',
-      sourceFileId: 'orphan.ts',
-      moduleSpecifier: './missing.js',
-      reason: 'relative-target-not-found',
-    }],
-  }, responsibilities);
-
-  assert.deepEqual(comprehension.uncertainty.responsibilityCoverage.map(({ coverage }) => coverage.status), [
-    'partially-evaluated',
-    'failed',
-    'unsupported',
-    'not-evaluated',
-  ]);
-  assert.equal(
-    comprehension.uncertainty.responsibilityCoverage.some(({ coverage }) => coverage.status === 'evaluated'),
-    false,
-  );
-  assert.deepEqual(comprehension.uncertainty.unresolvedDependencies, [{
-    id: 'orphan.ts -> ./missing.js ? 1:1',
-    kind: 'unresolved-dependency',
-    moduleSpecifier: './missing.js',
-    reason: 'relative-target-not-found',
-    sourceAnchor: { kind: 'file', fileId: 'orphan.ts', path: 'orphan.ts' },
-  }]);
-  assert.equal(comprehension.knownResponsibilities.length, 0);
-});
-
-test('structural evidence distribution keeps local findings distinct from ancestor subtree evidence', () => {
-  const source = workspaceSource();
-  const finding = responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http' });
-  const distribution = createExplorerStructuralEvidenceDistribution(
-    source.territories,
-    createExplorerResponsibilityProjection(responsibilityResult([finding]), source.territories),
-  );
-  const application = distribution.root.children.find((child) => child.territoryId === 'workspace-package:apps/application');
-  const applicationSource = application?.children.find((child) => child.territoryId === 'directory:apps/application/src');
-
-  assert.ok(application);
-  assert.ok(applicationSource);
-  assert.equal(application.localEvidence.findingCount, 0);
-  assert.equal(application.subtreeEvidence.findingCount, 1);
-  assert.equal(applicationSource.localEvidence.findingCount, 1);
-  assert.equal(applicationSource.subtreeEvidence.findingCount, 1);
-  assert.deepEqual(applicationSource.localEvidence.findings, [finding]);
-  assert.deepEqual(applicationSource.localEvidence.findings[0]?.subject.location, finding.subject.location);
-});
-
-test('structural evidence distribution separates sibling subtrees and Responsibility counts', () => {
-  const source = workspaceSource();
-  const findings = [
-    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http:1' }),
-    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http:2', line: 2 }),
-    responsibilityFinding('persistence-interaction', 'packages/library/src/first.ts', { id: 'finding:persistence:1' }),
-    responsibilityFinding('persistence-interaction', 'packages/library/src/second.ts', { id: 'finding:persistence:2' }),
-    responsibilityFinding('persistence-interaction', 'packages/library/src/second.ts', { id: 'finding:persistence:3', line: 2 }),
-    responsibilityFinding('access-control', 'packages/library/src/first.ts', { id: 'finding:access' }),
-  ];
-  const distribution = createExplorerStructuralEvidenceDistribution(
-    source.territories,
-    createExplorerResponsibilityProjection(responsibilityResult(findings), source.territories),
-  );
-  const application = distribution.root.children.find((child) => child.territoryId === 'workspace-package:apps/application');
-  const packages = distribution.root.children.find((child) => child.territoryId === 'directory:packages');
-  const library = packages?.children.find((child) => child.territoryId === 'workspace-package:packages/library');
-
-  assert.deepEqual(distribution.root.subtreeEvidence, {
-    findingCount: 6,
-    responsibilityFindingCounts: [
-      { responsibility: 'access-control', findingCount: 1 },
-      { responsibility: 'http-entry-point', findingCount: 2 },
-      { responsibility: 'persistence-interaction', findingCount: 3 },
-    ],
-  });
-  assert.deepEqual(application?.subtreeEvidence, {
-    findingCount: 2,
-    responsibilityFindingCounts: [{ responsibility: 'http-entry-point', findingCount: 2 }],
-  });
-  assert.deepEqual(library?.subtreeEvidence, {
-    findingCount: 4,
-    responsibilityFindingCounts: [
-      { responsibility: 'access-control', findingCount: 1 },
-      { responsibility: 'persistence-interaction', findingCount: 3 },
-    ],
-  });
-});
-
-test('structural evidence distribution preserves zero-finding hierarchy without architectural fields', () => {
-  const source = workspaceSource();
-  const distribution = createExplorerStructuralEvidenceDistribution(
-    source.territories,
-    createExplorerResponsibilityProjection(responsibilityResult([]), source.territories),
-  );
-  const expectedNodeKeys = ['children', 'label', 'localEvidence', 'path', 'subtreeEvidence', 'territoryId', 'territoryKind'];
-
-  assert.equal(distribution.root.children.length > 0, true);
-  assert.equal(source.territories.territoriesById.size, countDistributionNodes(distribution.root));
-  for (const node of flattenDistribution(distribution.root)) {
-    assert.deepEqual(Object.keys(node).sort(), expectedNodeKeys);
-    assert.deepEqual(node.localEvidence, { findings: [], findingCount: 0, responsibilityFindingCounts: [] });
-    assert.deepEqual(node.subtreeEvidence, { findingCount: 0, responsibilityFindingCounts: [] });
-  }
-});
-
-test('structural evidence distribution is deterministic for reordered factual findings', () => {
-  const source = workspaceSource();
-  const findings = [
-    responsibilityFinding('persistence-interaction', 'packages/library/src/first.ts', { id: 'finding:b', line: 2 }),
-    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:a' }),
-  ];
-  const project = (input: ResponsibilityFinding[]) => createExplorerStructuralEvidenceDistribution(
-    source.territories,
-    createExplorerResponsibilityProjection(responsibilityResult(input), source.territories),
-  );
-
-  assert.deepEqual(project(findings), project([...findings].reverse()));
-});
-
-test('controlled L0 model preserves structural order and factual Responsibility locations without ranking', () => {
-  const source = workspaceSource();
-  const responsibilities = createExplorerResponsibilityProjection(responsibilityResult([
-    responsibilityFinding('http-entry-point', 'apps/application/src/main.ts', { id: 'finding:http' }),
-    responsibilityFinding('persistence-interaction', 'packages/library/src/first.ts', { id: 'finding:persistence:1' }),
-    responsibilityFinding('persistence-interaction', 'packages/library/src/second.ts', { id: 'finding:persistence:2' }),
-  ]), source.territories);
-  const comprehension = createExplorerComprehensionProjection(
-    source.territories,
-    createExplorerSystemOrientationProjection(source.graph, source.structure),
-    responsibilities,
-  );
-  const model = createExplorerL0ExperimentModel(
-    comprehension,
-    createExplorerStructuralEvidenceDistribution(source.territories, responsibilities),
-    source.territories,
-    responsibilities,
-  );
-
-  assert.deepEqual(model.structureRoot.children.map((child) => child.territoryId), [
-    'workspace-package:apps/application',
-    'directory:packages',
-  ]);
-  assert.deepEqual(model.structureRoot.children.map((child) => child.subtreeEvidence.findingCount), [1, 2]);
-  assert.deepEqual(model.evidenceGroups.map((group) => ({
-    responsibility: group.responsibility,
-    findingCount: group.findingCount,
-    locations: group.locations.map((location) => location.path),
-  })), [
-    { responsibility: 'http-entry-point', findingCount: 1, locations: ['./apps/application/src'] },
-    { responsibility: 'persistence-interaction', findingCount: 2, locations: ['./packages/library/src'] },
-  ]);
-  assert.deepEqual(model.factSet.findingIds, ['finding:http', 'finding:persistence:1', 'finding:persistence:2']);
-  assert.deepEqual(Object.keys(model).sort(), [
-    'evidenceGroups', 'factSet', 'factSetKey', 'relations', 'structureRoot', 'systemParts', 'uncertainty',
-  ]);
-  assert.equal(readExplorerL0ExperimentVariant('?l0-experiment=structure-first'), 'structure-first');
-  assert.equal(readExplorerL0ExperimentVariant('?l0-experiment=evidence-first'), 'evidence-first');
-  assert.equal(readExplorerL0ExperimentVariant('?l0-experiment=unknown'), null);
-});
-
-test('controlled L0 model keeps zero Responsibility and incomplete uncertainty factual', () => {
-  const source = workspaceSource();
-  const responsibilities = createExplorerResponsibilityProjection(responsibilityResult([], [
-    { capability: 'http-entry-point', scope: { kind: 'project' }, status: 'evaluated', limitationIds: [] },
-    { capability: 'graphql-entry-point', scope: { kind: 'project' }, status: 'partially-evaluated', limitationIds: ['limitation:graphql'] },
-  ]), source.territories);
-  const comprehension = createExplorerComprehensionProjection(
-    source.territories,
-    createExplorerSystemOrientationProjection(source.graph, source.structure),
-    responsibilities,
-  );
-  const model = createExplorerL0ExperimentModel(
-    comprehension,
-    createExplorerStructuralEvidenceDistribution(source.territories, responsibilities),
-    source.territories,
-    responsibilities,
-  );
-
-  assert.deepEqual(model.evidenceGroups, []);
-  assert.equal(model.systemParts.length > 0, true);
-  assert.deepEqual(model.uncertainty.responsibilityCoverage.map(({ coverage }) => coverage.status), ['partially-evaluated']);
-  assert.equal(model.factSet.findingIds.length, 0);
-  assert.equal('importance' in model, false);
-  assert.equal('relevance' in model, false);
-  assert.equal('weight' in model, false);
-  assert.equal('score' in model, false);
-  assert.equal('ranking' in model, false);
-  assert.equal('architecturalRole' in model.structureRoot, false);
-});
-
-function flattenDistribution(node: ReturnType<typeof createExplorerStructuralEvidenceDistribution>['root']) {
-  return [node, ...node.children.flatMap((child) => flattenDistribution(child))];
-}
-
-function countDistributionNodes(node: ReturnType<typeof createExplorerStructuralEvidenceDistribution>['root']): number {
-  return 1 + node.children.reduce((count, child) => count + countDistributionNodes(child), 0);
-}
 
 test('responsibility projection keeps zero findings empty and chooses Territory', () => {
   const source = workspaceSource();
@@ -909,6 +579,89 @@ test('System Map projects direct src Territories, direct files, and traceable cr
   const clearedSelection = createSystemMapFieldSelection(field, null);
   assert.equal([...clearedSelection.relationDirections].length, 0);
   assert.equal([...clearedSelection.itemAttention.values()].every((attention) => attention === 'resting'), true);
+});
+
+test('System Map context localizes secondary facts without changing structural geography', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-system-map-context-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  mkdirSync(path.join(projectPath, 'src', 'auth'), { recursive: true });
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022' }, include: ['src/**/*.ts'] }));
+  writeFileSync(path.join(projectPath, 'src', 'auth', 'a.ts'), "import 'external-package'; import './b'; export const a = 1;\n");
+  writeFileSync(path.join(projectPath, 'src', 'auth', 'b.ts'), "import './a'; import './missing'; export const b = 1;\n");
+  writeFileSync(path.join(projectPath, 'src', 'main.ts'), "import 'other-package'; export const main = 1;\n");
+  writeFileSync(path.join(projectPath, 'src', 'isolated.ts'), 'export const isolated = 1;\n');
+
+  const analysis = analyzeProject(projectPath);
+  const graph = buildProjectGraph(analysis);
+  const structure = buildProjectStructure(analysis);
+  const territories = createExplorerTerritoryProjection(
+    structure,
+    graph.nodes.filter((node): node is Extract<typeof node, { kind: 'file' }> => node.kind === 'file'),
+  );
+  const systemMap = createExplorerSystemMapProjection(graph, territories);
+  assert.equal(systemMap.status, 'ready');
+  if (systemMap.status !== 'ready') return;
+
+  const responsibilityResultWithLimits: ResponsibilityAnalysisResult = {
+    ...responsibilityResult([], [
+      { capability: 'http-entry-point', scope: { kind: 'project' }, status: 'partially-evaluated', limitationIds: ['limit:http'] },
+      { capability: 'graphql-entry-point', scope: { kind: 'project' }, status: 'evaluated', limitationIds: [] },
+      { capability: 'access-control', scope: { kind: 'file', fileId: 'src/auth/a.ts' }, status: 'failed', failure: { code: 'test-failure', message: 'Detector could not finish.' }, limitationIds: [] },
+      { capability: 'cache-interaction', scope: { kind: 'file', fileId: 'src/main.ts' }, status: 'unsupported' },
+      { capability: 'scheduled-job', scope: { kind: 'file', fileId: 'src/isolated.ts' }, status: 'not-evaluated' },
+    ]),
+    limitations: [{ id: 'limit:http', scope: { kind: 'project' }, code: 'partial-test', message: 'Only supported HTTP declarations were evaluated.' }],
+  };
+  const responsibilityProjection = createExplorerResponsibilityProjection(responsibilityResultWithLimits, territories);
+  const positions = createSystemMapFieldModel(systemMap).items.map(({ item, position }) => ({ id: item.id, position }));
+  const projected = createExplorerSystemMapContextProjection(
+    systemMap,
+    createExplorerSystemOrientationProjection(graph, structure),
+    responsibilityProjection,
+    responsibilityResultWithLimits.limitations,
+    territories,
+  );
+
+  assert.deepEqual(projected.externalTouchpoints.map(({ moduleSpecifier, sources }) => ({
+    moduleSpecifier,
+    itemIds: sources.map((source) => source.itemId),
+    files: sources.map((source) => source.fileId),
+  })), [
+    { moduleSpecifier: 'external-package', itemIds: ['directory:src/auth'], files: ['src/auth/a.ts'] },
+    { moduleSpecifier: 'other-package', itemIds: ['src/main.ts'], files: ['src/main.ts'] },
+  ]);
+  assert.equal(systemMap.items.some((item) => item.id.startsWith('external:')), false);
+  assert.equal(projected.externalTouchpoints[0]?.sources[0]?.edge.evidence.location.filePath, 'src/auth/a.ts');
+  assert.deepEqual(projected.analysisLimits.map(({ coverage }) => coverage.status), [
+    'partially-evaluated', 'failed', 'unsupported', 'not-evaluated',
+  ]);
+  assert.equal(projected.analysisLimits.some(({ coverage }) => coverage.status === 'evaluated'), false);
+  assert.deepEqual(projected.analysisLimits[0]?.limitations.map(({ id }) => id), ['limit:http']);
+  assert.equal(projected.unresolvedDependencies[0]?.itemId, 'directory:src/auth');
+  assert.deepEqual(projected.unresolvedDependencies[0]?.dependency, graph.unresolvedDependencies[0]);
+  assert.deepEqual(projected.cycles[0]?.itemIds, ['directory:src/auth']);
+  assert.deepEqual(projected.isolatedFiles, [{ itemId: 'src/isolated.ts', fileId: 'src/isolated.ts' }]);
+
+  const authContext = systemMapContextForItem(projected, 'directory:src/auth');
+  assert.deepEqual(authContext.externalTouchpoints.map(({ moduleSpecifier }) => moduleSpecifier), ['external-package']);
+  assert.deepEqual(authContext.analysisLimits.map(({ coverage }) => coverage.status), ['partially-evaluated', 'failed']);
+  assert.equal(authContext.unresolvedDependencies.length, 1);
+  assert.equal(authContext.cycles.length, 1);
+  assert.equal(authContext.isolatedFiles.length, 0);
+  assert.equal('architecture' in projected, false);
+  assert.equal('integration' in projected.externalTouchpoints[0]!, false);
+  assert.deepEqual(createSystemMapFieldModel(systemMap).items.map(({ item, position }) => ({ id: item.id, position })), positions);
+
+  const empty = createExplorerSystemMapContextProjection(
+    systemMap,
+    { packageConnections: [], externalModules: [], cycles: [], isolatedFiles: [], unresolvedDependencies: [] },
+    createExplorerResponsibilityProjection(responsibilityResult([], [
+      { capability: 'http-entry-point', scope: { kind: 'project' }, status: 'evaluated', limitationIds: [] },
+    ]), territories),
+    [],
+    territories,
+  );
+  assert.deepEqual(empty, { externalTouchpoints: [], analysisLimits: [], unresolvedDependencies: [], cycles: [], isolatedFiles: [] });
 });
 
 test('System Map Responsibility overlay preserves factual findings and structural geography deterministically', (context) => {
