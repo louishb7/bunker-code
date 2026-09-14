@@ -16,6 +16,7 @@ import { createExplorerAttention } from '../apps/explorer-web/src/explorer-atten
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
 import { createExplorerSystemOrientationProjection } from '../apps/explorer-web/src/explorer-system-orientation.js';
 import { createExplorerSystemMapProjection } from '../apps/explorer-web/src/explorer-system-map-projection.js';
+import { createExplorerSystemMapGeography } from '../apps/explorer-web/src/explorer-system-map-geography.js';
 import {
   createExplorerSystemMapContextProjection,
   systemMapContextForItem,
@@ -84,6 +85,25 @@ function workspaceSource() {
   );
 
   return { graph, structure, territories };
+}
+
+function structureForGeography(
+  filePaths: string[],
+  packages: NonNullable<Parameters<typeof buildProjectStructure>[0]['structure']>['packages'] = [],
+) {
+  return buildProjectStructure({
+    schemaVersion: 1,
+    analyzer: { name: 'test', language: 'typescript' },
+    projectPath: '.',
+    files: filePaths.map((filePath) => ({ id: filePath, path: filePath })),
+    dependencies: [],
+    unresolvedDependencies: [],
+    diagnostics: [],
+    structure: {
+      packages,
+      fileMemberships: [],
+    },
+  });
 }
 
 function spatialModelWithTerritories(
@@ -579,6 +599,116 @@ test('System Map projects direct src Territories, direct files, and traceable cr
   const clearedSelection = createSystemMapFieldSelection(field, null);
   assert.equal([...clearedSelection.relationDirections].length, 0);
   assert.equal([...clearedSelection.itemAttention.values()].every((attention) => attention === 'resting'), true);
+});
+
+test('System Map geography crosses a single unnamed wrapper to the first useful subdivision', () => {
+  const geography = createExplorerSystemMapGeography(structureForGeography([
+    'container/auth/guard.ts',
+    'container/tasks/service.ts',
+    'container/root.ts',
+  ]));
+
+  assert.equal(geography.boundaryRegionId, 'analysis-root:.');
+  assert.deepEqual(geography.initialFrontier, [
+    { id: 'container/root.ts', kind: 'file', fileId: 'container/root.ts' },
+    { id: 'directory:container/auth', kind: 'region', regionId: 'directory:container/auth' },
+    { id: 'directory:container/tasks', kind: 'region', regionId: 'directory:container/tasks' },
+  ]);
+  assert.deepEqual(
+    geography.regionsById.get('directory:container')?.descendantFileIds,
+    ['container/auth/guard.ts', 'container/root.ts', 'container/tasks/service.ts'],
+  );
+});
+
+test('System Map geography keeps multiple root regions and direct files as non-overlapping landmarks', () => {
+  const geography = createExplorerSystemMapGeography(structureForGeography([
+    'apps/web/main.ts',
+    'packages/core/index.ts',
+    'test/system.test.ts',
+    'root.ts',
+  ]));
+
+  assert.deepEqual(geography.initialFrontier, [
+    { id: 'directory:apps', kind: 'region', regionId: 'directory:apps' },
+    { id: 'directory:packages', kind: 'region', regionId: 'directory:packages' },
+    { id: 'directory:test', kind: 'region', regionId: 'directory:test' },
+    { id: 'root.ts', kind: 'file', fileId: 'root.ts' },
+  ]);
+
+  const representedFileIds = geography.initialFrontier.flatMap((landmark) => (
+    landmark.kind === 'file'
+      ? [landmark.fileId]
+      : geography.regionsById.get(landmark.regionId)?.descendantFileIds ?? []
+  ));
+  assert.deepEqual([...representedFileIds].sort(), [
+    'apps/web/main.ts',
+    'packages/core/index.ts',
+    'root.ts',
+    'test/system.test.ts',
+  ]);
+  assert.equal(new Set(representedFileIds).size, representedFileIds.length);
+});
+
+test('System Map geography preserves a workspace-package identity while coalescing its directory location', () => {
+  const workspacePackage = {
+    id: 'workspace-package:wrapper/pkg',
+    kind: 'workspace-package' as const,
+    origin: 'detected' as const,
+    rootPath: 'wrapper/pkg',
+    name: '@example/pkg',
+    evidence: [
+      { kind: 'workspace-configuration' as const, path: 'pnpm-workspace.yaml' },
+      { kind: 'workspace-pattern' as const, pattern: 'wrapper/*' },
+      { kind: 'package-manifest' as const, path: 'wrapper/pkg/package.json' },
+    ],
+  };
+  const geography = createExplorerSystemMapGeography(structureForGeography([
+    'wrapper/pkg/a/one.ts',
+    'wrapper/pkg/b/two.ts',
+  ], [workspacePackage]));
+  const packageRegion = geography.regionsById.get('directory:wrapper/pkg');
+
+  assert.deepEqual(geography.initialFrontier, [{
+    id: 'directory:wrapper/pkg',
+    kind: 'region',
+    regionId: 'directory:wrapper/pkg',
+  }]);
+  assert.equal(
+    [...geography.regionsById.values()].filter((region) => region.rootPath === 'wrapper/pkg').length,
+    1,
+  );
+  assert.equal(packageRegion?.directoryUnit?.id, 'directory:wrapper/pkg');
+  assert.deepEqual(packageRegion?.workspacePackage, workspacePackage);
+  assert.deepEqual(packageRegion?.childRegionIds, [
+    'directory:wrapper/pkg/a',
+    'directory:wrapper/pkg/b',
+  ]);
+});
+
+test('System Map geography retains an empty package and is deterministic for reordered structure facts', () => {
+  const emptyPackage = {
+    id: 'workspace-package:packages/empty',
+    kind: 'workspace-package' as const,
+    origin: 'detected' as const,
+    rootPath: 'packages/empty',
+    evidence: [{ kind: 'package-manifest' as const, path: 'packages/empty/package.json' }],
+  };
+  const structure = structureForGeography(['apps/web/main.ts'], [emptyPackage]);
+  const first = createExplorerSystemMapGeography(structure);
+  const reordered = createExplorerSystemMapGeography({
+    ...structure,
+    units: [...structure.units].reverse(),
+    containments: [...structure.containments].reverse(),
+    packages: [...structure.packages].reverse(),
+  });
+
+  assert.equal(first.regionsById.get('directory:packages/empty')?.workspacePackage?.id, emptyPackage.id);
+  assert.deepEqual(first.regionsById.get('directory:packages/empty')?.descendantFileIds, []);
+  assert.deepEqual(
+    [...reordered.regionsById.entries()],
+    [...first.regionsById.entries()],
+  );
+  assert.deepEqual(reordered.initialFrontier, first.initialFrontier);
 });
 
 test('System Map context localizes secondary facts without changing structural geography', (context) => {
