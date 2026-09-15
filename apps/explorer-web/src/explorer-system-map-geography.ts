@@ -26,6 +26,35 @@ export interface ExplorerSystemMapGeography {
   initialFrontier: ExplorerSystemMapLandmark[];
 }
 
+export function createExplorerSystemMapFrontier(
+  geography: ExplorerSystemMapGeography,
+  refinedRegionIds: ReadonlySet<string>,
+): ExplorerSystemMapLandmark[] {
+  return refineLandmarks(geography.initialFrontier, geography, refinedRegionIds);
+}
+
+export function refineExplorerSystemMapRegion(
+  geography: ExplorerSystemMapGeography,
+  refinedRegionIds: ReadonlySet<string>,
+  regionId: string,
+): Set<string> {
+  if (!geography.regionsById.has(regionId)) throw new Error(`System Map region not found: ${regionId}`);
+  return new Set([...refinedRegionIds, regionId].sort());
+}
+
+export function collapseExplorerSystemMapRegion(
+  geography: ExplorerSystemMapGeography,
+  refinedRegionIds: ReadonlySet<string>,
+  regionId: string,
+): Set<string> {
+  const next = new Set<string>();
+  for (const candidate of refinedRegionIds) {
+    if (candidate === regionId || isDescendantRegion(geography, candidate, regionId)) continue;
+    next.add(candidate);
+  }
+  return new Set([...next].sort());
+}
+
 interface RegionDraft {
   id: string;
   rootPath: string;
@@ -183,6 +212,51 @@ function createInitialFrontier(
       fileId,
     })),
   ].sort(compareLandmarks);
+}
+
+function refineLandmarks(
+  landmarks: readonly ExplorerSystemMapLandmark[],
+  geography: ExplorerSystemMapGeography,
+  refinedRegionIds: ReadonlySet<string>,
+): ExplorerSystemMapLandmark[] {
+  return landmarks.flatMap((landmark) => {
+    if (landmark.kind !== 'region' || !refinedRegionIds.has(landmark.regionId)) return [landmark];
+    const region = geography.regionsById.get(landmark.regionId);
+    if (!region) throw new Error(`System Map region not found: ${landmark.regionId}`);
+    return refineLandmarks(landmarksInsideOpenedRegion(region, geography.regionsById), geography, refinedRegionIds);
+  }).sort(compareLandmarks);
+}
+
+function landmarksInsideOpenedRegion(
+  openedRegion: ExplorerSystemMapRegion,
+  regionsById: ReadonlyMap<string, ExplorerSystemMapRegion>,
+): ExplorerSystemMapLandmark[] {
+  let parent = openedRegion;
+  while (parent.directFileIds.length === 0 && parent.childRegionIds.length === 1) {
+    const childId = parent.childRegionIds[0];
+    if (!childId) break;
+    const child = regionsById.get(childId);
+    if (!child) throw new Error(`System Map region not found: ${childId}`);
+    if (child.workspacePackage) break;
+    parent = child;
+  }
+  return [
+    ...parent.childRegionIds.map((regionId) => ({ id: regionId, kind: 'region' as const, regionId })),
+    ...parent.directFileIds.map((fileId) => ({ id: fileId, kind: 'file' as const, fileId })),
+  ].sort(compareLandmarks);
+}
+
+function isDescendantRegion(
+  geography: ExplorerSystemMapGeography,
+  regionId: string,
+  ancestorId: string,
+): boolean {
+  let current = geography.regionsById.get(regionId);
+  while (current?.parentRegionId) {
+    if (current.parentRegionId === ancestorId) return true;
+    current = geography.regionsById.get(current.parentRegionId);
+  }
+  return false;
 }
 
 function compareStructuralUnits(

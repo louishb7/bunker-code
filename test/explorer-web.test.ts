@@ -16,7 +16,13 @@ import { createExplorerAttention } from '../apps/explorer-web/src/explorer-atten
 import { createExplorerOrientation } from '../apps/explorer-web/src/explorer-orientation.js';
 import { createExplorerSystemOrientationProjection } from '../apps/explorer-web/src/explorer-system-orientation.js';
 import { createExplorerSystemMapProjection } from '../apps/explorer-web/src/explorer-system-map-projection.js';
-import { createExplorerSystemMapGeography } from '../apps/explorer-web/src/explorer-system-map-geography.js';
+import {
+  collapseExplorerSystemMapRegion,
+  createExplorerSystemMapFrontier,
+  createExplorerSystemMapGeography,
+  refineExplorerSystemMapRegion,
+} from '../apps/explorer-web/src/explorer-system-map-geography.js';
+import { createExplorerSystemMapFrontierProjection } from '../apps/explorer-web/src/explorer-system-map-frontier-projection.js';
 import {
   createExplorerSystemMapContextProjection,
   systemMapContextForItem,
@@ -29,6 +35,7 @@ import {
   createSystemMapFieldModel,
   createSystemMapFieldRelationRoute,
   createSystemMapFieldSelection,
+  systemMapFieldDimensions,
 } from '../apps/explorer-web/src/explorer-system-map-field-model.js';
 import {
   createExplorerProjection,
@@ -104,6 +111,26 @@ function structureForGeography(
       fileMemberships: [],
     },
   });
+}
+
+function graphForFrontier(
+  fileIds: string[],
+  dependencies: Array<{ id: string; sourceFileId: string; targetFileId: string }>,
+): ProjectGraph {
+  return {
+    nodes: fileIds.map((fileId) => ({ id: fileId, kind: 'file' as const, path: fileId })),
+    edges: dependencies.map((dependency, index) => ({
+      id: dependency.id,
+      sourceNodeId: dependency.sourceFileId,
+      targetNodeId: dependency.targetFileId,
+      kind: 'dependency' as const,
+      dependencyKind: 'internal' as const,
+      moduleSpecifier: `./dependency-${index}.js`,
+      evidence: { location: { filePath: dependency.sourceFileId, line: index + 1, column: 1 } },
+      confidence: 'exact' as const,
+    })),
+    unresolvedDependencies: [],
+  };
 }
 
 function spatialModelWithTerritories(
@@ -488,7 +515,7 @@ test('Explorer view state always starts in Overview independently from Responsib
   assert.equal(isResponsibilityPerspectiveEligible(responsibilityResult([])), false);
 });
 
-test('System Map projects direct src Territories, direct files, and traceable cross-item dependencies deterministically', (context) => {
+test('System Map projects the initial structural frontier, direct files, and traceable cross-item dependencies deterministically', (context) => {
   const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-system-map-'));
   context.after(() => rmSync(projectPath, { recursive: true, force: true }));
   mkdirSync(path.join(projectPath, 'src', 'auth'), { recursive: true });
@@ -504,23 +531,21 @@ test('System Map projects direct src Territories, direct files, and traceable cr
 
   const analysis = analyzeProject(projectPath);
   const graph = buildProjectGraph(analysis);
+  const structure = buildProjectStructure(analysis);
   const territories = createExplorerTerritoryProjection(
-    buildProjectStructure(analysis),
+    structure,
     graph.nodes.filter((node): node is Extract<typeof node, { kind: 'file' }> => node.kind === 'file'),
   );
-  const projection = createExplorerSystemMapProjection(graph, territories);
-  assert.equal(projection.status, 'ready');
-  if (projection.status !== 'ready') return;
+  const projection = createExplorerSystemMapFrontierProjection(createExplorerSystemMapGeography(structure), graph);
 
-  assert.equal(projection.sourceTerritory.normalizedStructuralPath, './src');
   assert.deepEqual(projection.items.map(({ id, kind }) => ({ id, kind })), [
+    { id: 'directory:src/auth', kind: 'region' },
+    { id: 'directory:src/prisma', kind: 'region' },
     { id: 'src/app.module.ts', kind: 'file' },
-    { id: 'directory:src/auth', kind: 'territory' },
     { id: 'src/main.ts', kind: 'file' },
-    { id: 'directory:src/prisma', kind: 'territory' },
     { id: 'src/root.ts', kind: 'file' },
   ]);
-  assert.equal(projection.items.filter((item) => item.kind === 'file').every((item) => item.file.kind === 'file'), true);
+  assert.equal(projection.items.filter((item) => item.kind === 'file').every((item) => item.fileId.endsWith('.ts')), true);
 
   const relationSummary = projection.relations.map((relation) => ({
     source: relation.sourceItemId,
@@ -548,12 +573,10 @@ test('System Map projects direct src Territories, direct files, and traceable cr
   );
   assert.equal(authToPrisma.fileEdges.every((edge) => edge.evidence.location.filePath === edge.sourceNodeId), true);
 
-  const reordered = createExplorerSystemMapProjection(
+  const reordered = createExplorerSystemMapFrontierProjection(
+    createExplorerSystemMapGeography(structure),
     { ...graph, nodes: [...graph.nodes].reverse(), edges: [...graph.edges].reverse() },
-    territories,
   );
-  assert.equal(reordered.status, 'ready');
-  if (reordered.status !== 'ready') return;
   assert.deepEqual(reordered.items.map(({ id, kind }) => ({ id, kind })), projection.items.map(({ id, kind }) => ({ id, kind })));
   assert.deepEqual(
     reordered.relations.map((relation) => ({ id: relation.id, fileEdgeIds: relation.fileEdges.map((edge) => edge.id) })),
@@ -567,7 +590,7 @@ test('System Map projects direct src Territories, direct files, and traceable cr
     reorderedField.items.map(({ item, position }) => ({ id: item.id, kind: item.kind, position })),
   );
   assert.equal(field.relations, projection.relations);
-  assert.equal(field.items.filter(({ item }) => item.kind === 'file').every(({ item }) => item.kind === 'file' && item.file.kind === 'file'), true);
+  assert.equal(field.items.filter(({ item }) => item.kind === 'file').every(({ item }) => item.kind === 'file' && item.fileId.endsWith('.ts')), true);
   const authToPrismaRoute = createSystemMapFieldRelationRoute(field, authToPrisma);
   assert.deepEqual(authToPrismaRoute, { sourceSide: 'right', targetSide: 'left' });
   const mainToAuth = projection.relations.find((relation) => (
@@ -711,6 +734,277 @@ test('System Map geography retains an empty package and is deterministic for reo
   assert.deepEqual(reordered.initialFrontier, first.initialFrontier);
 });
 
+test('System Map refinement replaces one region while preserving siblings, ownership, and package boundaries', () => {
+  const corePackage = {
+    id: 'workspace-package:packages/core', kind: 'workspace-package' as const, origin: 'detected' as const,
+    rootPath: 'packages/core', name: '@example/core', evidence: [],
+  };
+  const nestedPackage = {
+    id: 'workspace-package:packages/core/wrapper/nested', kind: 'workspace-package' as const, origin: 'detected' as const,
+    rootPath: 'packages/core/wrapper/nested', name: '@example/nested', evidence: [],
+  };
+  const geography = createExplorerSystemMapGeography(structureForGeography([
+    'apps/web/main.ts',
+    'packages/core/wrapper/direct.ts',
+    'packages/core/wrapper/nested/index.ts',
+    'test/system.test.ts',
+  ], [corePackage, nestedPackage]));
+  const graph = graphForFrontier([
+    'apps/web/main.ts',
+    'packages/core/wrapper/direct.ts',
+    'packages/core/wrapper/nested/index.ts',
+    'test/system.test.ts',
+  ], [
+    { id: 'edge:app-to-direct', sourceFileId: 'apps/web/main.ts', targetFileId: 'packages/core/wrapper/direct.ts' },
+    { id: 'edge:direct-to-nested', sourceFileId: 'packages/core/wrapper/direct.ts', targetFileId: 'packages/core/wrapper/nested/index.ts' },
+    { id: 'edge:nested-to-test', sourceFileId: 'packages/core/wrapper/nested/index.ts', targetFileId: 'test/system.test.ts' },
+  ]);
+  const initial = createExplorerSystemMapFrontier(geography, new Set());
+  const refinedPackages = refineExplorerSystemMapRegion(geography, new Set(), 'directory:packages');
+  const frontier = createExplorerSystemMapFrontier(geography, refinedPackages);
+
+  assert.deepEqual(initial, geography.initialFrontier);
+  assert.deepEqual(initial.map((landmark) => landmark.id), [
+    'directory:apps', 'directory:packages', 'directory:test',
+  ]);
+  assert.deepEqual(frontier.map((landmark) => landmark.id), [
+    'directory:apps', 'directory:packages/core', 'directory:test',
+  ]);
+
+  const refinedCore = refineExplorerSystemMapRegion(geography, refinedPackages, 'directory:packages/core');
+  assert.deepEqual(createExplorerSystemMapFrontier(geography, refinedCore).map((landmark) => landmark.id), [
+    'directory:apps', 'directory:packages/core/wrapper/nested', 'directory:test', 'packages/core/wrapper/direct.ts',
+  ]);
+  const projection = createExplorerSystemMapFrontierProjection(
+    geography,
+    graph,
+    createExplorerSystemMapFrontier(geography, refinedCore),
+  );
+  assert.equal(projection.fileOwnershipById.size, 4);
+  assert.deepEqual(projection.relations.map((relation) => ({
+    source: relation.sourceItemId,
+    target: relation.targetItemId,
+    edgeIds: relation.fileEdges.map((edge) => edge.id),
+  })), [
+    { source: 'directory:apps', target: 'packages/core/wrapper/direct.ts', edgeIds: ['edge:app-to-direct'] },
+    { source: 'directory:packages/core/wrapper/nested', target: 'directory:test', edgeIds: ['edge:nested-to-test'] },
+    { source: 'packages/core/wrapper/direct.ts', target: 'directory:packages/core/wrapper/nested', edgeIds: ['edge:direct-to-nested'] },
+  ]);
+  assert.equal(projection.relations.reduce((count, relation) => count + relation.fileEdges.length, 0), 3);
+  assert.equal(projection.internalDependenciesWithinLandmarks.length, 0);
+  assert.equal(projection.boundaryCrossingInternalDependencies.length, 0);
+  const initialProjection = createExplorerSystemMapFrontierProjection(geography, graph, initial);
+  const packagesProjection = createExplorerSystemMapFrontierProjection(geography, graph, frontier);
+  assert.equal(
+    initialProjection.relations.reduce((count, relation) => count + relation.fileEdges.length, 0)
+      + initialProjection.internalDependenciesWithinLandmarks.reduce((count, group) => count + group.fileEdges.length, 0),
+    3,
+  );
+  const projectedEdgeIds = (candidate: ReturnType<typeof createExplorerSystemMapFrontierProjection>) => [
+    ...candidate.relations.flatMap((relation) => relation.fileEdges.map((edge) => edge.id)),
+    ...candidate.internalDependenciesWithinLandmarks.flatMap((group) => group.fileEdges.map((edge) => edge.id)),
+    ...candidate.boundaryCrossingInternalDependencies.map((crossing) => crossing.edge.id),
+  ].sort();
+  assert.deepEqual(projectedEdgeIds(initialProjection), graph.edges.map((edge) => edge.id).sort());
+  assert.deepEqual(projectedEdgeIds(packagesProjection), graph.edges.map((edge) => edge.id).sort());
+  assert.deepEqual(projectedEdgeIds(projection), graph.edges.map((edge) => edge.id).sort());
+  const fieldAt = (refinedRegionIds: ReadonlySet<string>) => createSystemMapFieldModel(
+    createExplorerSystemMapFrontierProjection(geography, graph, createExplorerSystemMapFrontier(geography, refinedRegionIds)),
+    { geography, refinedRegionIds },
+  );
+  const initialField = fieldAt(new Set());
+  const packagesField = fieldAt(refinedPackages);
+  const nestedField = fieldAt(refinedCore);
+  assert.equal(initialField.frames.length, 0);
+  assert.ok(initialField.items.every((entry) => entry.parentId === undefined));
+  assert.deepEqual(packagesField.frames.map((frame) => [frame.region.id, frame.parentId]), [['directory:packages', undefined]]);
+  assert.deepEqual(nestedField.frames.map((frame) => [frame.region.id, frame.parentId]), [
+    ['directory:packages', undefined], ['directory:packages/core', 'context:directory:packages'],
+  ]);
+  assert.equal(nestedField.items.find(({ item }) => item.id === 'packages/core/wrapper/direct.ts')?.parentId, 'context:directory:packages/core');
+  assert.equal(nestedField.items.find(({ item }) => item.id === 'directory:packages/core/wrapper/nested')?.parentId, 'context:directory:packages/core');
+  for (const sibling of ['directory:apps', 'directory:test']) {
+    const before = initialField.items.find(({ item }) => item.id === sibling);
+    const after = nestedField.items.find(({ item }) => item.id === sibling);
+    assert.ok(before && after);
+    assert.equal(after.parentId, undefined);
+    assert.equal(after.position.y, before.position.y);
+    assert.ok(after.position.x >= before.position.x);
+    if (sibling === 'directory:apps') assert.deepEqual(after.position, before.position);
+  }
+  const openedPackages = packagesField.frames[0];
+  assert.deepEqual(openedPackages?.position, initialField.items.find(({ item }) => item.id === 'directory:packages')?.position);
+  for (const entry of [...nestedField.items, ...nestedField.frames]) {
+    if (!entry.parentId) continue;
+    const parent = nestedField.frames.find((frame) => frame.id === entry.parentId);
+    assert.ok(parent);
+    const size = 'item' in entry ? systemMapFieldDimensions[entry.item.kind] : entry;
+    assert.ok(entry.position.x > 0 && entry.position.y > 0);
+    assert.ok(entry.position.x + size.width < parent.width);
+    assert.ok(entry.position.y + size.height < parent.height);
+  }
+  for (const frame of nestedField.frames) {
+    assert.ok(![...projection.fileOwnershipById.values()].includes(frame.region.id));
+    assert.ok(!nestedField.relations.some((relation) => [relation.sourceItemId, relation.targetItemId].includes(frame.id)));
+  }
+  assert.deepEqual(nestedField.relations, projection.relations);
+  const crossingFrame = nestedField.relations.find((relation) => relation.sourceItemId === 'directory:apps');
+  assert.ok(crossingFrame);
+  assert.deepEqual(createSystemMapFieldRelationRoute(nestedField, crossingFrame), { sourceSide: 'right', targetSide: 'left' });
+  assert.deepEqual(fieldAt(new Set([...refinedCore].reverse())), nestedField);
+  const filesInTest = fieldAt(new Set(['directory:test']));
+  assert.equal(filesInTest.items.find(({ item }) => item.id === 'test/system.test.ts')?.parentId, 'context:directory:test');
+  assert.deepEqual(
+    createExplorerSystemMapFrontier(geography, new Set([...refinedCore].reverse())),
+    createExplorerSystemMapFrontier(geography, refinedCore),
+  );
+  const collapsed = collapseExplorerSystemMapRegion(geography, refinedCore, 'directory:packages');
+  assert.deepEqual(fieldAt(collapsed), initialField);
+  assert.deepEqual(fieldAt(collapseExplorerSystemMapRegion(geography, refinedCore, 'directory:packages/core')), packagesField);
+  assert.deepEqual([...collapsed], []);
+  assert.deepEqual(
+    createExplorerSystemMapFrontier(geography, collapsed).map((landmark) => landmark.id),
+    initial.map((landmark) => landmark.id),
+  );
+  assert.deepEqual(
+    createExplorerSystemMapFrontierProjection(geography, graph, createExplorerSystemMapFrontier(geography, collapsed)),
+    initialProjection,
+  );
+});
+
+test('System Map frontier projection aggregates landmark relations and preserves internal landmark dependencies', () => {
+  const geography = createExplorerSystemMapGeography(structureForGeography([
+    'container/a/first.ts',
+    'container/a/second.ts',
+    'container/b/first.ts',
+    'container/b/second.ts',
+    'container/direct.ts',
+  ]));
+  const graph = graphForFrontier([
+    'container/a/first.ts',
+    'container/a/second.ts',
+    'container/b/first.ts',
+    'container/b/second.ts',
+    'container/direct.ts',
+  ], [
+    { id: 'edge:a-first-to-a-second', sourceFileId: 'container/a/first.ts', targetFileId: 'container/a/second.ts' },
+    { id: 'edge:a-first-to-b-first', sourceFileId: 'container/a/first.ts', targetFileId: 'container/b/first.ts' },
+    { id: 'edge:a-second-to-b-second', sourceFileId: 'container/a/second.ts', targetFileId: 'container/b/second.ts' },
+    { id: 'edge:direct-to-b-first', sourceFileId: 'container/direct.ts', targetFileId: 'container/b/first.ts' },
+  ]);
+  const projection = createExplorerSystemMapFrontierProjection(geography, graph);
+
+  assert.deepEqual(projection.items.map((item) => ({ id: item.id, kind: item.kind })), [
+    { id: 'container/direct.ts', kind: 'file' },
+    { id: 'directory:container/a', kind: 'region' },
+    { id: 'directory:container/b', kind: 'region' },
+  ]);
+  assert.deepEqual([...projection.fileOwnershipById.entries()], [
+    ['container/a/first.ts', 'directory:container/a'],
+    ['container/a/second.ts', 'directory:container/a'],
+    ['container/b/first.ts', 'directory:container/b'],
+    ['container/b/second.ts', 'directory:container/b'],
+    ['container/direct.ts', 'container/direct.ts'],
+  ]);
+  assert.deepEqual(projection.relations.map((relation) => ({
+    sourceItemId: relation.sourceItemId,
+    targetItemId: relation.targetItemId,
+    count: relation.observedDependencyCount,
+    edgeIds: relation.fileEdges.map((edge) => edge.id),
+  })), [
+    {
+      sourceItemId: 'container/direct.ts',
+      targetItemId: 'directory:container/b',
+      count: 1,
+      edgeIds: ['edge:direct-to-b-first'],
+    },
+    {
+      sourceItemId: 'directory:container/a',
+      targetItemId: 'directory:container/b',
+      count: 2,
+      edgeIds: ['edge:a-first-to-b-first', 'edge:a-second-to-b-second'],
+    },
+  ]);
+  assert.deepEqual(projection.internalDependenciesWithinLandmarks.map((dependency) => ({
+    itemId: dependency.itemId,
+    edgeIds: dependency.fileEdges.map((edge) => edge.id),
+  })), [{
+    itemId: 'directory:container/a',
+    edgeIds: ['edge:a-first-to-a-second'],
+  }]);
+  assert.deepEqual(projection.boundaryCrossingInternalDependencies, []);
+  assert.throws(
+    () => createExplorerSystemMapFrontierProjection(geography, graph, [
+      { id: 'directory:container', kind: 'region', regionId: 'directory:container' },
+      { id: 'directory:container/a', kind: 'region', regionId: 'directory:container/a' },
+    ]),
+    /System Map file belongs to multiple landmarks: container\/a\/first\.ts/,
+  );
+});
+
+test('System Map frontier projection preserves internal dependencies crossing the represented boundary deterministically', () => {
+  const geography = createExplorerSystemMapGeography(structureForGeography([
+    'inside/represented.ts',
+  ]));
+  const graph = graphForFrontier([
+    'inside/represented.ts',
+    '../outside/incoming.ts',
+    '../outside/outgoing.ts',
+    '../outside/other.ts',
+  ], [
+    { id: 'edge:represented-to-outside', sourceFileId: 'inside/represented.ts', targetFileId: '../outside/outgoing.ts' },
+    { id: 'edge:outside-to-represented', sourceFileId: '../outside/incoming.ts', targetFileId: 'inside/represented.ts' },
+    { id: 'edge:outside-to-outside', sourceFileId: '../outside/incoming.ts', targetFileId: '../outside/other.ts' },
+  ]);
+  const projection = createExplorerSystemMapFrontierProjection(geography, graph);
+  const reordered = createExplorerSystemMapFrontierProjection(
+    geography,
+    { ...graph, nodes: [...graph.nodes].reverse(), edges: [...graph.edges].reverse() },
+    [...geography.initialFrontier].reverse(),
+  );
+
+  assert.deepEqual(projection.relations, []);
+  assert.deepEqual(projection.internalDependenciesWithinLandmarks, []);
+  assert.deepEqual(projection.boundaryCrossingInternalDependencies.map((crossing) => ({
+    direction: crossing.direction,
+    itemId: crossing.itemId,
+    outsideFileId: crossing.outsideFileId,
+    edgeId: crossing.edge.id,
+    dependencyKind: crossing.edge.dependencyKind,
+  })), [
+    {
+      direction: 'incoming',
+      itemId: 'inside/represented.ts',
+      outsideFileId: '../outside/incoming.ts',
+      edgeId: 'edge:outside-to-represented',
+      dependencyKind: 'internal',
+    },
+    {
+      direction: 'outgoing',
+      itemId: 'inside/represented.ts',
+      outsideFileId: '../outside/outgoing.ts',
+      edgeId: 'edge:represented-to-outside',
+      dependencyKind: 'internal',
+    },
+  ]);
+  assert.deepEqual(
+    {
+      items: reordered.items,
+      ownership: [...reordered.fileOwnershipById.entries()],
+      relations: reordered.relations,
+      within: reordered.internalDependenciesWithinLandmarks,
+      crossings: reordered.boundaryCrossingInternalDependencies,
+    },
+    {
+      items: projection.items,
+      ownership: [...projection.fileOwnershipById.entries()],
+      relations: projection.relations,
+      within: projection.internalDependenciesWithinLandmarks,
+      crossings: projection.boundaryCrossingInternalDependencies,
+    },
+  );
+});
+
 test('System Map context localizes secondary facts without changing structural geography', (context) => {
   const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-system-map-context-'));
   context.after(() => rmSync(projectPath, { recursive: true, force: true }));
@@ -743,7 +1037,8 @@ test('System Map context localizes secondary facts without changing structural g
     limitations: [{ id: 'limit:http', scope: { kind: 'project' }, code: 'partial-test', message: 'Only supported HTTP declarations were evaluated.' }],
   };
   const responsibilityProjection = createExplorerResponsibilityProjection(responsibilityResultWithLimits, territories);
-  const positions = createSystemMapFieldModel(systemMap).items.map(({ item, position }) => ({ id: item.id, position }));
+  const fieldProjection = createExplorerSystemMapFrontierProjection(createExplorerSystemMapGeography(structure), graph);
+  const positions = createSystemMapFieldModel(fieldProjection).items.map(({ item, position }) => ({ id: item.id, position }));
   const projected = createExplorerSystemMapContextProjection(
     systemMap,
     createExplorerSystemOrientationProjection(graph, structure),
@@ -780,7 +1075,7 @@ test('System Map context localizes secondary facts without changing structural g
   assert.equal(authContext.isolatedFiles.length, 0);
   assert.equal('architecture' in projected, false);
   assert.equal('integration' in projected.externalTouchpoints[0]!, false);
-  assert.deepEqual(createSystemMapFieldModel(systemMap).items.map(({ item, position }) => ({ id: item.id, position })), positions);
+  assert.deepEqual(createSystemMapFieldModel(fieldProjection).items.map(({ item, position }) => ({ id: item.id, position })), positions);
 
   const empty = createExplorerSystemMapContextProjection(
     systemMap,
@@ -807,8 +1102,9 @@ test('System Map Responsibility overlay preserves factual findings and structura
 
   const analysis = analyzeProject(projectPath);
   const graph = buildProjectGraph(analysis);
+  const structure = buildProjectStructure(analysis);
   const territories = createExplorerTerritoryProjection(
-    buildProjectStructure(analysis),
+    structure,
     graph.nodes.filter((node): node is Extract<typeof node, { kind: 'file' }> => node.kind === 'file'),
   );
   const systemMap = createExplorerSystemMapProjection(graph, territories);
@@ -849,8 +1145,9 @@ test('System Map Responsibility overlay preserves factual findings and structura
   assert.deepEqual(http.locations[0]?.evidenceIds, [findings[2]?.evidence[0]?.id, findings[0]?.evidence[0]?.id].sort());
   assert.deepEqual(http.locations[1]?.findings[0]?.evidence, findings[1]?.evidence);
 
-  const positions = createSystemMapFieldModel(systemMap).items.map(({ item, position }) => ({ id: item.id, position }));
-  const selection = createSystemMapFieldSelection(createSystemMapFieldModel(systemMap), 'directory:src/auth');
+  const fieldProjection = createExplorerSystemMapFrontierProjection(createExplorerSystemMapGeography(structure), graph);
+  const positions = createSystemMapFieldModel(fieldProjection).items.map(({ item, position }) => ({ id: item.id, position }));
+  const selection = createSystemMapFieldSelection(createSystemMapFieldModel(fieldProjection), 'directory:src/auth');
   const moreFindings = createExplorerSystemMapResponsibilityOverlayProjection(
     systemMap,
     createExplorerResponsibilityProjection(responsibilityResult([
@@ -860,7 +1157,7 @@ test('System Map Responsibility overlay preserves factual findings and structura
     territories,
   );
   assert.equal(systemMapResponsibilityOverlay(moreFindings, 'http-entry-point')?.findingCount, 4);
-  assert.deepEqual(createSystemMapFieldModel(systemMap).items.map(({ item, position }) => ({ id: item.id, position })), positions);
+  assert.deepEqual(createSystemMapFieldModel(fieldProjection).items.map(({ item, position }) => ({ id: item.id, position })), positions);
   assert.equal(selection.itemAttention.get('directory:src/auth'), 'selected');
   assert.equal(systemMapResponsibilityOverlay(overlays, null), null);
 });

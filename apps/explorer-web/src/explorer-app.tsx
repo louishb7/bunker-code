@@ -50,12 +50,14 @@ import {
   createExplorerResponsibilityProjection,
   isResponsibilityPerspectiveEligible,
 } from './explorer-responsibility-projection.js';
-import { createExplorerSystemOrientationProjection } from './explorer-system-orientation.js';
-import { createExplorerSystemMapProjection } from './explorer-system-map-projection.js';
-import { createExplorerSystemMapResponsibilityOverlayProjection } from './explorer-system-map-responsibility-overlay.js';
+import {
+  collapseExplorerSystemMapRegion,
+  createExplorerSystemMapFrontier,
+  createExplorerSystemMapGeography,
+  refineExplorerSystemMapRegion,
+} from './explorer-system-map-geography.js';
+import { createExplorerSystemMapFrontierProjection } from './explorer-system-map-frontier-projection.js';
 import { ExplorerSystemMapField } from './explorer-system-map-field.js';
-import { createExplorerSystemMapContextProjection } from './explorer-system-map-context.js';
-import { ExplorerSystemMapUnavailable } from './explorer-system-map-unavailable.js';
 import {
   createSpatialTerritoryMapModel,
   SpatialTerritoryMap,
@@ -66,7 +68,6 @@ import {
   locateResponsibilityFinding,
   selectExplorerResponsibility,
   selectExplorerResponsibilityFinding,
-  selectSystemMapResponsibilityOverlay,
   switchExplorerSurface,
 } from './explorer-view-state.js';
 
@@ -90,15 +91,15 @@ export function Explorer({
     [responsibilities, territories],
   );
   const source: ExplorerSource = useMemo(() => ({ graph, structure, territories }), [graph, structure, territories]);
-  const systemMap = useMemo(
-    () => createExplorerSystemMapProjection(graph, territories),
-    [graph, territories],
+  const systemMapGeography = useMemo(() => createExplorerSystemMapGeography(structure), [structure]);
+  const [refinedSystemMapRegionIds, setRefinedSystemMapRegionIds] = useState<ReadonlySet<string>>(() => new Set());
+  const systemMapFrontier = useMemo(
+    () => createExplorerSystemMapFrontier(systemMapGeography, refinedSystemMapRegionIds),
+    [refinedSystemMapRegionIds, systemMapGeography],
   );
-  const systemMapResponsibilityOverlays = useMemo(
-    () => systemMap.status === 'ready'
-      ? createExplorerSystemMapResponsibilityOverlayProjection(systemMap, responsibilityProjection, territories)
-      : null,
-    [responsibilityProjection, systemMap, territories],
+  const systemMap = useMemo(
+    () => createExplorerSystemMapFrontierProjection(systemMapGeography, graph, systemMapFrontier),
+    [graph, systemMapFrontier, systemMapGeography],
   );
   const [viewState, setViewState] = useState(() => createInitialExplorerViewState(territories));
   const {
@@ -106,7 +107,6 @@ export function Explorer({
     surface,
     selectedResponsibility,
     selectedFindingId,
-    systemMapResponsibilityOverlay,
   } = viewState;
   const responsibilityAvailable = isResponsibilityPerspectiveEligible(responsibilities);
   const [searchQuery, setSearchQuery] = useState('');
@@ -118,22 +118,6 @@ export function Explorer({
     [location, territories, projectLabel, graph],
   );
   const projection = useMemo(() => createExplorerProjection(source, location), [source, location]);
-  const systemOrientation = useMemo(
-    () => createExplorerSystemOrientationProjection(graph, structure),
-    [graph, structure],
-  );
-  const systemMapContext = useMemo(
-    () => systemMap.status === 'ready'
-      ? createExplorerSystemMapContextProjection(
-        systemMap,
-        systemOrientation,
-        responsibilityProjection,
-        responsibilities.limitations,
-        territories,
-      )
-      : null,
-    [responsibilities.limitations, responsibilityProjection, systemMap, systemOrientation, territories],
-  );
   const projectedElements = useMemo(
     () => projection.mode === 'focus' ? createExplorerElements(projection) : null,
     [projection],
@@ -234,29 +218,6 @@ export function Explorer({
     setLocation(navigateToTerritory(location, territory.id, territory.structuralPath));
   }
 
-  function openSystemMapTerritory(territoryId: string): void {
-    const territory = territories.territoriesById.get(territoryId);
-    if (!territory) throw new Error(`Territory not found: ${territoryId}`);
-    setViewState((current) => ({
-      ...current,
-      surface: 'territory',
-      location: navigateToTerritory(current.location, territory.id, territory.structuralPath),
-    }));
-  }
-
-  function openSystemMapFile(fileId: string): void {
-    if (systemMap.status !== 'ready') return;
-    setViewState((current) => ({
-      ...current,
-      surface: 'territory',
-      location: navigateToDestination(current.location, {
-        territoryId: systemMap.sourceTerritory.id,
-        structuralPath: systemMap.sourceTerritory.structuralPath,
-        itemId: fileId,
-      }),
-    }));
-  }
-
   function navigateTo(target: ExplorerNavigationTarget): void {
     if (target.kind === 'territory') {
       setViewState((current) => ({
@@ -318,25 +279,18 @@ export function Explorer({
         className={`explorer-main explorer-main-${surface} ${(showResponsibilityInspector || showTerritoryInspector) ? 'explorer-main-has-inspector' : ''}`}
         aria-label={surface === 'overview' ? 'System Map' : surface === 'responsibility' ? 'Responsibility explorer' : 'Territory explorer'}
       >
-        {surface === 'overview' && systemMap.status !== 'ready' ? (
-          <ExplorerSystemMapUnavailable
-            projectLabel={projectLabel}
-            onExploreStructure={() => setViewState((current) => switchExplorerSurface(current, 'territory'))}
-          />
-        ) : surface === 'overview' && systemMap.status === 'ready' ? (
+        {surface === 'overview' ? (
           <ExplorerSystemMapField
             projectLabel={projectLabel}
             projection={systemMap}
-            responsibilityOverlays={systemMapResponsibilityOverlays ?? { overlays: [] }}
-            systemContext={systemMapContext ?? {
-              externalTouchpoints: [], analysisLimits: [], unresolvedDependencies: [], cycles: [], isolatedFiles: [],
-            }}
-            activeResponsibility={systemMapResponsibilityOverlay}
-            onResponsibilityOverlayChange={(responsibility) => setViewState((current) => (
-              selectSystemMapResponsibilityOverlay(current, responsibility)
+            geography={systemMapGeography}
+            refinedRegionIds={refinedSystemMapRegionIds}
+            onExploreRegion={(regionId) => setRefinedSystemMapRegionIds((current) => (
+              refineExplorerSystemMapRegion(systemMapGeography, current, regionId)
             ))}
-            onOpenTerritory={openSystemMapTerritory}
-            onOpenFile={openSystemMapFile}
+            onCollapseRegion={(regionId) => setRefinedSystemMapRegionIds((current) => (
+              collapseExplorerSystemMapRegion(systemMapGeography, current, regionId)
+            ))}
           />
         ) : surface === 'territory' ? (
           projection.mode === 'focus' && elements ? (

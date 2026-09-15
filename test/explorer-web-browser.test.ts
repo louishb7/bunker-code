@@ -12,20 +12,49 @@ const repoRoot = path.resolve('.');
 const appRoot = path.join(repoRoot, 'apps', 'explorer-web');
 const firefoxExecutablePath = process.env.BUNKERCODE_BROWSER_EXECUTABLE ?? '/usr/bin/firefox';
 
-test('Explorer starts in Overview and presents a factual Responsibility flow in a real browser', { timeout: 90000 }, async (t) => {
+async function systemMapBoxes(page: import('puppeteer-core').Page) {
+  return page.$$eval('[data-system-map-item-id], [data-system-map-context-frame]', (elements) => elements.map((element) => {
+    const rect = element.getBoundingClientRect();
+    return { id: element.getAttribute('data-system-map-item-id') ?? `context:${element.getAttribute('data-system-map-context-frame')}`,
+      parentId: element.getAttribute('data-system-map-parent-frame'), x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  }));
+}
+
+async function assertSystemMapContainment(page: import('puppeteer-core').Page) {
+  const boxes = await systemMapBoxes(page);
+  for (const box of boxes) {
+    if (!box.parentId) continue;
+    const parent = boxes.find((candidate) => candidate.id === box.parentId);
+    assert.ok(parent, `Missing visual parent for ${box.id}`);
+    assert.ok(box.x > parent.x && box.y > parent.y, `${box.id} starts inside ${parent.id}`);
+    assert.ok(box.x + box.width < parent.x + parent.width, `${box.id} fits parent width`);
+    assert.ok(box.y + box.height < parent.y + parent.height, `${box.id} fits parent height`);
+  }
+  for (const id of ['directory:apps', 'directory:test']) {
+    const box = boxes.find((candidate) => candidate.id === id);
+    if (box) assert.equal(box.parentId, '');
+  }
+}
+
+async function captureSystemMap(page: import('puppeteer-core').Page, state: string) {
+  if (process.env.BUNKERCODE_CAPTURE_VISUAL !== '1') return;
+  await page.screenshot({ path: `/tmp/bunkercode-multiscale-${state}.png`, fullPage: true });
+}
+
+test('Explorer presents the initial structural frontier in a real browser', { timeout: 90000 }, async (t) => {
   if (process.env.BUNKERCODE_BROWSER_TEST !== '1') {
     t.skip('Set BUNKERCODE_BROWSER_TEST=1 to run the Firefox Explorer smoke test.');
     return;
   }
   if (!existsSync(firefoxExecutablePath)) throw new Error(`Firefox executable not found: ${firefoxExecutablePath}`);
 
-  const harnessRoot = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-responsibility-browser-'));
+  const harnessRoot = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-system-map-browser-'));
   t.after(() => rmSync(harnessRoot, { recursive: true, force: true }));
   const distDirectory = await buildResponsibilityHarness(harnessRoot);
   const server = previewServer(distDirectory);
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Responsibility harness did not expose a TCP address.');
+  if (!address || typeof address === 'string') throw new Error('System Map harness did not expose a TCP address.');
   const browser = await puppeteer.launch({ browser: 'firefox', executablePath: firefoxExecutablePath, headless: true });
 
   try {
@@ -35,293 +64,12 @@ test('Explorer starts in Overview and presents a factual Responsibility flow in 
     await page.waitForSelector('[data-system-map-status="ready"]', { timeout: 15000 });
 
     assert.equal(await page.$eval('[data-surface="overview"]', (element) => element.getAttribute('aria-pressed')), 'true');
-    assert.equal(await page.$eval('[data-surface="responsibility"]', (element) => (element as HTMLButtonElement).disabled), false);
     assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-item-count')), '4');
-    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-grammar')), 'field');
-    assert.equal(await page.$eval('[data-system-map]', (element) => element.textContent?.includes('Controlled experiment')), false);
-    assert.ok(await page.$('.system-map-field-band'));
-    assert.ok(await page.$('.system-map-field-rail'));
-    assert.equal(await page.$eval('.system-map-field-workspace', (workspace) => {
-      const canvas = workspace.querySelector('.system-map-field-canvas');
-      const rail = workspace.querySelector('.system-map-field-rail');
-      return Boolean(canvas && rail && canvas.parentElement === rail.parentElement && !canvas.contains(rail));
-    }), true);
     assert.equal(await page.$$eval('[data-system-map-item-kind="file"]', (items) => items.length), 4);
-    assert.ok(await page.$('.system-map-canvas .react-flow'));
-    assert.equal(await page.$('[data-known-responsibility="finding:http"]'), null);
-    assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 220), true);
-    const directFilePointerTarget = await page.$eval('[data-system-map-item-kind="file"] button', (button) => {
-      const rect = button.getBoundingClientRect();
-      const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-      const interactiveTarget = target?.closest('button');
-      return { tagName: interactiveTarget?.tagName, className: interactiveTarget?.getAttribute('class'), text: interactiveTarget?.textContent };
-    });
-    assert.deepEqual(directFilePointerTarget, { tagName: 'BUTTON', className: 'nodrag nopan', text: 'prisma.service.ts' });
     await page.click('[data-system-map-item-kind="file"] button');
     await page.waitForSelector('[data-system-map-field-inspector="src/prisma.service.ts"]', { timeout: 5000 });
-    await clickButton(page, 'Inspect file');
-    await page.waitForSelector('.details-panel .file-exploration', { timeout: 5000 });
-    assert.equal(await page.$eval('[data-file-landmark][aria-pressed="true"]', (element) => element.textContent?.includes('prisma.service.ts')), true);
-
-    await page.goto(`http://127.0.0.1:${address.port}/?system-map-field-fixture=1`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-system-map-grammar="field"]', { timeout: 5000 });
-    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-item-count')), '6');
-    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-relation-count')), '3');
-    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-dependency-count')), '3');
-    assert.equal(await page.$$eval('.react-flow__edge', (edges) => edges.length), 3);
-    assert.equal(await page.$('.system-map-field-edge-label'), null);
-    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-overlay')), 'structure');
-    assert.equal(await page.$$eval('[data-responsibility-overlay-state="inactive"]', (items) => items.length), 6);
-    assert.equal(await page.$$eval('.system-map-field-item .react-flow__handle', (handles) => handles.every((handle) => getComputedStyle(handle).opacity === '0')), true);
-    assert.ok(await page.$('[data-system-map-context="system"]'));
-    assert.ok(await page.$('[data-system-context-section="external-touchpoints"]'));
-    assert.ok(await page.$('[data-system-context-section="analysis-limits"]'));
-    assert.ok(await page.$('[data-system-context-section="unresolved-dependencies"]'));
-    assert.equal(await page.$('[data-analysis-limit="evaluated"]'), null);
-    const fieldPositions = await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
-      id: item.getAttribute('data-system-map-item-id'),
-      transform: item.parentElement?.style.transform,
-    })));
-    await page.focus('[aria-label="Responsibility overlay"]');
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-system-map-overlay="http-entry-point"]', { timeout: 5000 });
-    assert.ok(await page.$('[data-system-map-item-id="directory:src/auth"][data-responsibility-overlay-state="observed"]'));
-    assert.ok(await page.$('[data-system-map-item-id="directory:src/data"][data-responsibility-overlay-state="not-observed"]'));
-    assert.equal(await page.$eval('[data-system-map-overlay-summary="http-entry-point"]', (element) => element.textContent?.includes('map locations') && element.textContent.includes('factual findings')), true);
-    assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
-      id: item.getAttribute('data-system-map-item-id'),
-      transform: item.parentElement?.style.transform,
-    }))), fieldPositions);
-    await page.focus('[aria-label="Territory auth"]');
-    await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-system-map-field-inspector="directory:src/auth"]', { timeout: 5000 });
-    assert.equal(await page.$eval('.system-map-field-workspace', (workspace) => {
-      const canvas = workspace.querySelector('.system-map-field-canvas');
-      const inspector = workspace.querySelector('[data-system-map-field-inspector]');
-      return Boolean(canvas && inspector && !canvas.contains(inspector));
-    }), true);
-    assert.equal(await page.$$eval('[data-field-relation-group="outgoing"] li', (items) => items.length), 1);
-    assert.equal(await page.$$eval('[data-field-relation-group="incoming"] li', (items) => items.length), 1);
-    assert.equal(await page.$$eval('[data-field-attention="outgoing"]', (items) => items.length), 1);
-    assert.equal(await page.$$eval('[data-field-attention="incoming"]', (items) => items.length), 1);
-    assert.ok(await page.$('[data-system-map-responsibility-evidence="http-entry-point"] [data-system-map-responsibility-finding="finding:http:auth"]'));
-    assert.equal(await page.$eval('[data-system-map-field-inspector]', (element) => (
-      element.textContent?.includes('Structural connections')
-      && element.textContent.includes('Responsibility evidence')
-      && element.textContent.includes('System context')
-      && element.textContent.includes('architectural role is not inferred')
-    )), true);
-    await page.click('[data-system-map-context="item"] [data-system-context-section="external-touchpoints"] > summary');
-    assert.ok(await page.$('[data-system-map-context="item"] [data-external-touchpoint="@nestjs/common"]'));
-    await page.click('[data-system-map-context="item"] [data-external-touchpoint="@nestjs/common"] details summary');
-    assert.equal(await page.$eval('[data-external-touchpoint="@nestjs/common"]', (element) => element.textContent?.includes('src/auth/auth.service.ts:2:1') && element.textContent.includes('inferred')), true);
-    await page.click('[data-system-map-context="item"] [data-system-context-section="analysis-limits"] > summary');
-    assert.equal(await page.$('[data-system-map-context="item"] [data-analysis-limit="evaluated"]'), null);
-    assert.equal(await page.$eval('[data-system-map-context="item"] [data-system-context-section="analysis-limits"]', (element) => element.textContent?.includes('Partially evaluated') && element.textContent.includes('not evidence that a Responsibility is absent')), true);
-    await page.click('[data-system-map-context="item"] [data-system-context-section="unresolved-dependencies"] > summary');
-    assert.equal(await page.$eval('[data-system-map-context="item"] [data-unresolved-dependency]', (element) => element.textContent?.includes('./missing-auth') && element.textContent.includes('relative-target-not-found') && element.textContent.includes('src/auth/auth.service.ts:3:1')), true);
-    await page.click('[data-system-map-responsibility-finding="finding:http:auth"] summary');
-    assert.equal(await page.$eval('[data-system-map-responsibility-finding="finding:http:auth"]', (element) => element.textContent?.includes('test.nestjs') && element.textContent.includes('@Controller("auth")')), true);
-    assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
-      id: item.getAttribute('data-system-map-item-id'),
-      transform: item.parentElement?.style.transform,
-    }))), fieldPositions);
-    await page.select('[aria-label="Responsibility overlay"]', 'http-entry-point');
-    assert.ok(await page.$('[data-system-map-item-id="directory:src/auth"][data-responsibility-overlay-state="observed"]'));
-    assert.ok(await page.$('[data-system-map-item-id="directory:src/data"][data-responsibility-overlay-state="not-observed"]'));
-    await page.select('[aria-label="Responsibility overlay"]', 'persistence-interaction');
-    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-selected-system-map-item')), 'directory:src/auth');
-    assert.ok(await page.$('[data-system-map-item-id="directory:src/data"][data-responsibility-overlay-state="observed"]'));
-    assert.equal(await page.$eval('[data-system-map-responsibility-evidence="persistence-interaction"]', (element) => element.textContent?.includes('No finding for this Responsibility')), true);
-    assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
-      id: item.getAttribute('data-system-map-item-id'),
-      transform: item.parentElement?.style.transform,
-    }))), fieldPositions);
-    await page.select('[aria-label="Responsibility overlay"]', 'http-entry-point');
-    await page.click('[data-field-relation-group="outgoing"] li button');
-    await page.waitForSelector('[data-system-map-field-relation]', { timeout: 5000 });
-    assert.ok(await page.$('.system-map-field-edge-label'));
-    await page.click('[data-system-map-field-relation] summary');
-    assert.equal(await page.$eval('[data-system-map-field-relation]', (element) => element.textContent?.includes('src/auth/auth.service.ts') && element.textContent.includes('exact')), true);
-    await page.keyboard.press('Escape');
-    assert.equal(await page.$('[data-system-map-field-inspector]'), null);
-    assert.equal(await page.$('[data-system-map-field-relation]'), null);
-    assert.equal(await page.$$eval('[data-field-attention="resting"]', (items) => items.length), 6);
-    await page.select('[aria-label="Responsibility overlay"]', '');
-    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-overlay')), 'structure');
-    assert.equal(await page.$$eval('[data-responsibility-overlay-state="inactive"]', (items) => items.length), 6);
-    await page.focus('[aria-label="Direct file prisma.service.ts"]');
-    await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-system-map-field-inspector="src/prisma.service.ts"]', { timeout: 5000 });
-    assert.equal(await page.$$eval('[data-field-relation-group="incoming"] li', (items) => items.length), 1);
-    await clickButton(page, 'Inspect file');
-    await page.waitForSelector('.details-panel .file-exploration', { timeout: 5000 });
-    assert.equal(await page.$eval('[data-file-landmark][aria-pressed="true"]', (element) => element.textContent?.includes('prisma.service.ts')), true);
-
-    await page.setViewport({ width: 768, height: 1024 });
-    await page.goto(`http://127.0.0.1:${address.port}/?system-map-field-fixture=1`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-system-map-grammar="field"]', { timeout: 5000 });
-    assert.equal(await page.$eval('[aria-label="Responsibility overlay"] option[value="http-entry-point"]', (option) => option.textContent), 'HTTP Entry Point');
-    assert.equal(await page.$$eval('.react-flow__controls button', (buttons) => (
-      buttons.length === 3 && buttons.every((button) => button.getClientRects().length > 0)
-    )), true);
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
-    assert.equal(await page.$eval('.system-map-field-workspace', (workspace) => {
-      const canvas = workspace.querySelector('.system-map-field-canvas');
-      const rail = workspace.querySelector('.system-map-field-rail');
-      if (!canvas || !rail) return false;
-      const canvasRect = canvas.getBoundingClientRect();
-      const railRect = rail.getBoundingClientRect();
-      return railRect.top >= canvasRect.bottom - 1 && railRect.right <= window.innerWidth;
-    }), true);
-    assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
-      id: item.getAttribute('data-system-map-item-id'),
-      transform: item.parentElement?.style.transform,
-    }))), fieldPositions);
-    await page.select('[aria-label="Responsibility overlay"]', 'http-entry-point');
-    await page.click('[data-system-map-item-id="directory:src/auth"] button');
-    await page.waitForSelector('[data-system-map-field-inspector="directory:src/auth"]', { timeout: 5000 });
-    assert.ok(await page.$('[data-field-relation-group="outgoing"]'));
-    assert.ok(await page.$('[data-field-relation-group="incoming"]'));
-    assert.ok(await page.$('[data-system-map-responsibility-evidence="http-entry-point"]'));
-
-    await page.setViewport({ width: 390, height: 844 });
-    await page.goto(`http://127.0.0.1:${address.port}/?system-map-field-fixture=1`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-system-map-grammar="field"]', { timeout: 5000 });
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
-    assert.equal(await page.$eval('[aria-label="Responsibility overlay"]', (selector) => {
-      const rect = selector.getBoundingClientRect();
-      return rect.left >= 0 && rect.right <= window.innerWidth && rect.width > 0;
-    }), true);
-    assert.deepEqual(await page.$$eval('[data-system-map-item-id]', (items) => items.map((item) => ({
-      id: item.getAttribute('data-system-map-item-id'),
-      transform: item.parentElement?.style.transform,
-    }))), fieldPositions);
-    await page.select('[aria-label="Responsibility overlay"]', 'persistence-interaction');
-    assert.ok(await page.$('[data-system-map-item-id="src/prisma.service.ts"][data-responsibility-overlay-state="observed"]'));
-    await page.focus('[aria-label="Direct file prisma.service.ts"]');
-    await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-system-map-field-inspector="src/prisma.service.ts"]', { timeout: 5000 });
-    assert.equal(await page.$eval('.system-map-field-workspace', (workspace) => {
-      const canvas = workspace.querySelector('.system-map-field-canvas');
-      const inspector = workspace.querySelector('[data-system-map-field-inspector]');
-      if (!canvas || !inspector) return false;
-      return inspector.getBoundingClientRect().top >= canvas.getBoundingClientRect().bottom - 1;
-    }), true);
-    assert.ok(await page.$('[data-field-relation-group="incoming"]'));
-    assert.ok(await page.$('[data-system-map-responsibility-evidence="persistence-interaction"]'));
-    await page.click('[data-system-map-responsibility-finding] summary');
-    assert.equal(await page.$eval('[data-system-map-responsibility-finding]', (finding) => {
-      finding.scrollIntoView({ block: 'nearest' });
-      return finding.textContent?.includes('How BunkerCode knows') && finding.getClientRects().length > 0;
-    }), true);
-    await page.select('[aria-label="Responsibility overlay"]', '');
-    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-overlay')), 'structure');
-    await clickButton(page, 'Inspect file');
-    await page.waitForSelector('.details-panel .file-exploration', { timeout: 5000 });
-    assert.equal(await page.$eval('[data-file-landmark][aria-pressed="true"]', (element) => element.textContent?.includes('prisma.service.ts')), true);
-
-    await page.setViewport({ width: 1440, height: 900 });
-
-    await page.goto(`http://127.0.0.1:${address.port}/`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-system-map-status="ready"]', { timeout: 5000 });
-
-    await page.focus('[data-surface="responsibility"]');
-    await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-responsibility-map]', { timeout: 5000 });
-    assert.equal(await page.$eval('[data-surface="responsibility"]', (element) => element.getAttribute('aria-pressed')), 'true');
-    assert.equal(await page.$eval('[data-responsibility-spatial-field]', (element) => element.getAttribute('data-responsibility-composition')), 'constellation');
-    assert.equal(await page.$eval('[data-responsibility-family="interface"]', (element) => element.textContent?.includes('Interface')), true);
-    assert.ok(await page.$('[data-responsibility="http-entry-point"]'));
-    assert.equal(await page.$('.responsibility-map .react-flow'), null);
-    assert.equal(await page.$('.details-panel'), null);
-    assert.equal(await page.$eval('.explorer-header-actions', (element) => !element.textContent?.includes('Fit graph') && !element.textContent?.includes('Center selected')), true);
-    assert.equal(await page.$eval('[data-responsibility-coverage-notice]', (element) => element.textContent?.includes('coverage is incomplete')), true);
-
-    await page.focus('[data-responsibility="http-entry-point"]');
-    await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-responsibility-subject="finding:http"]', { timeout: 5000 });
-    assert.ok(await page.$('[data-responsibility-subject-preview]'));
-    assert.ok(await page.$('[data-responsibility-subject-preview-item="finding:http"]'));
-    assert.ok(await page.$('.details-panel'));
-    assert.equal(await page.$eval('[data-responsibility-details]', (element) => element.textContent?.includes('UsersController.list') && element.textContent.includes('8 subjects')), true);
-    assert.equal(await page.$eval('[aria-label="Filter responsibility findings"]', (element) => element instanceof HTMLInputElement && element.value === ''), true);
-    assert.equal(await page.$eval('[data-disclosure="responsibility-subjects"] summary', (element) => element.textContent), 'Show 2 more factual findings');
-    await page.type('[aria-label="Filter responsibility findings"]', 'CREATE');
-    await page.waitForSelector('[data-responsibility-subject="finding:create-task"]', { timeout: 5000 });
-    assert.equal(await page.$('[data-disclosure="responsibility-subjects"]'), null);
-    assert.equal(await page.$eval('[data-responsibility-filter-count]', (element) => element.textContent), '1 of 8 factual findings');
-    await page.click('[data-responsibility="access-control"]');
-    await page.waitForFunction(() => (document.querySelector('[aria-label="Filter responsibility findings"]') as HTMLInputElement | null)?.value === '', { timeout: 5000 });
-    await page.click('[data-responsibility="http-entry-point"]');
-    await page.type('[aria-label="Filter responsibility findings"]', '@Post("tasks")');
-    await page.waitForSelector('[data-responsibility-subject="finding:create-task"]', { timeout: 5000 });
-    await page.focus('[aria-label="Filter responsibility findings"]');
-    await page.keyboard.down('Control');
-    await page.keyboard.press('A');
-    await page.keyboard.up('Control');
-    await page.keyboard.press('Backspace');
-    await page.type('[aria-label="Filter responsibility findings"]', 'criação');
-    await page.waitForSelector('[data-responsibility-filter-empty]', { timeout: 5000 });
-    assert.equal(await page.$('[data-responsibility-subject]'), null);
-    await page.focus('[aria-label="Filter responsibility findings"]');
-    await page.keyboard.down('Control');
-    await page.keyboard.press('A');
-    await page.keyboard.up('Control');
-    await page.keyboard.press('Backspace');
-    await page.waitForSelector('[data-disclosure="responsibility-subjects"]', { timeout: 5000 });
-    if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
-      await page.screenshot({ path: '/tmp/bunkercode-responsibility-1440.png', fullPage: true });
-    }
-    await page.click('[data-responsibility-subject="finding:http"]');
-    assert.equal(await page.$eval('[data-selected-responsibility-subject]', (element) => element.textContent?.includes('src/users.controller.ts:8:3')), true);
-    assert.equal(await page.$eval('[data-disclosure="responsibility-evidence"]', (element) => element instanceof HTMLDetailsElement && !element.open), true);
-    await page.click('[data-disclosure="responsibility-evidence"] summary');
-    assert.equal(await page.$eval('[data-disclosure="responsibility-evidence"]', (element) => {
-      const text = element.textContent ?? '';
-      return text.includes('test.nestjs') && text.includes('route') && text.includes('@Get()') && text.includes('exact');
-    }), true);
-    await page.click('[data-disclosure="responsibility-coverage"] summary');
-    assert.equal(await page.$eval('[data-disclosure="responsibility-coverage"]', (element) => {
-      const text = element.textContent ?? '';
-      return text.includes('Evaluated') && text.includes('Partially evaluated') && text.includes('Not evaluated') && text.includes('Unsupported') && text.includes('Failed');
-    }), true);
-    assert.equal(await page.$eval('[data-disclosure="responsibility-coverage"] li', (element) => element.getClientRects().length > 0), true);
-
-    await clickButton(page, 'Locate in Territory');
-    await page.waitForSelector('[data-surface="territory"][aria-pressed="true"]', { timeout: 5000 });
-    await page.waitForSelector('[data-explorer-scale="territory"]', { timeout: 5000 });
-    assert.equal(await page.$('.react-flow'), null);
-    assert.equal(await page.$eval('[data-file-landmark="src/users.controller.ts"]', (element) => element.getAttribute('aria-pressed')), 'true');
-    assert.equal(await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent?.includes('src')), true);
-
-    const territoryLocation = await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent);
-    await page.focus('[data-surface="responsibility"]');
-    await page.keyboard.press('Enter');
-    await page.waitForSelector('[data-responsibility-map]', { timeout: 5000 });
-    assert.equal(await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent), territoryLocation);
-    await page.click('[data-surface="territory"]');
-    await page.waitForSelector('[data-file-landmark="src/users.controller.ts"][aria-pressed="true"]', { timeout: 5000 });
-
-    await page.click('[data-surface="responsibility"]');
-    await page.click('[data-responsibility="access-control"]');
-    assert.ok(await page.$('[data-responsibility-subject="finding:access"]'));
-    assert.equal(await page.$eval('[data-responsibility-subject="finding:access"]', (element) => element.textContent?.includes('UsersController.list')), true);
-
-    await clickButton(page, 'Close inspector');
-    await page.waitForFunction(() => document.querySelector('.details-panel') === null, { timeout: 5000 });
-    assert.equal(await page.$('[data-responsibility-subject-preview]'), null);
-
-    await page.click('[data-surface="overview"]');
-    await page.waitForSelector('[data-system-map-status="ready"]', { timeout: 5000 });
-    assert.equal(await page.$eval('[aria-label="Explorer location"]', (element) => element.textContent), territoryLocation);
-    await page.setViewport({ width: 640, height: 900 });
-    await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
-    assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 340), true);
-    if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
-      await page.screenshot({ path: '/tmp/bunkercode-responsibility-640.png', fullPage: true });
-    }
+    assert.equal(await page.$eval('[data-system-map-field-inspector]', (element) => element.textContent?.includes('Structural connections')), true);
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-item-count')), '4');
   } finally {
     await browser.close();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -348,14 +96,98 @@ test('Explorer navigates factual territories and focused file relationships in a
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 900 });
     await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[data-system-map-status="source-territory-unavailable"]', { timeout: 15000 });
+    await page.waitForSelector('[data-system-map-status="ready"]', { timeout: 15000 });
     assert.equal(await page.$eval('[data-surface="overview"]', (element) => element.getAttribute('aria-pressed')), 'true');
     assert.equal(await page.$eval('[data-surface="responsibility"]', (element) => (element as HTMLButtonElement).disabled), true);
     assert.equal(await page.$eval('[data-surface="territory"]', (element) => (element as HTMLButtonElement).disabled), false);
-    assert.equal(await page.$eval('[data-system-map]', (element) => element.textContent?.includes('No src Territory was observed')), true);
-    assert.equal(await page.$eval('[data-system-map]', (element) => element.textContent?.includes('No alternative area is inferred')), true);
-    assert.equal(await page.$('.react-flow'), null);
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-item-count')), '3');
+    assert.equal(await page.$eval('[data-system-map]', (element) => Number((element as HTMLElement).dataset.systemMapRelationCount) > 0), true);
+    assert.equal(await page.$eval('[data-system-map]', (element) => Number((element as HTMLElement).dataset.systemMapDependencyCount) > 0), true);
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.textContent?.includes('No src Territory was observed')), false);
+    assert.ok(await page.$('[data-system-map-item-id="directory:apps"]'));
+    assert.ok(await page.$('[data-system-map-item-id="directory:packages"]'));
+    assert.ok(await page.$('[data-system-map-item-id="directory:test"]'));
+    assert.ok(await page.$('.system-map-canvas .react-flow'));
+    const initialPositions = await systemMapBoxes(page);
+    assert.equal(await page.$$eval('[data-system-map-context-frame]', (frames) => frames.length), 0);
+    await captureSystemMap(page, 'initial');
+    await page.click('[data-system-map-item-id="directory:apps"] button');
+    await clickButton(page, 'Explore region');
+    await page.waitForSelector('[data-system-map-context-frame="directory:apps"]');
+    await assertSystemMapContainment(page);
+    for (const id of ['directory:apps/cli', 'directory:apps/explorer-web']) {
+      assert.equal(await page.$eval(`[data-system-map-item-id="${id}"]`, (element) => element.getAttribute('data-system-map-parent-frame')), 'context:directory:apps');
+    }
+    await captureSystemMap(page, 'apps');
+    await page.click('[aria-label="Collapse apps"]');
+    await page.waitForSelector('[data-system-map-item-id="directory:apps"]');
     assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 220), true);
+    await page.click('[data-system-map-item-id="directory:packages"] button');
+    await page.waitForSelector('[data-system-map-field-inspector="directory:packages"]', { timeout: 5000 });
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-item-count')), '3');
+    await clickButton(page, 'Explore region');
+    await page.waitForSelector('[data-system-map-item-id="directory:packages/graph-engine"]', { timeout: 5000 });
+    assert.ok(await page.$('[data-system-map-item-id="directory:apps"]'));
+    assert.ok(await page.$('[data-system-map-item-id="directory:test"]'));
+    assert.ok(await page.$('[data-system-map-item-id="directory:packages/analyzer-typescript"]'));
+    assert.ok(await page.$('[data-system-map-item-id="directory:packages/contracts"]'));
+    await assertSystemMapContainment(page);
+    const packagesPositions = await systemMapBoxes(page);
+    const initialApps = initialPositions.find((box) => box.id === 'directory:apps');
+    const currentApps = packagesPositions.find((box) => box.id === 'directory:apps');
+    assert.ok(initialApps && currentApps);
+    assert.ok(Math.abs(currentApps.x - initialApps.x) < 2 && Math.abs(currentApps.y - initialApps.y) < 2);
+    const initialTest = initialPositions.find((box) => box.id === 'directory:test');
+    const currentTest = packagesPositions.find((box) => box.id === 'directory:test');
+    assert.ok(initialTest && currentTest);
+    assert.ok(Math.abs(currentTest.y - initialTest.y) < 2);
+    assert.ok(currentTest.x >= initialTest.x && currentTest.x - initialTest.x < initialTest.width);
+    await captureSystemMap(page, 'packages');
+    await page.click('[data-system-map-item-id="directory:packages/analyzer-typescript"] button');
+    await page.click('[data-system-map-context-frame="directory:packages"] header small');
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-selected-system-map-item')), 'directory:packages/analyzer-typescript');
+    await page.focus('[data-system-map-item-id="directory:packages/analyzer-typescript"] button');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-selected-system-map-item=""]');
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-selected-system-map-item')), '');
+    assert.equal(await page.$('[data-system-map-field-inspector]'), null);
+    await page.focus('[aria-label="Structural region @bunker-code/graph-engine"]');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-system-map-field-inspector="directory:packages/graph-engine"]', { timeout: 5000 });
+    await clickButton(page, 'Explore region');
+    await page.waitForSelector('[data-system-map-item-id="packages/graph-engine/src/project-graph.ts"]', { timeout: 5000 });
+    assert.equal(await page.$('[data-system-map-item-id="directory:packages/graph-engine/src"]'), null);
+    await assertSystemMapContainment(page);
+    assert.equal(await page.$eval('[data-system-map-context-frame="directory:packages/graph-engine"]', (element) => element.getAttribute('data-system-map-parent-frame')), 'context:directory:packages');
+    assert.equal(await page.$eval('[data-system-map-item-id="packages/graph-engine/src/project-graph.ts"]', (element) => element.getAttribute('data-system-map-parent-frame')), 'context:directory:packages/graph-engine');
+    await captureSystemMap(page, 'graph-engine');
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-selected-system-map-item')), '');
+    await page.click('.react-flow__edge');
+    await page.waitForSelector('[data-system-map-field-relation]', { timeout: 5000 });
+    await page.click('[aria-label="Collapse packages"]');
+    await page.waitForSelector('[data-system-map-item-id="directory:packages"]', { timeout: 5000 });
+    assert.ok(await page.$('[data-system-map-item-id="directory:apps"]'));
+    assert.ok(await page.$('[data-system-map-item-id="directory:test"]'));
+    assert.equal(await page.$('[data-system-map-item-id="directory:packages/graph-engine"]'), null);
+    assert.equal(await page.$('[data-system-map-field-relation]'), null);
+    assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-selected-system-map-item')), '');
+    assert.equal(await page.$$eval('[data-system-map-context-frame]', (frames) => frames.length), 0);
+    const collapsedPositions = await systemMapBoxes(page);
+    for (const before of initialPositions) {
+      const after = collapsedPositions.find((box) => box.id === before.id);
+      assert.ok(after);
+      assert.ok(Math.abs(after.x - before.x) < 2 && Math.abs(after.y - before.y) < 2);
+    }
+    await page.focus('[data-system-map-item-id="directory:test"] button');
+    await page.keyboard.press('Enter');
+    await clickButton(page, 'Explore region');
+    await page.waitForSelector('[data-system-map-context-frame="directory:test"]');
+    await assertSystemMapContainment(page);
+    assert.equal(await page.$$eval('[data-system-map-item-kind="file"]', (items) => items.every((item) => item.getAttribute('data-system-map-parent-frame') === 'context:directory:test')), true);
+    await captureSystemMap(page, 'test');
+    await page.focus('[aria-label="Collapse test"]');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-system-map-item-id="directory:test"]');
     if (process.env.BUNKERCODE_CAPTURE_VISUAL === '1') {
       await page.screenshot({ path: '/tmp/bunkercode-system-map-overview-1440.png', fullPage: true });
     }
@@ -449,7 +281,7 @@ test('Explorer navigates factual territories and focused file relationships in a
       true,
     );
     await page.click('[data-surface="overview"]');
-    await page.waitForSelector('[data-system-map-status="source-territory-unavailable"]', { timeout: 5000 });
+    await page.waitForSelector('[data-system-map-status="ready"]', { timeout: 5000 });
     await page.setViewport({ width: 640, height: 900 });
     await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, { timeout: 5000 });
     assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 340), true);

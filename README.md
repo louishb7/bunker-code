@@ -72,49 +72,59 @@ The browser check uses `puppeteer-core` with the system Firefox executable at
 ## Explorer
 
 The Explorer generates a disposable snapshot from an explicit supported target.
-Overview now opens on a Web-local factual System Map of the structural content
-directly inside `src`: its direct Territory children, files directly contained
-by `src`, and directed internal dependencies aggregated between those visual
-items. Direct files remain file landmarks on a compact auxiliary shelf rather
-than being turned into an invented Territory. Each aggregate preserves its originating
-file-level `ProjectGraphEdge` records; its count is observed dependency volume,
-not importance, runtime frequency, or architectural weight. If no `src`
-Territory is observed, the boundary is reported explicitly instead of choosing
-another root heuristically.
+Overview now opens on a Web-local factual System Map derived from the analysis
+root, its structural geography, and an initial non-overlapping landmark
+frontier. The frontier crosses only trivial structural wrappers and therefore
+does not depend on a directory named `src`; workspace-package identities stop
+that crossing and remain factual facets of their physical region. Direct files
+remain file landmarks inside the refined region that reveals them; files at
+the actual global frontier remain on the System surface. Each aggregate preserves its originating file-level
+`ProjectGraphEdge` records; its count is observed dependency volume, not
+importance, runtime frequency, or architectural weight.
 
 The System Map is a pure Explorer presentation projection, not a universal
 architecture, semantic Perspective, or domain contract. An arrow means only
 that files represented by its source have observed internal dependencies on
-files represented by its target. Territory and direct-file actions enter the
-existing structural/file investigation. Responsibility remains available as a
-separate depth surface while factual categories observed in this `src` slice
-can also be applied one at a time as overlays on the unchanged map. Entering or
-leaving Overview does not reset
+files represented by its target. Territory remains the structural investigation
+surface. Responsibility remains available as a separate depth surface, while
+its System Map overlay and secondary System context are not yet projected onto
+this new frontier scale. Entering or leaving Overview does not reset
 `ExplorerLocation`.
 
 The normal Overview renders that projection as a deterministic, neutral
-Territory grid with a compact direct-file shelf. Aggregate relations remain
-materialized but are quiet at rest; selecting a Territory or direct file
+hierarchy of structural landmarks and persistent context frames. Aggregate relations remain
+materialized but are quiet at rest; selecting a region or direct file
 emphasizes every incident direction as **Uses** or **Used by**, and selecting a
 relation discloses its observed count and originating file-edge evidence in a
 stable inspector rail outside the canvas. Position follows factual item order
-only; dependency direction, counts, project identity, and selection do not
-affect geography.
+and containment only; dependency direction, counts, project identity, and
+selection do not affect geography.
 
-The default **Structure** view contains no Responsibility emphasis. An active
-overlay highlights only Territory or direct-file items containing findings for
-that factual category, keeps all other items present at lower contrast, and
-shows raw observed-finding counts only as secondary information. Selection
-continues to prioritize Uses / Used by, while the inspector separates those
-structural connections from the active Responsibility evidence and provenance.
-Overlay counts do not affect position, size, relation meaning, or importance.
-The inspector also carries secondary System context after structural and active
-Responsibility evidence. It summarizes observed external-module imports,
-unresolved dependencies, incomplete Responsibility evaluation, dependency
-cycles, and isolated files; selecting a map item narrows file-scoped context to
-that item. External modules do not become Territories, unresolved targets do
-not become nodes or edges, and evaluated coverage is not presented as a limit.
-Territories remain observed structure whose architectural role is not inferred.
+Semantic zoom in the current System Map refines the landmark frontier while
+keeping the analysis-root boundary fixed. Selecting a region only inspects it;
+the explicit **Explore region** action replaces that aggregate landmark with
+its next factual subdivision while preserving its siblings. Trivial one-child
+wrappers may be crossed without name-based rules, nested workspace-package
+identities remain protected, and explicit collapse restores the coarser
+frontier. Refined regions remain visible as context frames; nested refinements
+create frames within frames, with collapse controls in their headers. These
+frames own no files and are never dependency endpoints. Every scale is
+reprojected through the same file ownership and dependency-evidence rules.
+
+The Explorer computes frame sizes and parent-relative positions before handing
+them to React Flow. Root regions retain ordered horizontal lanes; an opened
+region grows from its previous origin and shifts following siblings only to
+avoid overlap. Inside frames, regions stack vertically and files occupy a
+two-column grid. The camera does not automatically refit on refinement or
+collapse; pan, zoom and fit controls remain available on desktop and narrow
+screens. Dense or deeply refined maps may exceed the viewport. Dependency
+curves preserve factual endpoints but do not yet route around other boxes.
+
+The default **Structure** view currently contains only the structural frontier
+and its observed internal relations. Responsibility overlay, external
+touchpoints, unresolved dependencies, analysis limits, cycles, and isolated
+files are not yet mapped to this frontier or presented in the current Overview.
+Regions remain observed structure whose architectural role is not inferred.
 
 At narrow widths the same canvas and model positions remain in use while the
 inspector moves below the map; touch-independent zoom/fit controls and page
