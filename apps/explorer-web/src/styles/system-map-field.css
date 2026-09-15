@@ -2,6 +2,38 @@
   grid-template-columns: minmax(210px, 0.75fr) auto minmax(280px, 1fr);
 }
 
+.system-map-field {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.system-map-scale-trail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 7px 24px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.system-map-scale-trail button {
+  padding: 4px 7px;
+  font-size: 11px;
+}
+
+.system-map-scale-trail small {
+  margin-left: auto;
+  font-size: 10px;
+}
+
+.system-map-field-key label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .system-map-field-key {
   display: flex;
   flex-wrap: wrap;
@@ -26,8 +58,18 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 330px;
+  grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
+}
+
+.system-map-field-workspace.has-inspector {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+
+.system-map-close-inspector {
+  margin-bottom: 18px;
+  padding: 5px 9px;
+  font-size: 11px;
 }
 
 .system-map-field-canvas {
@@ -64,12 +106,13 @@
 }
 
 .system-map-field-item {
+  position: relative;
   width: 100%;
   height: 100%;
   transition: opacity 140ms ease, filter 140ms ease;
 }
 
-.system-map-field-item button {
+.system-map-field-item .system-map-landmark-select {
   position: relative;
   width: 100%;
   height: 100%;
@@ -79,14 +122,33 @@
   gap: 5px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-accent) 62%, var(--color-border));
-  border-radius: 30px 12px 28px 14px;
-  padding: 16px 20px;
+  border-radius: 12px;
+  padding: 12px 14px 40px;
   color: var(--color-text);
   text-align: left;
   background:
     radial-gradient(circle at 82% 22%, color-mix(in srgb, var(--color-accent) 13%, transparent), transparent 34%),
     color-mix(in srgb, var(--color-accent-deep) 56%, var(--color-surface));
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 2%), var(--shadow-card);
+}
+
+.system-map-field-item .system-map-refine {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 100%;
+  height: 30px;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 14px;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0 0 12px 12px;
+  color: var(--color-accent);
+  background: var(--color-surface-quiet);
+  font-size: 11px;
 }
 
 .system-map-field-item button > span {
@@ -100,7 +162,7 @@
 .system-map-field-item strong {
   width: 100%;
   padding-block: 2px;
-  font-size: 17px;
+  font-size: 14px;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -110,7 +172,7 @@
   font-size: 10px;
 }
 
-.system-map-field-item-file button {
+.system-map-field-item-file .system-map-landmark-select {
   gap: 0;
   border-style: dashed;
   border-color: color-mix(in srgb, var(--color-contextual) 62%, var(--color-border));
@@ -120,7 +182,7 @@
 }
 
 .system-map-field-item-file strong {
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .system-map-field-item .react-flow__handle {
@@ -142,6 +204,11 @@
   background: color-mix(in srgb, var(--color-accent) 5%, var(--color-canvas));
 }
 
+.field-context-passive {
+  border-color: var(--color-border-strong);
+  background: color-mix(in srgb, var(--color-accent) 2%, var(--color-canvas));
+}
+
 .system-map-field-context > header {
   height: 64px;
   display: flex;
@@ -156,6 +223,12 @@
   display: grid;
   min-width: 0;
   gap: 4px;
+}
+
+.system-map-field-context header > .system-map-frame-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 5px;
 }
 
 .system-map-field-context small {
@@ -179,7 +252,7 @@
   overflow-wrap: anywhere;
 }
 
-.field-attention-selected button {
+.system-map-field-item.field-attention-selected .system-map-landmark-select {
   border-color: var(--color-selected);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-selected) 45%, transparent), var(--shadow-raised);
 }
@@ -192,23 +265,23 @@
   filter: none;
 }
 
-.field-attention-outgoing button {
+.system-map-field-item.field-attention-outgoing .system-map-landmark-select {
   border-color: var(--color-uses);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-uses) 38%, transparent);
 }
 
-.field-attention-incoming button {
+.system-map-field-item.field-attention-incoming .system-map-landmark-select {
   border-color: var(--color-used-by);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-used-by) 38%, transparent);
 }
 
-.field-attention-both button {
+.system-map-field-item.field-attention-both .system-map-landmark-select {
   border-color: var(--color-selected);
   background: linear-gradient(135deg, color-mix(in srgb, var(--color-uses) 20%, var(--color-surface)), color-mix(in srgb, var(--color-used-by) 20%, var(--color-surface)));
 }
 
 .field-attention-dimmed {
-  opacity: 0.28;
+  opacity: 0.5;
   filter: saturate(0.55);
 }
 
@@ -217,7 +290,7 @@
 }
 
 .field-relation-resting {
-  opacity: 0.38;
+  opacity: 0.15;
 }
 
 .system-map-field[data-selected-system-map-item]:not([data-selected-system-map-item=""]) .field-relation-resting {
@@ -279,11 +352,6 @@
   margin-top: 0;
 }
 
-.system-map-field-summary {
-  display: grid;
-  align-content: start;
-}
-
 .system-map-field-inspector p {
   margin: 3px 0 8px;
   color: var(--color-text-muted);
@@ -317,12 +385,6 @@
   font-size: 9px;
 }
 
-.system-map-field-inspector > button {
-  min-height: 32px;
-  margin-top: 11px;
-  padding: 5px 9px;
-}
-
 .system-map-field-relation-inspector details {
   margin-top: 8px;
 }
@@ -341,29 +403,6 @@
   font-size: 10px;
 }
 
-.system-map-field-empty-inspector {
-  display: grid;
-  gap: 8px;
-  align-content: center;
-  min-height: 150px;
-}
-
-.system-map-field-empty-inspector span {
-  color: var(--color-accent);
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.system-map-field-empty-inspector p {
-  max-width: 240px;
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
 @media (max-width: 940px) {
   .system-map-field-heading {
     grid-template-columns: minmax(180px, 0.7fr) 1fr;
@@ -374,7 +413,8 @@
     justify-content: flex-start;
   }
 
-  .system-map-field-workspace {
+  .system-map-field-workspace,
+  .system-map-field-workspace.has-inspector {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(540px, 1fr) auto;
     overflow: auto;

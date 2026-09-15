@@ -602,7 +602,7 @@ test('System Map projects the initial structural frontier, direct files, and tra
     ...authToPrisma,
     sourceItemId: 'directory:src/prisma',
     targetItemId: 'src/main.ts',
-  }), { sourceSide: 'bottom', targetSide: 'top' });
+  }), { sourceSide: 'right', targetSide: 'left' });
 
   const positionsBeforeSelection = field.items.map(({ item, position }) => ({ id: item.id, position }));
   const authSelection = createSystemMapFieldSelection(field, 'directory:src/auth');
@@ -820,9 +820,11 @@ test('System Map refinement replaces one region while preserving siblings, owner
   assert.deepEqual(packagesField.frames.map((frame) => [frame.region.id, frame.parentId]), [['directory:packages', undefined]]);
   assert.deepEqual(nestedField.frames.map((frame) => [frame.region.id, frame.parentId]), [
     ['directory:packages', undefined], ['directory:packages/core', 'context:directory:packages'],
+    ['directory:packages/core/wrapper', 'context:directory:packages/core'],
   ]);
-  assert.equal(nestedField.items.find(({ item }) => item.id === 'packages/core/wrapper/direct.ts')?.parentId, 'context:directory:packages/core');
-  assert.equal(nestedField.items.find(({ item }) => item.id === 'directory:packages/core/wrapper/nested')?.parentId, 'context:directory:packages/core');
+  assert.equal(nestedField.items.find(({ item }) => item.id === 'packages/core/wrapper/direct.ts')?.parentId, 'context:directory:packages/core/wrapper');
+  assert.equal(nestedField.items.find(({ item }) => item.id === 'directory:packages/core/wrapper/nested')?.parentId, 'context:directory:packages/core/wrapper');
+  assert.equal(nestedField.frames.find((frame) => frame.region.rootPath === 'packages/core/wrapper')?.passive, true);
   for (const sibling of ['directory:apps', 'directory:test']) {
     const before = initialField.items.find(({ item }) => item.id === sibling);
     const after = nestedField.items.find(({ item }) => item.id === sibling);
@@ -940,6 +942,54 @@ test('System Map frontier projection aggregates landmark relations and preserves
     ]),
     /System Map file belongs to multiple landmarks: container\/a\/first\.ts/,
   );
+});
+
+test('System Map packs broad and deep geography into bounded rows with passive wrapper context', () => {
+  const files = [
+    ...Array.from({ length: 11 }, (_, index) => `wrapper/region-${String(index).padStart(2, '0')}/index.ts`),
+    ...Array.from({ length: 9 }, (_, index) => `wrapper/region-00/nested/file-${index}.ts`),
+    'wrapper/main.ts',
+  ];
+  const geography = createExplorerSystemMapGeography(structureForGeography(files));
+  const graph = graphForFrontier(files, []);
+  const fieldAt = (refinedRegionIds: ReadonlySet<string>, viewportWidth = 1440) => createSystemMapFieldModel(
+    createExplorerSystemMapFrontierProjection(geography, graph, createExplorerSystemMapFrontier(geography, refinedRegionIds)),
+    { geography, refinedRegionIds, viewportWidth },
+  );
+  const initial = fieldAt(new Set());
+  assert.equal(initial.frames.length, 1);
+  assert.equal(initial.frames[0]?.region.id, 'directory:wrapper');
+  assert.equal(initial.frames[0]?.passive, true);
+  assert.ok(initial.items.every((entry) => entry.parentId === 'context:directory:wrapper'));
+  assert.ok(new Set(initial.items.map((entry) => entry.position.y)).size > 1);
+  assert.ok(initial.bounds.width <= 1440 && initial.bounds.height < 900);
+  const refined = new Set(['directory:wrapper/region-00', 'directory:wrapper/region-00/nested']);
+  const expanded = fieldAt(refined);
+  assert.ok(expanded.bounds.width <= 1440 && expanded.bounds.height < 1200);
+  assert.equal(expanded.items.find(({ item }) => item.id === 'wrapper/main.ts')?.parentId, 'context:directory:wrapper');
+  assert.deepEqual(expanded, fieldAt(new Set([...refined].reverse())));
+  for (const width of [1024, 1440]) {
+    const model = fieldAt(refined, width);
+    const boxes = [
+      ...model.frames.map((frame) => ({ ...frame })),
+      ...model.items.map((entry) => ({ ...entry, ...systemMapFieldDimensions[entry.item.kind] })),
+    ];
+    for (const [index, box] of boxes.entries()) {
+      if (box.parentId) {
+        const parent = model.frames.find((frame) => frame.id === box.parentId);
+        assert.ok(parent);
+        assert.ok(box.position.x > 0 && box.position.y > 0);
+        assert.ok(box.position.x + box.width < parent.width);
+        assert.ok(box.position.y + box.height < parent.height);
+      }
+      for (const sibling of boxes.slice(index + 1).filter((other) => other.parentId === box.parentId)) {
+        assert.ok(box.position.x + box.width <= sibling.position.x
+          || sibling.position.x + sibling.width <= box.position.x
+          || box.position.y + box.height <= sibling.position.y
+          || sibling.position.y + sibling.height <= box.position.y, 'Sibling boxes must not overlap');
+      }
+    }
+  }
 });
 
 test('System Map frontier projection preserves internal dependencies crossing the represented boundary deterministically', () => {

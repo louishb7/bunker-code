@@ -93,16 +93,17 @@ this new frontier scale. Entering or leaving Overview does not reset
 
 The normal Overview renders that projection as a deterministic, neutral
 hierarchy of structural landmarks and persistent context frames. Aggregate relations remain
-materialized but are quiet at rest; selecting a region or direct file
+in the projection but are hidden at rest; selecting a region or direct file
 emphasizes every incident direction as **Uses** or **Used by**, and selecting a
 relation discloses its observed count and originating file-edge evidence in a
-stable inspector rail outside the canvas. Position follows factual item order
+contextual inspector rail outside the canvas. **All dependencies** explicitly
+reveals the complete set of arrows. Position follows factual item order
 and containment only; dependency direction, counts, project identity, and
 selection do not affect geography.
 
 Semantic zoom in the current System Map refines the landmark frontier while
 keeping the analysis-root boundary fixed. Selecting a region only inspects it;
-the explicit **Explore region** action replaces that aggregate landmark with
+the **Zoom in** control on the landmark replaces that aggregate landmark with
 its next factual subdivision while preserving its siblings. Trivial one-child
 wrappers may be crossed without name-based rules, nested workspace-package
 identities remain protected, and explicit collapse restores the coarser
@@ -110,15 +111,38 @@ frontier. Refined regions remain visible as context frames; nested refinements
 create frames within frames, with collapse controls in their headers. These
 frames own no files and are never dependency endpoints. Every scale is
 reprojected through the same file ownership and dependency-evidence rules.
+The inspector is not a navigation prerequisite. Native buttons support keyboard
+refinement and collapse; focus transfers to the new collapse control and back
+to the restored landmark. Double-click is an optional refinement shortcut.
 
 The Explorer computes frame sizes and parent-relative positions before handing
-them to React Flow. Root regions retain ordered horizontal lanes; an opened
-region grows from its previous origin and shifts following siblings only to
-avoid overlap. Inside frames, regions stack vertically and files occupy a
-two-column grid. The camera does not automatically refit on refinement or
-collapse; pan, zoom and fit controls remain available on desktop and narrow
-screens. Dense or deeply refined maps may exceed the viewport. Dependency
-curves preserve factual endpoints but do not yet route around other boxes.
+them to React Flow. Ordered two-dimensional packing uses containment, child
+dimensions and available workspace width. Regions and files share bounded
+rows inside their factual parent; expanded regions in broad subdivisions share
+the available width. Selection and the inspector do not repack the map.
+Skipped wrappers can remain passive **Folder context** frames, preserving the
+path of files without adding a compulsory navigation step. Empty intermediate
+wrapper chains are compressed into the terminal context's factual full path.
+
+Expansion preserves ordering and local coordinates where space permits, but
+overflow can wrap siblings. The camera keeps an overview while it is readable,
+then focuses the opened region when fitting everything would shrink it too far.
+Frame **Focus**, geographic breadcrumbs and **System · fit all** change only
+the camera, not the frontier. Short camera transitions respect reduced motion.
+Pan and zoom remain available; deeply expanded maps still need regional focus
+to read every label. Dependency curves preserve factual endpoints but do not
+yet route around other boxes.
+
+To reproduce desktop captures locally without replacing the development snapshot:
+
+```bash
+node --import tsx apps/explorer-web/scripts/capture-system-map.ts . /tmp/bunkercode-map +directory:packages +directory:packages/graph-engine
+```
+
+The capture runner accepts `+regionId` (refine), `-regionId` (collapse),
+`=itemId` (inspect), and `@system` (fit all). It statically analyzes the target,
+serves the Explorer only on loopback, and saves screenshots and box measurements
+in the supplied output directory. It does not run the analyzed application's code.
 
 The default **Structure** view currently contains only the structural frontier
 and its observed internal relations. Responsibility overlay, external
@@ -130,7 +154,7 @@ At narrow widths the same canvas and model positions remain in use while the
 inspector moves below the map; touch-independent zoom/fit controls and page
 scroll keep dense systems investigable without hiding Territories or relations.
 
-Its sole structural navigation model is `ExplorerLocation`
+The separate Territory surface uses `ExplorerLocation`
 over an `ExplorerTerritoryProjection`: root shows direct Territories and files;
 each Territory shows only its direct child Territories and files; and focused
 files show their factual direct relationships. The header identifies the

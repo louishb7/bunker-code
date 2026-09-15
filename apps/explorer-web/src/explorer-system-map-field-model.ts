@@ -23,12 +23,15 @@ export interface SystemMapContextFrame {
   position: { x: number; y: number };
   width: number;
   height: number;
+  passive: boolean;
+  absolutePosition: { x: number; y: number };
 }
 
 export interface SystemMapFieldModel {
   items: SystemMapFieldItemPlacement[];
   frames: SystemMapContextFrame[];
   relations: ExplorerSystemMapFrontierRelation[];
+  bounds: { x: number; y: number; width: number; height: number };
 }
 
 export interface SystemMapFieldSelection {
@@ -36,17 +39,17 @@ export interface SystemMapFieldSelection {
   relationDirections: Map<string, SystemMapFieldRelationDirection>;
 }
 
-const territoryWidth = 264;
-const territoryHeight = 124;
-const fileWidth = 264;
+const territoryWidth = 224;
+const territoryHeight = 132;
+const fileWidth = 224;
 const fileHeight = 76;
 const gap = 24;
 const inset = 20;
-const header = 76;
+const header = 68;
 
 export function createSystemMapFieldModel(
   projection: ExplorerSystemMapFrontierProjection,
-  context?: { geography: ExplorerSystemMapGeography; refinedRegionIds: ReadonlySet<string> },
+  context?: { geography: ExplorerSystemMapGeography; refinedRegionIds: ReadonlySet<string>; viewportWidth?: number },
 ): SystemMapFieldModel {
   const visibleIds = new Set(projection.items.map((item) => item.id));
   const regions = context?.geography.regionsById;
@@ -62,21 +65,42 @@ export function createSystemMapFieldModel(
     }
     if (!hidden) opened.set(id, region);
   }
-  function parentFrame(regionId: string | null): string | undefined {
-    let current = regionId;
-    while (current) {
-      if (opened.has(current)) return `context:${current}`;
-      current = regions?.get(current)?.parentRegionId ?? null;
-    }
-    return undefined;
-  }
   const fileParents = new Map<string, string>();
   for (const region of regions?.values() ?? []) {
     for (const fileId of region.directFileIds) fileParents.set(fileId, region.id);
   }
-  const frames: SystemMapContextFrame[] = [...opened.values()].sort((a, b) => a.id.localeCompare(b.id)).map((region) => ({
+  const contextRegions = new Map(opened);
+  const anchoredParents = new Set<string>();
+  for (const regionId of [
+    ...projection.items.map((item) => item.kind === 'region' ? item.region.parentRegionId : fileParents.get(item.fileId)),
+    ...[...opened.values()].map((region) => region.parentRegionId),
+  ]) {
+    if (regionId) anchoredParents.add(regionId);
+    let current = regionId;
+    while (current && current !== projection.boundary.id) {
+      const region = regions?.get(current);
+      if (!region || visibleIds.has(current)) break;
+      contextRegions.set(current, region);
+      current = region.parentRegionId;
+    }
+  }
+  // A skipped chain gets one geographic frame with its full path, not a stack
+  // of empty borders. Its terminal subdivision still contextualizes direct files.
+  for (const [id, region] of contextRegions) {
+    if (!opened.has(id) && !anchoredParents.has(id) && region.childRegionIds.length === 1) contextRegions.delete(id);
+  }
+  function parentFrame(regionId: string | null): string | undefined {
+    let current = regionId;
+    while (current) {
+      if (contextRegions.has(current)) return `context:${current}`;
+      current = regions?.get(current)?.parentRegionId ?? null;
+    }
+    return undefined;
+  }
+  const frames: SystemMapContextFrame[] = [...contextRegions.values()].sort((a, b) => a.id.localeCompare(b.id)).map((region) => ({
     id: `context:${region.id}`, region, parentId: parentFrame(region.parentRegionId),
     position: { x: 0, y: 0 }, width: 0, height: 0,
+    absolutePosition: { x: 0, y: 0 }, passive: !opened.has(region.id),
   }));
   const items = [...projection.items].sort((a, b) => a.id.localeCompare(b.id)).map((item): SystemMapFieldItemPlacement => ({
     item, parentId: parentFrame(item.kind === 'region' ? item.region.parentRegionId : fileParents.get(item.fileId) ?? null),
@@ -84,46 +108,44 @@ export function createSystemMapFieldModel(
   }));
   type Box = { id: string; width: number; height: number; position: { x: number; y: number } };
   const orderedFrames: SystemMapContextFrame[] = [];
-  // Root lanes retain their order; expansion pushes only following lanes.
-  // Inside each frame, regions stack and direct files form a bounded two-column grid.
-  function layout(parentId?: string): { width: number; height: number } {
+  const rootBudget = Math.max(760, Math.min(1600, (context?.viewportWidth ?? 1360) - 64));
+  // Ordered shelves retain neighbors. Only overflowing rows wrap; dependencies
+  // and selection never influence the packing budget or order.
+  function layout(budget: number, parentId?: string): { width: number; height: number } {
     const childFrames = frames.filter((frame) => frame.parentId === parentId);
+    const children = items.filter((entry) => entry.parentId === parentId);
+    const regionalBudget = childFrames.length + children.length > 6 && budget >= 1100 ? (budget - gap) / 2 : 800;
     for (const frame of childFrames) {
       orderedFrames.push(frame);
-      const size = layout(frame.id);
+      const size = layout(Math.max(territoryWidth, Math.min(frame.passive ? budget : regionalBudget, budget - inset * 2)), frame.id);
       frame.width = Math.max(territoryWidth, size.width + inset * 2);
       frame.height = Math.max(territoryHeight, size.height + header + inset);
     }
-    const children = items.filter((entry) => entry.parentId === parentId);
     const boxes: Box[] = [
       ...childFrames.map((frame) => ({ id: frame.region.id, width: frame.width, height: frame.height, position: frame.position })),
-      ...children.filter(({ item }) => item.kind === 'region').map((entry) => ({ id: entry.item.id, ...systemMapFieldDimensions.region, position: entry.position })),
+      ...children.map((entry) => ({ id: entry.item.id, ...systemMapFieldDimensions[entry.item.kind], position: entry.position })),
     ].sort((a, b) => a.id.localeCompare(b.id));
     let width = 0;
     let height = 0;
+    const rows: Array<{ y: number; x: number; height: number }> = [];
     for (const box of boxes) {
-      box.position.x = (parentId ? 0 : width) + (parentId ? inset : 0);
-      box.position.y = (parentId ? height + header : 0);
-      width = parentId ? Math.max(width, box.width) : width + box.width + gap;
-      height = parentId ? height + box.height + gap : Math.max(height, box.height);
-    }
-    if (!parentId && boxes.length) width -= gap;
-    if (parentId && boxes.length) height -= gap;
-    const files = children.filter(({ item }) => item.kind === 'file');
-    const fileTop = height + (boxes.length ? gap : 0);
-    files.forEach((entry, index) => {
-      entry.position.x = (parentId ? inset : 0) + (index % 2) * (fileWidth + gap);
-      entry.position.y = (parentId ? header : 0) + fileTop + Math.floor(index / 2) * (fileHeight + gap);
-    });
-    if (files.length) {
-      width = Math.max(width, Math.min(2, files.length) * (fileWidth + gap) - gap);
-      height = fileTop + Math.ceil(files.length / 2) * (fileHeight + gap) - gap;
+      let row = rows.find((candidate) => candidate.x + box.width <= budget && (box.height <= candidate.height || candidate === rows.at(-1)));
+      if (!row) {
+        row = { x: 0, y: rows.length ? height + gap : 0, height: box.height };
+        rows.push(row);
+      }
+      box.position.x = row.x + (parentId ? inset : 0);
+      box.position.y = row.y + (parentId ? header : 0);
+      width = Math.max(width, row.x + box.width);
+      height = Math.max(height, row.y + box.height);
+      row.x += box.width + gap;
+      row.height = Math.max(row.height, box.height);
     }
     return { width, height };
   }
-  layout();
+  const size = layout(rootBudget);
   const framesById = new Map(frames.map((frame) => [frame.id, frame]));
-  for (const entry of items) {
+  for (const entry of [...frames, ...items]) {
     entry.absolutePosition = { ...entry.position };
     let parent = entry.parentId;
     while (parent) {
@@ -134,7 +156,7 @@ export function createSystemMapFieldModel(
       parent = frame.parentId;
     }
   }
-  return { items, frames: orderedFrames, relations: projection.relations };
+  return { items, frames: orderedFrames, relations: projection.relations, bounds: { x: 0, y: 0, ...size } };
 }
 
 export function createSystemMapFieldRelationRoute(
