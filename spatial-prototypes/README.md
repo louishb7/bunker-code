@@ -1,7 +1,12 @@
 # Spatial prototypes — Peneira 1
 
-Três experimentos descartáveis. Nenhum substitui o Explorer ou é arquitetura
-oficial. A avaliação humana ainda não foi realizada.
+Atualização: a avaliação humana rejeitou Atlas e Icicle e autorizou a Peneira 2
+ao redor de focus+context. Os três históricos permanecem intactos. H0 é controle,
+não solução aprovada. Veja [PENEIRA_2.md](PENEIRA_2.md) para H1 Skeleton, H2 Zonas,
+H3 Panorama, comandos, especificações, medições e limitações.
+
+Três experimentos descartáveis históricos. Nenhum substitui o Explorer ou é
+arquitetura oficial. A decisão humana posterior está registrada acima.
 
 ## Iniciar
 
@@ -159,4 +164,5 @@ Os ensaios não demonstram usabilidade, profundidade extrema ou escalabilidade
 universal. O snapshot BunkerMode é caso de nesting visual. As três representações
 são como planta, lente e corte do mesmo prédio: verificar que todas preservam
 as salas é necessário, mas só percorrê-las revela qual orientação ajuda você.
-A próxima decisão é avaliação humana da Peneira 1; evidence completa é Peneira 2.
+Este é o registro da Peneira 1. A instrução posterior manteve evidence completa
+fora do escopo da Peneira 2, que investiga novamente navegação e esqueleto.
