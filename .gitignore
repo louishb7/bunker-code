@@ -1,14 +1,20 @@
-docs/
+# Dependencies / build
 node_modules/
 dist/
 coverage/
 apps/explorer-web/src/generated/
+
+# Environment / local
 .env
 .env.*
 *.log
 
-# Local AI agent instructions and planning
-/AI_PROJECT_CHECKLIST.md
-/ENGINEERING_LOG.md
-/DECISIONS.md
-/LEARNING_CHECKPOINT.md
+# AI tooling
+/.superpowers/
+
+# Experimental workspace
+/spatial-prototypes/
+
+# Markdown policy: engineering notes stay local
+*.md
+!/README.md
