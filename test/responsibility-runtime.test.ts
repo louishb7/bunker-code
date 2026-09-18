@@ -7,8 +7,144 @@ import type { ResponsibilityDetector } from '../packages/analyzer-typescript/src
 import { analyzeResponsibilitiesWithSession } from '../packages/analyzer-typescript/src/responsibility-detectors/runtime.js';
 import { createTypeScriptAnalysisSession } from '../packages/analyzer-typescript/src/typescript-analysis-session.js';
 import { analyzeProject, analyzeTypeScriptTarget } from '../packages/analyzer-typescript/src/index.js';
+import type { ObservedResponsibilityClaim, ObservedResponsibilityContext, ObservedResponsibilityUnit, ResponsibilityAnalysisResult, ResponsibilityFinding, ResponsibilitySubject } from '../packages/contracts/src/index.js';
+import { deriveObservedResponsibilityClaims, deriveObservedResponsibilityFileParts } from '../packages/analyzer-typescript/src/observed-responsibility-model.js';
+import {
+  createObservedResponsibilityUnit,
+  findObservedResponsibilityCoverage,
+  findObservedResponsibilityExecutions,
+  resolveObservedResponsibilityFile,
+  resolveObservedResponsibilityLimitations,
+  resolveObservedResponsibilitySupports,
+} from '../packages/analyzer-typescript/src/observed-responsibility-unit.js';
 
 const fixturePath = path.resolve('fixtures/simple-import');
+const observedContext: ObservedResponsibilityContext = {
+  profile: 'static-responsibility', nature: 'derived-from-static-analysis',
+  representedTarget: 'test-target', implementationState: 'loaded-production',
+};
+
+test('builds empty and unsupported static units and rejects broken source contracts', () => {
+  const { analysis, responsibilities } = analyzeTypeScriptTarget(fixturePath);
+  const before = structuredClone({ analysis, responsibilities, observedContext });
+  const unit = createObservedResponsibilityUnit(analysis, responsibilities, observedContext);
+  assert.strictEqual(unit.sources.analysis, analysis);
+  assert.strictEqual(unit.sources.responsibilities, responsibilities);
+  assert.equal(unit.model.parts.length, 2);
+  assert.deepEqual(unit.model.claims, []);
+  assert.equal(findObservedResponsibilityCoverage(unit, 'http-entry-point', { kind: 'project' })?.status, 'unsupported');
+  assert.equal(findObservedResponsibilityExecutions(unit, 'http-entry-point', { kind: 'project' })[0]?.status, 'not-applicable');
+  assert.equal(findObservedResponsibilityCoverage(unit, 'http-entry-point', { kind: 'file', fileId: 'src/main.ts' }), undefined);
+  assert.deepEqual(findObservedResponsibilityExecutions(unit, 'http-entry-point', { kind: 'file', fileId: 'src/main.ts' }), []);
+  assert.equal(JSON.stringify(createObservedResponsibilityUnit(analysis, responsibilities, observedContext)), JSON.stringify(unit));
+  const other = createObservedResponsibilityUnit(analysis, responsibilities, { ...observedContext, representedTarget: 'another-local-target' });
+  assert.notDeepEqual(other.context, unit.context);
+  assert.deepEqual(other.model, unit.model);
+  assert.deepEqual({ analysis, responsibilities, observedContext }, before);
+  const empty = createObservedResponsibilityUnit({ ...analysis, files: [], dependencies: [] }, responsibilities, observedContext);
+  assert.deepEqual(empty.model, { parts: [], claims: [] });
+  assert.deepEqual(empty.sources.responsibilities.coverage, responsibilities.coverage);
+
+  const execution = responsibilities.detectorExecutions[0];
+  assert.ok(execution);
+  const limitation = { id: 'limit', scope: { kind: 'project' as const }, code: 'test', message: 'Test limitation.' };
+  const invalidSources: [ResponsibilityAnalysisResult, string][] = [
+    [{ ...responsibilities, detectorExecutions: [execution, execution] }, `Duplicate detector execution ID: ${execution.id}`],
+    [{ ...responsibilities, limitations: [limitation, limitation] }, 'Duplicate responsibility limitation ID: limit'],
+    [{ ...responsibilities, coverage: [{ capability: 'http-entry-point', scope: { kind: 'project' }, status: 'partially-evaluated', limitationIds: ['missing'] }] }, 'Missing responsibility limitation: missing'],
+    [{ ...responsibilities, detectorExecutions: [{ ...execution, status: 'partially-evaluated', findingIds: [], limitationIds: ['missing'] }] }, 'Missing responsibility limitation: missing'],
+    [{ ...responsibilities, detectorExecutions: [{ ...execution, status: 'evaluated', findingIds: ['missing'], limitationIds: [] }] }, 'Missing execution finding: missing'],
+    [{ ...responsibilities, coverage: [...responsibilities.coverage, ...responsibilities.coverage] }, 'Duplicate responsibility coverage scope: access-control'],
+  ];
+  for (const [source, message] of invalidSources) {
+    assert.throws(() => createObservedResponsibilityUnit(analysis, source, observedContext), { message });
+  }
+  assert.throws(() => createObservedResponsibilityUnit({ ...analysis, schemaVersion: JSON.parse('2') }, responsibilities, observedContext), /Unsupported analysis schema/);
+  assert.throws(() => createObservedResponsibilityUnit(analysis, { ...responsibilities, schemaVersion: JSON.parse('2') }, observedContext), /Unsupported responsibility schema/);
+  assert.throws(() => createObservedResponsibilityUnit(analysis, responsibilities, { ...observedContext, profile: JSON.parse('"runtime"') }), /Invalid observed Responsibility context/);
+  assert.throws(() => createObservedResponsibilityUnit(analysis, { ...responsibilities, projectPath: 'other' }, observedContext), /Inconsistent observed Responsibility source metadata/);
+});
+
+test('groups static claims independently of finding identity and epistemic records', () => {
+  const subject = { id: 'subject:"users\\list"', kind: 'method' as const, fileId: 'src/users.ts', symbolId: 'Users.list', name: 'list', location: { filePath: 'src/users.ts', line: 3, column: 1 } };
+  const first: ResponsibilityFinding = {
+    id: 'finding:z', subject, responsibility: 'http-entry-point', confidence: 'exact',
+    provenance: { detector: { id: 'test.http', version: '1' }, ruleId: 'route', ruleVersion: '1' },
+    evidence: [{ id: 'evidence:first', kind: 'annotation', technology: { id: 'test', displayName: 'Test' }, signal: '@Route()', location: subject.location }],
+  };
+  const variants: ResponsibilityFinding[] = [
+    { ...first, id: 'finding:rule', provenance: { ...first.provenance, ruleVersion: '2' } },
+    { ...first, id: 'finding:rule-id', provenance: { ...first.provenance, ruleId: 'other-route' } },
+    { ...first, id: 'finding:detector-version', provenance: { ...first.provenance, detector: { ...first.provenance.detector, version: '2' } } },
+    { ...first, id: 'finding:confidence', confidence: 'inferred' },
+    { ...first, id: 'finding:detector', provenance: { detector: { id: 'other', version: '7' }, ruleId: 'other-rule', ruleVersion: '9' } },
+    { ...first, id: 'finding:evidence', evidence: [{ ...first.evidence[0]!, id: 'evidence:other', signal: '@OtherRoute()' }] },
+  ];
+  const parts = [{ fileId: subject.fileId }];
+  const base = deriveObservedResponsibilityClaims([first], parts)[0];
+  assert.ok(base);
+  assert.deepEqual(JSON.parse(base.key), ['static-responsibility', subject.id, first.responsibility]);
+  for (const variant of variants) {
+    assert.equal(deriveObservedResponsibilityClaims([variant], parts)[0]?.key, base.key);
+    const grouped = deriveObservedResponsibilityClaims([first, variant], parts);
+    assert.equal(grouped.length, 1);
+    assert.deepEqual(grouped[0]?.supports.map((support) => support.findingId), [first.id, variant.id].sort());
+  }
+  const findings = [...variants, first, { ...first, id: 'finding:access', responsibility: 'access-control' as const }];
+  const before = structuredClone({ findings, parts });
+  const claims = deriveObservedResponsibilityClaims(findings, parts);
+  assert.equal(claims.length, 2);
+  assert.notEqual(claims[0]?.key, claims[1]?.key);
+  assert.deepEqual(claims.map((claim) => claim.key), claims.map((claim) => claim.key).sort());
+  assert.deepEqual(deriveObservedResponsibilityClaims([...findings].reverse(), parts), claims);
+  assert.deepEqual({ findings, parts }, before);
+
+  const parsedClaims: ObservedResponsibilityClaim[] = JSON.parse(JSON.stringify(claims));
+  const parsedFindings: ResponsibilityFinding[] = JSON.parse(JSON.stringify(findings));
+  assert.deepEqual(parsedClaims, claims);
+  const supportedIds = parsedClaims.flatMap((claim) => claim.supports.map((support) => {
+    const source = parsedFindings.find((finding) => finding.id === support.findingId);
+    assert.ok(source);
+    assert.deepEqual(claim.subject, { kind: source.subject.kind, subjectId: source.subject.id, fileId: source.subject.fileId });
+    assert.equal(claim.responsibility, source.responsibility);
+    return source.id;
+  }));
+  assert.deepEqual(supportedIds.sort(), findings.map((finding) => finding.id).sort());
+  assert.deepEqual(parsedClaims.find((claim) => claim.key === base.key), {
+    key: base.key, subject: base.subject, responsibility: first.responsibility,
+    supports: [first, ...variants].map((finding) => finding.id).sort().map((findingId) => ({ findingId })),
+  });
+  assert.deepEqual(parsedFindings, findings);
+  assert.deepEqual(deriveObservedResponsibilityClaims([], parts), []);
+});
+
+test('rejects ambiguous findings and broken file references before producing claims', () => {
+  const subject = { id: 'subject:users', kind: 'method' as const, fileId: 'src/users.ts', symbolId: 'Users.list', name: 'list', location: { filePath: 'src/users.ts', line: 3, column: 1 } };
+  const finding: ResponsibilityFinding = { id: 'finding:users', subject, responsibility: 'http-entry-point', confidence: 'exact', provenance: { detector: { id: 'test', version: '1' }, ruleId: 'route', ruleVersion: '1' }, evidence: [] };
+  const parts = [{ fileId: subject.fileId }, { fileId: 'src/other.ts' }];
+  assert.throws(() => deriveObservedResponsibilityClaims([finding], []), { message: 'Responsibility subject references missing File Part: src/users.ts' });
+  for (const duplicate of [finding, { ...finding, responsibility: 'access-control' as const }]) {
+    assert.throws(() => deriveObservedResponsibilityClaims([finding, duplicate], parts), { message: 'Duplicate responsibility finding ID: finding:users' });
+  }
+  const conflicts: ResponsibilitySubject[] = [
+    { ...subject, kind: 'class' },
+    { ...subject, kind: 'file' },
+    { ...subject, fileId: 'src/other.ts' },
+    { ...subject, location: { ...subject.location, filePath: 'src/other.ts' } },
+    { ...subject, location: { ...subject.location, line: 4 } },
+    { ...subject, location: { ...subject.location, column: 2 } },
+    { ...subject, symbolId: 'Users.other' },
+    { ...subject, name: 'other' },
+  ];
+  for (const conflict of conflicts) {
+    const inputs = [finding, { ...finding, id: 'finding:other', subject: conflict }];
+    const before = structuredClone(inputs);
+    assert.throws(() => deriveObservedResponsibilityClaims(inputs, parts), { message: 'Conflicting responsibility subject: subject:users' });
+    assert.deepEqual(inputs, before);
+  }
+  const differentSubject = { ...finding, id: 'finding:distinct', subject: { ...subject, id: 'subject:distinct' } };
+  assert.equal(deriveObservedResponsibilityClaims([finding, differentSubject], parts).length, 2);
+});
 
 test('aggregates deterministic detector outcomes without reparsing the TypeScript session', () => {
   const session = createTypeScriptAnalysisSession(fixturePath, [path.join(fixturePath, 'tsconfig.json')], () => true);
@@ -52,6 +188,46 @@ test('aggregates deterministic detector outcomes without reparsing the TypeScrip
   assert.deepEqual(coverage.get('cache-interaction'), { capability: 'cache-interaction', scope: { kind: 'project' }, status: 'evaluated', limitationIds: [] });
   const httpExecution = first.detectorExecutions.find((execution): execution is Extract<typeof execution, { status: 'evaluated' }> => execution.detector.id === 'test.http' && execution.status === 'evaluated');
   assert.equal(httpExecution?.findingIds[0], 'finding:http');
+  const analysis = analyzeProject(fixturePath);
+  const original = structuredClone(first);
+  const unit: ObservedResponsibilityUnit = JSON.parse(JSON.stringify(createObservedResponsibilityUnit(analysis, first, observedContext)));
+  const partial = findObservedResponsibilityCoverage(unit, 'access-control', { kind: 'project' });
+  assert.ok(partial);
+  assert.equal(partial.status, 'partially-evaluated');
+  assert.equal(unit.model.claims.length, 2);
+  assert.equal(resolveObservedResponsibilityLimitations(unit, partial)[0]?.scope.kind, 'subject');
+  const accessExecution = findObservedResponsibilityExecutions(unit, 'access-control', { kind: 'project' })[0];
+  assert.ok(accessExecution);
+  assert.equal(resolveObservedResponsibilityLimitations(unit, accessExecution)[0]?.id, 'limitation:access');
+  const failed = findObservedResponsibilityCoverage(unit, 'rpc-entry-point', { kind: 'project' });
+  assert.ok(failed && failed.status === 'failed');
+  assert.deepEqual(failed.failure, { code: 'failed', message: 'Failure.' });
+  assert.equal(resolveObservedResponsibilityLimitations(unit, failed).length, 1);
+  assert.deepEqual(first, original);
+  assert.ok(httpExecution);
+  for (const inconsistent of [
+    { ...httpExecution, capability: 'access-control' as const },
+    { ...httpExecution, detector: { ...httpExecution.detector, id: 'other' } },
+    { ...httpExecution, detector: { ...httpExecution.detector, version: '2' } },
+    { ...httpExecution, scope: { kind: 'subject' as const, fileId: subject.fileId, subjectId: 'other' } },
+  ]) {
+    assert.throws(() => createObservedResponsibilityUnit(analysis, { ...first, detectorExecutions: [inconsistent] }, observedContext), /Inconsistent execution finding: finding:http/);
+  }
+  const notEvaluated = { ...first, findings: [], detectorExecutions: [], coverage: [{ capability: 'http-entry-point' as const, scope: { kind: 'project' as const }, status: 'not-evaluated' as const }] };
+  const pending = createObservedResponsibilityUnit(analysis, notEvaluated, observedContext);
+  assert.equal(findObservedResponsibilityCoverage(pending, 'http-entry-point', { kind: 'project' })?.status, 'not-evaluated');
+  const scoped = createObservedResponsibilityUnit(analysis, {
+    ...notEvaluated,
+    coverage: [
+      { capability: 'http-entry-point', scope: { kind: 'file', fileId: subject.fileId }, status: 'evaluated', limitationIds: [] },
+      { capability: 'http-entry-point', scope: { kind: 'subject', fileId: subject.fileId, subjectId: subject.id }, status: 'not-evaluated' },
+    ],
+    detectorExecutions: [{ ...httpExecution, scope: { kind: 'file', fileId: subject.fileId }, findingIds: [] }],
+  }, observedContext);
+  assert.equal(findObservedResponsibilityCoverage(scoped, 'http-entry-point', { kind: 'file', fileId: subject.fileId })?.status, 'evaluated');
+  assert.equal(findObservedResponsibilityCoverage(scoped, 'http-entry-point', { kind: 'subject', fileId: subject.fileId, subjectId: subject.id })?.status, 'not-evaluated');
+  assert.equal(findObservedResponsibilityCoverage(scoped, 'http-entry-point', { kind: 'subject', fileId: subject.fileId, subjectId: 'other' }), undefined);
+  assert.equal(findObservedResponsibilityExecutions(scoped, 'http-entry-point', { kind: 'file', fileId: subject.fileId }).length, 1);
 });
 
 test('preserves every deterministic failure cause when no detector evaluates a capability', () => {
@@ -84,7 +260,33 @@ test('detects NestJS decorators through imported aliases without a NestJS depend
   assert.deepEqual(first, second);
   assert.deepEqual(first.analysis, analyzeProject(projectPath));
   assert.deepEqual(responsibilities, ['access-control', 'access-control', 'framework-wiring', 'http-entry-point']);
+  const parts = deriveObservedResponsibilityFileParts(first.analysis);
+  const claims = deriveObservedResponsibilityClaims(first.responsibilities.findings, parts);
+  assert.deepEqual(parts, [{ fileId: 'src/main.ts' }]);
+  assert.equal(claims.length, 4);
+  const methodClaims = claims.filter((claim) => claim.subject.kind === 'method');
+  assert.deepEqual(methodClaims.map((claim) => claim.responsibility).sort(), ['access-control', 'http-entry-point']);
+  assert.equal(new Set(methodClaims.map((claim) => claim.subject.subjectId)).size, 1);
+  assert.equal(claims.filter((claim) => claim.subject.kind === 'class').length, 2);
   assert.equal(first.responsibilities.findings.find((finding) => finding.responsibility === 'http-entry-point')?.evidence[0]?.technology.id, 'nestjs');
+  const beforeUnit = structuredClone(first);
+  const unit = createObservedResponsibilityUnit(first.analysis, first.responsibilities, observedContext);
+  const parsed: ObservedResponsibilityUnit = JSON.parse(JSON.stringify(unit));
+  assert.deepEqual(parsed, unit);
+  for (const part of parsed.model.parts) {
+    assert.deepEqual(resolveObservedResponsibilityFile(parsed, part.fileId), first.analysis.files.find((file) => file.id === part.fileId));
+  }
+  for (const claim of parsed.model.claims) {
+    for (const support of resolveObservedResponsibilitySupports(parsed, claim)) {
+      const source = first.responsibilities.findings.find((finding) => finding.id === support.id);
+      assert.ok(source);
+      assert.deepEqual(support.subject, source.subject);
+      assert.deepEqual(support.evidence, source.evidence);
+      assert.deepEqual(support.provenance, source.provenance);
+      assert.equal(support.confidence, source.confidence);
+    }
+  }
+  assert.deepEqual(first, beforeUnit);
 });
 
 test('keeps combined analysis equivalent for a PNPM workspace target', () => {
@@ -114,7 +316,12 @@ test('keeps NestJS capabilities evaluated with zero findings when supported sign
   writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', experimentalDecorators: true }, include: ['src/**/*.ts'] }));
   mkdirSync(path.join(projectPath, 'src'));
   writeFileSync(path.join(projectPath, 'src/main.ts'), "import { Controller } from '@nestjs/common'; @Controller() class Users {}\n");
-  const result = analyzeTypeScriptTarget(projectPath).responsibilities;
+  const target = analyzeTypeScriptTarget(projectPath);
+  const result = target.responsibilities;
+  const unit = createObservedResponsibilityUnit(target.analysis, result, observedContext);
+  assert.equal(unit.model.parts.length, 1);
+  assert.deepEqual(unit.model.claims, []);
+  assert.equal(findObservedResponsibilityCoverage(unit, 'http-entry-point', { kind: 'project' })?.status, 'evaluated');
   const coverage = new Map(result.coverage.map((item) => [item.capability, item]));
   assert.equal(result.findings.length, 0);
   assert.equal(coverage.get('http-entry-point')?.status, 'evaluated');
@@ -152,6 +359,16 @@ test('detects direct PrismaClient operations once per function subject with orde
   assert.deepEqual(listUsers?.evidence.filter((evidence) => evidence.kind === 'call').map((evidence) => evidence.signal), ['prisma.order.create({ data: {} })', 'prisma.user.findMany()']);
   assert.equal(findings.some((finding) => finding.evidence.some((evidence) => evidence.signal.includes('customThing'))), false);
   assert.equal(findings.some((finding) => finding.subject.kind === 'file'), true);
+  const parts = deriveObservedResponsibilityFileParts(first.analysis);
+  const claims = deriveObservedResponsibilityClaims(findings, parts);
+  assert.deepEqual(parts, [{ fileId: 'src/main.ts' }]);
+  assert.deepEqual(claims.map((claim) => claim.subject.kind).sort(), ['file', 'function']);
+  for (const claim of claims) {
+    assert.equal(claim.subject.fileId, parts[0]?.fileId);
+    const source = findings.find((finding) => finding.id === claim.supports[0]?.findingId);
+    assert.ok(source);
+    assert.equal(claim.subject.subjectId, source.subject.id);
+  }
 });
 
 test('detects PrismaClient typed bindings, namespace imports, and direct local Prisma subclasses', (context) => {

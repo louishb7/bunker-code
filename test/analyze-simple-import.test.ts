@@ -5,10 +5,45 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { analyzeProject } from '../packages/analyzer-typescript/src/index.js';
 import { extractExactInternalInvocationRelations } from '../packages/analyzer-typescript/src/invocation-relations.js';
+import { deriveObservedResponsibilityFileParts } from '../packages/analyzer-typescript/src/observed-responsibility-model.js';
 import { createTypeScriptAnalysisSession } from '../packages/analyzer-typescript/src/typescript-analysis-session.js';
 import { buildProjectGraph, createProjectDiagnostics } from '../packages/graph-engine/src/index.js';
 
 const fixturePath = path.resolve('fixtures/simple-import');
+
+test('derives deterministic file Parts from analyzed files without responsibility findings', () => {
+  const analysis = analyzeProject(fixturePath);
+  const before = structuredClone(analysis);
+  const parts = deriveObservedResponsibilityFileParts(analysis);
+
+  assert.deepEqual(parts, [
+    { fileId: 'src/main.ts' },
+    { fileId: 'src/service.ts' },
+  ]);
+  assert.deepEqual(analysis, before);
+  assert.deepEqual(JSON.parse(JSON.stringify(parts)), parts);
+});
+
+test('derives file Parts in deterministic order regardless of input file order', () => {
+  const analysis = analyzeProject(fixturePath);
+  const reordered = { ...analysis, files: [...analysis.files].reverse() };
+
+  assert.deepEqual(
+    deriveObservedResponsibilityFileParts(reordered),
+    deriveObservedResponsibilityFileParts(analysis),
+  );
+  assert.deepEqual(reordered.files, [...analysis.files].reverse());
+});
+
+test('accepts empty analyzed files and rejects duplicate file IDs', () => {
+  const analysis = analyzeProject(fixturePath);
+
+  assert.deepEqual(deriveObservedResponsibilityFileParts({ ...analysis, files: [] }), []);
+  assert.throws(
+    () => deriveObservedResponsibilityFileParts({ ...analysis, files: [analysis.files[0]!, analysis.files[0]!] }),
+    /Duplicate analyzed file ID: src\/main\.ts/,
+  );
+});
 
 function createTempProject(context: { after: (callback: () => void) => void }): string {
   const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-analyzer-'));
