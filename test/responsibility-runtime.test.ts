@@ -6,8 +6,8 @@ import { test } from 'node:test';
 import type { ResponsibilityDetector } from '../packages/analyzer-typescript/src/responsibility-detectors/detector.js';
 import { analyzeResponsibilitiesWithSession } from '../packages/analyzer-typescript/src/responsibility-detectors/runtime.js';
 import { createTypeScriptAnalysisSession } from '../packages/analyzer-typescript/src/typescript-analysis-session.js';
-import { analyzeObservedResponsibilityTarget, analyzeProject, analyzeTypeScriptTarget } from '../packages/analyzer-typescript/src/index.js';
-import type { AnalyzedFile, ObservedResponsibilityClaim, ObservedResponsibilityContext, ObservedResponsibilityUnit, ResponsibilityAnalysisResult, ResponsibilityCoverage, ResponsibilityFinding, ResponsibilitySubject } from '../packages/contracts/src/index.js';
+import { analyzeObservedResponsibilityTarget, analyzeObservedStaticCodeTarget, analyzeProject, analyzeTypeScriptTarget } from '../packages/analyzer-typescript/src/index.js';
+import type { AnalysisResult, AnalyzedFile, ObservedResponsibilityClaim, ObservedResponsibilityContext, ObservedResponsibilityUnit, ObservedStaticCodeContext, ObservedStaticCodeUnit, ResolvedDependency, ResponsibilityAnalysisResult, ResponsibilityCoverage, ResponsibilityFinding, ResponsibilitySubject } from '../packages/contracts/src/index.js';
 import { deriveObservedResponsibilityClaims, deriveObservedResponsibilityFileParts } from '../packages/analyzer-typescript/src/observed-responsibility-model.js';
 import {
   createObservedResponsibilityUnit,
@@ -17,10 +17,16 @@ import {
   resolveObservedResponsibilityLimitations,
   resolveObservedResponsibilitySupports,
 } from '../packages/analyzer-typescript/src/observed-responsibility-unit.js';
+import { deriveObservedStaticDependencyRelations, resolveObservedStaticDependencySupports } from '../packages/analyzer-typescript/src/observed-static-dependency-model.js';
+import { createObservedStaticCodeUnit } from '../packages/analyzer-typescript/src/observed-static-code-unit.js';
 
 const fixturePath = path.resolve('fixtures/simple-import');
 const observedContext: ObservedResponsibilityContext = {
   profile: 'static-responsibility', nature: 'derived-from-static-analysis',
+  representedTarget: 'test-target', implementationState: 'loaded-production',
+};
+const staticCodeContext: ObservedStaticCodeContext = {
+  profile: 'static-code-analysis', nature: 'derived-from-static-analysis',
   representedTarget: 'test-target', implementationState: 'loaded-production',
 };
 
@@ -36,6 +42,148 @@ test('produces a serializable observed unit without findings from a real target'
   assert.deepEqual(unit.sources.analysis, analyzeProject(fixturePath));
   assert.deepEqual(JSON.parse(JSON.stringify(unit)), unit);
   assert.equal(JSON.stringify(analyzeObservedResponsibilityTarget(fixturePath, 'simple-import')), JSON.stringify(unit));
+});
+
+test('composes shared file Parts, Responsibility and internal dependencies through the new public producer', () => {
+  const produced = analyzeObservedStaticCodeTarget(fixturePath, 'simple-import');
+  const parsed: ObservedStaticCodeUnit = JSON.parse(JSON.stringify(produced));
+  const old = analyzeObservedResponsibilityTarget(fixturePath, 'simple-import');
+  const [relation] = parsed.model.dependencies.relations;
+
+  assert.deepEqual(parsed, produced);
+  assert.deepEqual(parsed.context, { ...staticCodeContext, representedTarget: 'simple-import' });
+  assert.deepEqual(parsed.model.parts, [{ fileId: 'src/main.ts' }, { fileId: 'src/service.ts' }]);
+  assert.deepEqual(parsed.model.parts, old.model.parts);
+  assert.deepEqual(parsed.model.responsibility.claims, old.model.claims);
+  assert.deepEqual(parsed.model.responsibility.claims, []);
+  assert.ok(relation);
+  assert.deepEqual(JSON.parse(relation.key), ['static-file-dependency', 'src/main.ts', 'src/service.ts']);
+  assert.equal(relation.supports.length, 1);
+  assert.deepEqual(resolveObservedStaticDependencySupports(parsed, relation), parsed.sources.analysis.dependencies);
+  assert.equal(resolveObservedStaticDependencySupports(parsed, relation)[0]?.moduleSpecifier, './service');
+  assert.equal(resolveObservedStaticDependencySupports(parsed, relation)[0]?.confidence, 'exact');
+  assert.equal(resolveObservedStaticDependencySupports(parsed, relation)[0]?.evidence.location.filePath, 'src/main.ts');
+  assert.deepEqual(Object.keys(parsed.sources).sort(), ['analysis', 'responsibilities']);
+  assert.equal((JSON.stringify(parsed).match(/"analysis":/g) ?? []).length, 1);
+  assert.equal((JSON.stringify(parsed).match(/"responsibilities":/g) ?? []).length, 1);
+  assert.equal(JSON.stringify(analyzeObservedStaticCodeTarget(fixturePath, 'simple-import')), JSON.stringify(produced));
+});
+
+test('groups directed static dependencies while preserving distinct technical supports', () => {
+  const { analysis, responsibilities } = analyzeTypeScriptTarget(fixturePath);
+  const [base] = analysis.dependencies;
+  assert.ok(base?.targetFileId);
+  const differentLine: ResolvedDependency = {
+    ...base, evidence: { location: { ...base.evidence.location, line: base.evidence.location.line + 19 } },
+  };
+  const differentSpecifier: ResolvedDependency = { ...base, moduleSpecifier: '../service' };
+  const differentConfidence: ResolvedDependency = { ...base, confidence: 'inferred' };
+  const opposite: ResolvedDependency = {
+    ...base, sourceFileId: base.targetFileId, targetFileId: base.sourceFileId,
+    evidence: { location: { filePath: base.targetFileId, line: 1, column: 1 } },
+  };
+  const self: ResolvedDependency = { ...base, targetFileId: base.sourceFileId };
+  const records = [base, differentLine, differentSpecifier, differentConfidence, structuredClone(base), opposite, self];
+  const source: AnalysisResult = { ...analysis, dependencies: records };
+  const before = structuredClone({ source, responsibilities });
+  const unit = createObservedStaticCodeUnit(source, responsibilities, staticCodeContext);
+  const [forward, reverse, selfRelation] = unit.model.dependencies.relations;
+  const byPair = new Map(unit.model.dependencies.relations.map((relation) => [
+    `${relation.sourceFileId}->${relation.targetFileId}`, relation,
+  ]));
+  const ab = byPair.get('src/main.ts->src/service.ts');
+  const ba = byPair.get('src/service.ts->src/main.ts');
+  const aa = byPair.get('src/main.ts->src/main.ts');
+
+  assert.equal(unit.model.dependencies.relations.length, 3);
+  assert.ok(forward && reverse && selfRelation && ab && ba && aa);
+  assert.notEqual(ab.key, ba.key);
+  assert.equal(ab.supports.length, 4);
+  assert.equal(ba.supports.length, 1);
+  assert.equal(aa.supports.length, 1);
+  assert.deepEqual(ab.supports.map((support) => support.dependencyKey), [...ab.supports.map((support) => support.dependencyKey)].sort());
+  assert.deepEqual(resolveObservedStaticDependencySupports(unit, ab).map((support) => support.moduleSpecifier).sort(),
+    ['./service', './service', './service', '../service'].sort());
+  assert.equal(source.dependencies.length, 7);
+  assert.deepEqual({ source, responsibilities }, before);
+
+  const reversed = createObservedStaticCodeUnit({ ...source, dependencies: [...records].reverse() }, responsibilities, staticCodeContext);
+  assert.deepEqual(reversed.model, unit.model);
+  const parsed: ObservedStaticCodeUnit = JSON.parse(JSON.stringify(unit));
+  assert.deepEqual(parsed, unit);
+  const parsedAb = parsed.model.dependencies.relations.find((relation) => relation.key === ab.key);
+  assert.ok(parsedAb);
+  assert.deepEqual(resolveObservedStaticDependencySupports(parsed, parsedAb), resolveObservedStaticDependencySupports(unit, ab));
+
+  const samePairWithOneSupport = (record: ResolvedDependency) =>
+    deriveObservedStaticDependencyRelations({ ...analysis, dependencies: [record] }, unit.model.parts)[0];
+  const original = samePairWithOneSupport(base);
+  assert.ok(original);
+  for (const variant of [differentLine, differentSpecifier, differentConfidence]) {
+    const changed = samePairWithOneSupport(variant);
+    assert.ok(changed);
+    assert.equal(changed.key, original.key);
+    assert.notEqual(changed.supports[0]?.dependencyKey, original.supports[0]?.dependencyKey);
+  }
+  assert.notEqual(samePairWithOneSupport(self)?.supports[0]?.dependencyKey, original.supports[0]?.dependencyKey);
+  assert.deepEqual(samePairWithOneSupport(structuredClone(base)), original);
+  assert.deepEqual(JSON.parse(original.supports[0]?.dependencyKey ?? ''), [
+    'static-dependency-support', base.sourceFileId, base.targetFileId, base.kind,
+    base.moduleSpecifier, base.evidence.location.filePath, base.evidence.location.line,
+    base.evidence.location.column, base.confidence,
+  ]);
+});
+
+test('rejects corrupt static dependency endpoints and evidence without changing the source', () => {
+  const { analysis, responsibilities } = analyzeTypeScriptTarget(fixturePath);
+  const [base] = analysis.dependencies;
+  assert.ok(base);
+  const invalid: [ResolvedDependency, RegExp][] = [
+    [{ ...base, targetFileId: undefined }, /Internal dependency has no target file/],
+    [{ ...base, targetFileId: 'src/missing.ts' }, /target references missing File Part/],
+    [{ ...base, sourceFileId: 'src/missing.ts' }, /source references missing File Part/],
+    [{ ...base, evidence: { location: { ...base.evidence.location, filePath: 'other.ts' } } }, /Invalid static dependency evidence location/],
+    [{ ...base, evidence: { location: { ...base.evidence.location, line: 0 } } }, /Invalid static dependency evidence location/],
+    [{ ...base, evidence: { location: { ...base.evidence.location, column: 0 } } }, /Invalid static dependency evidence location/],
+    [{ ...base, kind: 'external' }, /External dependency has an internal target/],
+  ];
+  for (const [record, message] of invalid) {
+    const corrupted = { ...analysis, dependencies: [record] };
+    const before = structuredClone(corrupted);
+    assert.throws(() => createObservedStaticCodeUnit(corrupted, responsibilities, staticCodeContext), message);
+    assert.deepEqual(corrupted, before);
+  }
+  assert.throws(() => createObservedStaticCodeUnit({ ...analysis, files: [analysis.files[0]!, analysis.files[0]!] }, responsibilities, staticCodeContext), /Duplicate analyzed file ID/);
+  assert.throws(() => createObservedStaticCodeUnit(analysis, responsibilities, { ...staticCodeContext, representedTarget: ' ' }), /Invalid observed static-code context/);
+  assert.throws(() => createObservedStaticCodeUnit(analysis, responsibilities, { ...staticCodeContext, profile: JSON.parse('"runtime"') }), /Invalid observed static-code context/);
+  assert.throws(() => createObservedStaticCodeUnit({ ...analysis, schemaVersion: JSON.parse('2') }, responsibilities, staticCodeContext), /Unsupported analysis schema/);
+  assert.throws(() => createObservedStaticCodeUnit(analysis, { ...responsibilities, projectPath: 'other' }, staticCodeContext), /Inconsistent observed Responsibility source metadata/);
+
+  const unit = createObservedStaticCodeUnit(analysis, responsibilities, staticCodeContext);
+  const [relation] = unit.model.dependencies.relations;
+  assert.ok(relation);
+  assert.throws(() => resolveObservedStaticDependencySupports({ ...unit, sources: { ...unit.sources, analysis: { ...analysis, dependencies: [] } } }, relation), /Missing static dependency support/);
+  assert.throws(() => resolveObservedStaticDependencySupports(unit, { ...relation, targetFileId: 'src/main.ts' }), /Invalid static dependency relation key/);
+});
+
+test('retains external and unresolved records without deriving file Relations', () => {
+  const { analysis, responsibilities } = analyzeTypeScriptTarget(fixturePath);
+  const [base] = analysis.dependencies;
+  assert.ok(base);
+  const external: ResolvedDependency = {
+    sourceFileId: base.sourceFileId, moduleSpecifier: 'external-package', kind: 'external',
+    evidence: base.evidence, confidence: 'inferred',
+  };
+  const unresolved = {
+    sourceFileId: base.sourceFileId, moduleSpecifier: './missing', reason: 'relative-target-not-found' as const,
+    evidence: base.evidence, confidence: 'exact' as const,
+  };
+  const source = { ...analysis, dependencies: [external], unresolvedDependencies: [unresolved] };
+  const unit = createObservedStaticCodeUnit(source, responsibilities, staticCodeContext);
+  assert.deepEqual(unit.model.dependencies.relations, []);
+  assert.deepEqual(unit.sources.analysis.dependencies, [external]);
+  assert.deepEqual(unit.sources.analysis.unresolvedDependencies, [unresolved]);
+  assert.deepEqual(createObservedStaticCodeUnit({ ...analysis, dependencies: [] }, responsibilities, staticCodeContext).model.dependencies.relations, []);
 });
 
 test('propagates production errors and rejects blank observed target designations', (context) => {
@@ -55,9 +203,16 @@ test('propagates production errors and rejects blank observed target designation
       assert.equal(error.message, productionError?.message);
       return true;
     });
+    assert.throws(() => analyzeObservedStaticCodeTarget(inputPath, 'invalid-target'), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.constructor, productionError?.constructor);
+      assert.equal(error.message, productionError?.message);
+      return true;
+    });
   }
   for (const representedTarget of ['', ' \t\n']) {
     assert.throws(() => analyzeObservedResponsibilityTarget(fixturePath, representedTarget), /Invalid observed Responsibility context/);
+    assert.throws(() => analyzeObservedStaticCodeTarget(fixturePath, representedTarget), /Invalid observed static-code context/);
   }
 });
 
@@ -325,6 +480,25 @@ test('detects NestJS decorators through imported aliases without a NestJS depend
   }
   assert.deepEqual(first, beforeUnit);
 
+  const file = first.analysis.files[0];
+  assert.ok(file);
+  const composed = createObservedStaticCodeUnit({
+    ...first.analysis,
+    dependencies: [...first.analysis.dependencies, {
+      sourceFileId: file.id, targetFileId: file.id, moduleSpecifier: './main', kind: 'internal',
+      evidence: { location: { filePath: file.path, line: 1, column: 1 } }, confidence: 'exact',
+    }],
+  }, first.responsibilities, staticCodeContext);
+  assert.deepEqual(composed.model.parts, parts);
+  assert.deepEqual(composed.model.responsibility.claims, claims);
+  assert.equal(composed.model.dependencies.relations.length, 1);
+  assert.equal(composed.model.dependencies.relations[0]?.sourceFileId, file.id);
+  assert.equal(composed.model.dependencies.relations[0]?.targetFileId, file.id);
+  assert.equal(composed.model.responsibility.claims.every((claim) =>
+    composed.model.parts.some((part) => part.fileId === claim.subject.fileId)), true);
+  assert.equal(composed.model.dependencies.relations.every((relation) =>
+    composed.model.parts.some((part) => part.fileId === relation.sourceFileId && part.fileId === relation.targetFileId)), true);
+
   await context.test('closes the observed first slice through the public production API', () => {
     const produced = analyzeObservedResponsibilityTarget(projectPath, 'users-backend');
     const publicUnit: ObservedResponsibilityUnit = JSON.parse(JSON.stringify(produced));
@@ -382,6 +556,24 @@ test('keeps combined analysis equivalent for a PNPM workspace target', () => {
   assert.deepEqual(unit.sources.responsibilities.findings, []);
   assert.equal(unit.sources.responsibilities.coverage.every((item) => item.status === 'unsupported'), true);
   assert.equal(unit.context.representedTarget, 'local-workspace');
+  const composed = analyzeObservedStaticCodeTarget(workspacePath, 'local-workspace');
+  const fileIds = new Set(composed.model.parts.map((part) => part.fileId));
+  assert.deepEqual(composed.model.parts, unit.model.parts);
+  assert.equal(composed.model.dependencies.relations.length, 3);
+  assert.equal(composed.model.dependencies.relations.every((relation) =>
+    fileIds.has(relation.sourceFileId) && fileIds.has(relation.targetFileId)), true);
+  assert.equal(composed.model.parts.every((part) => composed.sources.analysis.files.some((file) => file.id === part.fileId)), true);
+});
+
+test('derives real BunkerCode Relations from unique directed internal file pairs', () => {
+  const unit = analyzeObservedStaticCodeTarget('.', 'bunkercode-local');
+  const internal = unit.sources.analysis.dependencies.filter((dependency) => dependency.kind === 'internal');
+  const directedPairs = new Set(internal.map((dependency) => JSON.stringify([dependency.sourceFileId, dependency.targetFileId])));
+  assert.equal(unit.model.dependencies.relations.length, directedPairs.size);
+  assert.equal(unit.model.dependencies.relations.every((relation) =>
+    directedPairs.has(JSON.stringify([relation.sourceFileId, relation.targetFileId]))), true);
+  assert.equal(unit.model.dependencies.relations.every((relation) =>
+    resolveObservedStaticDependencySupports(unit, relation).length === relation.supports.length), true);
 });
 
 test('does not infer NestJS responsibilities from names, local decorators, or other packages', (context) => {
