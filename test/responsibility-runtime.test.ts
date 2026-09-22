@@ -6,8 +6,8 @@ import { test } from 'node:test';
 import type { ResponsibilityDetector } from '../packages/analyzer-typescript/src/responsibility-detectors/detector.js';
 import { analyzeResponsibilitiesWithSession } from '../packages/analyzer-typescript/src/responsibility-detectors/runtime.js';
 import { createTypeScriptAnalysisSession } from '../packages/analyzer-typescript/src/typescript-analysis-session.js';
-import { analyzeProject, analyzeTypeScriptTarget } from '../packages/analyzer-typescript/src/index.js';
-import type { ObservedResponsibilityClaim, ObservedResponsibilityContext, ObservedResponsibilityUnit, ResponsibilityAnalysisResult, ResponsibilityFinding, ResponsibilitySubject } from '../packages/contracts/src/index.js';
+import { analyzeObservedResponsibilityTarget, analyzeProject, analyzeTypeScriptTarget } from '../packages/analyzer-typescript/src/index.js';
+import type { AnalyzedFile, ObservedResponsibilityClaim, ObservedResponsibilityContext, ObservedResponsibilityUnit, ResponsibilityAnalysisResult, ResponsibilityCoverage, ResponsibilityFinding, ResponsibilitySubject } from '../packages/contracts/src/index.js';
 import { deriveObservedResponsibilityClaims, deriveObservedResponsibilityFileParts } from '../packages/analyzer-typescript/src/observed-responsibility-model.js';
 import {
   createObservedResponsibilityUnit,
@@ -23,6 +23,43 @@ const observedContext: ObservedResponsibilityContext = {
   profile: 'static-responsibility', nature: 'derived-from-static-analysis',
   representedTarget: 'test-target', implementationState: 'loaded-production',
 };
+
+test('produces a serializable observed unit without findings from a real target', () => {
+  const unit = analyzeObservedResponsibilityTarget(fixturePath, 'simple-import');
+  assert.deepEqual(unit.context, { ...observedContext, representedTarget: 'simple-import' });
+  assert.deepEqual(unit.model.parts, unit.sources.analysis.files.map(({ id }) => ({ fileId: id })));
+  assert.equal(unit.model.parts.length, 2);
+  assert.deepEqual(unit.model.claims, []);
+  assert.deepEqual(unit.sources.responsibilities.findings, []);
+  assert.equal(unit.sources.responsibilities.coverage.every((item) => item.status === 'unsupported'), true);
+  assert.deepEqual(unit.sources, analyzeTypeScriptTarget(fixturePath));
+  assert.deepEqual(unit.sources.analysis, analyzeProject(fixturePath));
+  assert.deepEqual(JSON.parse(JSON.stringify(unit)), unit);
+  assert.equal(JSON.stringify(analyzeObservedResponsibilityTarget(fixturePath, 'simple-import')), JSON.stringify(unit));
+});
+
+test('propagates production errors and rejects blank observed target designations', (context) => {
+  const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-observed-invalid-'));
+  context.after(() => rmSync(projectPath, { recursive: true, force: true }));
+  writeFileSync(path.join(projectPath, 'tsconfig.json'), '{ invalid json');
+  for (const inputPath of [path.join(projectPath, 'missing'), projectPath]) {
+    let productionError: Error | undefined;
+    assert.throws(() => analyzeTypeScriptTarget(inputPath), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      productionError = error;
+      return true;
+    });
+    assert.throws(() => analyzeObservedResponsibilityTarget(inputPath, 'invalid-target'), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.constructor, productionError?.constructor);
+      assert.equal(error.message, productionError?.message);
+      return true;
+    });
+  }
+  for (const representedTarget of ['', ' \t\n']) {
+    assert.throws(() => analyzeObservedResponsibilityTarget(fixturePath, representedTarget), /Invalid observed Responsibility context/);
+  }
+});
 
 test('builds empty and unsupported static units and rejects broken source contracts', () => {
   const { analysis, responsibilities } = analyzeTypeScriptTarget(fixturePath);
@@ -247,7 +284,7 @@ test('preserves every deterministic failure cause when no detector evaluates a c
   assert.equal(first.limitations.some((limitation) => limitation.message.includes('Failure B.')), true);
 });
 
-test('detects NestJS decorators through imported aliases without a NestJS dependency', (context) => {
+test('detects NestJS decorators through imported aliases without a NestJS dependency', async (context) => {
   const projectPath = mkdtempSync(path.join(os.tmpdir(), 'bunkercode-nest-'));
   context.after(() => rmSync(projectPath, { recursive: true, force: true }));
   writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', experimentalDecorators: true }, include: ['src/**/*.ts'] }));
@@ -287,6 +324,47 @@ test('detects NestJS decorators through imported aliases without a NestJS depend
     }
   }
   assert.deepEqual(first, beforeUnit);
+
+  await context.test('closes the observed first slice through the public production API', () => {
+    const produced = analyzeObservedResponsibilityTarget(projectPath, 'users-backend');
+    const publicUnit: ObservedResponsibilityUnit = JSON.parse(JSON.stringify(produced));
+    assert.deepEqual(publicUnit.sources, first);
+    assert.deepEqual(publicUnit.model.parts, [{ fileId: 'src/main.ts' }]);
+    assert.equal(publicUnit.model.claims.length, 4);
+    assert.deepEqual(new Set(publicUnit.model.claims.map((claim) => claim.subject.kind)), new Set(['method', 'class']));
+    assert.deepEqual(publicUnit.context, { ...observedContext, representedTarget: 'users-backend' });
+    for (const part of publicUnit.model.parts) {
+      const file: AnalyzedFile | undefined = publicUnit.sources.analysis.files.find((item) => item.id === part.fileId);
+      assert.ok(file);
+      for (const claim of publicUnit.model.claims.filter((item) => item.subject.fileId === file.id)) {
+        assert.ok(claim.supports.length > 0);
+        for (const support of claim.supports) {
+          const finding: ResponsibilityFinding | undefined = publicUnit.sources.responsibilities.findings.find((item) => item.id === support.findingId);
+          assert.ok(finding);
+          assert.equal(finding.subject.id, claim.subject.subjectId);
+          assert.equal(finding.subject.kind, claim.subject.kind);
+          assert.equal(finding.responsibility, claim.responsibility);
+          assert.equal(finding.confidence, 'exact');
+          assert.ok(finding.evidence.length > 0);
+          assert.equal(finding.evidence.every((item) => item.location.filePath === file.path && item.technology.id === 'nestjs'), true);
+          assert.ok(finding.provenance.ruleId);
+          const coverage: ResponsibilityCoverage | undefined = publicUnit.sources.responsibilities.coverage.find((item) => item.capability === claim.responsibility && item.scope.kind === 'project');
+          assert.equal(coverage?.status, 'evaluated');
+          const execution = publicUnit.sources.responsibilities.detectorExecutions.find((item) => item.capability === claim.responsibility && item.scope.kind === 'project' && item.detector.id === finding.provenance.detector.id);
+          assert.ok(execution && 'findingIds' in execution && execution.findingIds.includes(finding.id));
+        }
+      }
+    }
+    for (const evaluation of [...publicUnit.sources.responsibilities.coverage, ...publicUnit.sources.responsibilities.detectorExecutions]) {
+      for (const id of 'limitationIds' in evaluation ? evaluation.limitationIds : []) {
+        assert.ok(publicUnit.sources.responsibilities.limitations.some((item) => item.id === id));
+      }
+    }
+    const loadedContent = JSON.stringify(produced);
+    writeFileSync(path.join(projectPath, 'src/main.ts'), 'export const changed = true;\n');
+    assert.equal(JSON.stringify(produced), loadedContent);
+    assert.deepEqual(analyzeObservedResponsibilityTarget(projectPath, 'users-backend').model.claims, []);
+  });
 });
 
 test('keeps combined analysis equivalent for a PNPM workspace target', () => {
@@ -296,6 +374,14 @@ test('keeps combined analysis equivalent for a PNPM workspace target', () => {
 
   assert.deepEqual(first.analysis, analyzeProject(workspacePath));
   assert.deepEqual(first, second);
+  const unit = analyzeObservedResponsibilityTarget(workspacePath, 'local-workspace');
+  assert.deepEqual(unit.sources, first);
+  assert.ok(unit.sources.analysis.structure && unit.sources.analysis.structure.packages.length > 0);
+  assert.deepEqual(unit.model.parts, first.analysis.files.map(({ id }) => ({ fileId: id })));
+  assert.deepEqual(unit.model.claims, []);
+  assert.deepEqual(unit.sources.responsibilities.findings, []);
+  assert.equal(unit.sources.responsibilities.coverage.every((item) => item.status === 'unsupported'), true);
+  assert.equal(unit.context.representedTarget, 'local-workspace');
 });
 
 test('does not infer NestJS responsibilities from names, local decorators, or other packages', (context) => {
@@ -359,6 +445,10 @@ test('detects direct PrismaClient operations once per function subject with orde
   assert.deepEqual(listUsers?.evidence.filter((evidence) => evidence.kind === 'call').map((evidence) => evidence.signal), ['prisma.order.create({ data: {} })', 'prisma.user.findMany()']);
   assert.equal(findings.some((finding) => finding.evidence.some((evidence) => evidence.signal.includes('customThing'))), false);
   assert.equal(findings.some((finding) => finding.subject.kind === 'file'), true);
+  const produced = analyzeObservedResponsibilityTarget(projectPath, 'prisma-direct');
+  assert.deepEqual(produced.sources, first);
+  assert.deepEqual(produced.model.parts, [{ fileId: 'src/main.ts' }]);
+  assert.deepEqual(produced.model.claims.map((claim) => claim.subject.kind).sort(), ['file', 'function']);
   const parts = deriveObservedResponsibilityFileParts(first.analysis);
   const claims = deriveObservedResponsibilityClaims(findings, parts);
   assert.deepEqual(parts, [{ fileId: 'src/main.ts' }]);

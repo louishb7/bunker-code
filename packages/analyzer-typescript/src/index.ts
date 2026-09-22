@@ -1,4 +1,5 @@
 export { analyzeProject, analyzeTypeScriptTarget } from './analyze-project.js';
+export { analyzeObservedResponsibilityTarget } from './analyze-observed-responsibility-target.js';
 export type { TypeScriptTargetAnalysis } from './analyze-project.js';
 export { discoverAnalysisTargets, resolveAnalysisTarget } from './project-discovery.js';
 export type {
