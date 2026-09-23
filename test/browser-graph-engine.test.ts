@@ -164,7 +164,15 @@ test('browser build reconstructs the snapshot boundary', { timeout: 60000 }, asy
       'src/index.ts',
       'src/pnpm-workspace.ts',
     ]);
-    assert.equal(nodeImpact.totalAffected, 4);
+    assert.deepEqual(nodeImpact.affectedDependents.map((entry) => entry.node.id), [
+      'src/analyze-project.ts',
+      'src/index.ts',
+      'src/pnpm-workspace.ts',
+      'src/analyze-observed-responsibility-target.ts',
+      'src/analyze-observed-static-code-target.ts',
+      '../../test/responsibility-runtime.test.ts',
+    ]);
+    assert.equal(nodeImpact.totalAffected, 6);
   } finally {
     await browser.close();
   }

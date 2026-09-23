@@ -44,9 +44,15 @@ importers:
       '@bunker-code/analyzer-typescript':
         specifier: workspace:*
         version: link:../../packages/analyzer-typescript
+      '@bunker-code/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@bunker-code/graph-engine':
         specifier: workspace:*
         version: link:../../packages/graph-engine
+      '@bunker-code/planned-system':
+        specifier: workspace:*
+        version: link:../../packages/planned-system
       '@xyflow/react':
         specifier: ^12.11.3
         version: 12.11.3(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

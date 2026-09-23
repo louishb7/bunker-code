@@ -60,7 +60,7 @@ test('Explorer presents the initial structural frontier in a real browser', { ti
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 900 });
-    await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
+    await page.goto(`http://127.0.0.1:${address.port}/#observe`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('[data-system-map-status="ready"]', { timeout: 15000 });
 
     assert.equal(await page.$eval('[data-surface="overview"]', (element) => element.getAttribute('aria-pressed')), 'true');
@@ -83,6 +83,7 @@ test('Explorer navigates factual territories and focused file relationships in a
   }
   if (!existsSync(firefoxExecutablePath)) throw new Error(`Firefox executable not found: ${firefoxExecutablePath}`);
 
+  execFileSync('pnpm', ['--filter', '@bunker-code/explorer-web', 'generate:snapshot'], { cwd: repoRoot, stdio: 'pipe' });
   execFileSync('pnpm', ['--filter', '@bunker-code/explorer-web', 'build'], { cwd: repoRoot, stdio: 'pipe' });
   const snapshot = JSON.parse(readFileSync(path.join(appRoot, 'src/generated/analyzer-typescript.snapshot.json'), 'utf8')) as { responsibilities: unknown; analysis: { files: unknown[] } };
   assert.ok(snapshot.responsibilities);
@@ -95,7 +96,7 @@ test('Explorer navigates factual territories and focused file relationships in a
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 900 });
-    await page.goto(`http://127.0.0.1:${address.port}`, { waitUntil: 'networkidle0' });
+    await page.goto(`http://127.0.0.1:${address.port}/#observe`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('[data-system-map-status="ready"]', { timeout: 15000 });
     assert.equal(await page.$eval('[data-surface="overview"]', (element) => element.getAttribute('aria-pressed')), 'true');
     assert.equal(await page.$eval('[data-surface="responsibility"]', (element) => (element as HTMLButtonElement).disabled), true);
@@ -127,7 +128,7 @@ test('Explorer navigates factual territories and focused file relationships in a
     await captureSystemMap(page, 'apps');
     await page.click('[aria-label="Collapse apps"]');
     await page.waitForSelector('[data-system-map-item-id="directory:apps"]');
-    assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top <= 220), true);
+    assert.equal(await page.$eval('[data-primary-explorer-surface]', (element) => element.getBoundingClientRect().top - (document.querySelector('.workspace-content')?.getBoundingClientRect().top ?? 0) <= 220), true);
     await page.click('[data-system-map-item-id="directory:packages"] button');
     await page.waitForSelector('[data-system-map-field-inspector="directory:packages"]', { timeout: 5000 });
     assert.equal(await page.$eval('[data-system-map]', (element) => element.getAttribute('data-system-map-item-count')), '3');
@@ -235,7 +236,13 @@ test('Explorer navigates factual territories and focused file relationships in a
     await clickButton(page, 'Open territory');
     await page.waitForSelector('[data-explorer-scale="territory"]', { timeout: 5000 });
     assert.ok(await page.$('[data-territory-region="workspace-package:packages/analyzer-typescript"]'));
-    assert.equal(await page.$eval('[data-spatial-territory-map]', (element) => element.getAttribute('data-territory-composition')), 'triad');
+    assert.deepEqual(await page.$$eval('[data-territory-region]', (regions) => regions.map((region) => region.getAttribute('data-territory-region')).sort()), [
+      'workspace-package:packages/analyzer-typescript',
+      'workspace-package:packages/contracts',
+      'workspace-package:packages/graph-engine',
+      'workspace-package:packages/planned-system',
+    ]);
+    assert.equal(await page.$eval('[data-spatial-territory-map]', (element) => element.getAttribute('data-territory-composition')), 'field');
     assert.equal(await page.$eval('.back-action', (element) => element.textContent?.includes('Back to system')), true);
 
     await page.click('[data-territory-select="workspace-package:packages/analyzer-typescript"]');

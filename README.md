@@ -2,7 +2,7 @@
 
 > Map your system before changing it.
 
-BunkerCode is an experimental developer tool for understanding TypeScript backends before modifying them.
+BunkerCode is a local workspace for designing systems before code exists and understanding TypeScript backends before modifying them.
 
 It analyzes a codebase and turns structural information, dependencies and evidence-backed technical responsibilities into a navigable model of the system.
 
@@ -21,7 +21,7 @@ BunkerCode does not replace the editor. It is intended to help build context bef
 
 ## Current status
 
-The current implementation can analyze supported TypeScript projects and PNPM workspaces through a CLI and a browser Explorer.
+The workspace has two independent areas: **DESIGN** authors planned systems from human intent; **OBSERVE** explores facts from supported TypeScript projects and PNPM workspaces. The CLI continues to provide static analysis.
 
 Today, BunkerCode provides:
 
@@ -38,7 +38,65 @@ Today, BunkerCode provides:
 
 Analysis is static and deterministic. BunkerCode does not execute the analyzed application.
 
-## Explorer
+## DESIGN
+
+Start the workspace without analyzing any project:
+
+```bash
+pnpm design
+```
+
+DESIGN opens a local system library. Choose **Create System**, enter a name, and
+start adding Parts. Select a Part to edit its name and description, connect it,
+or attach Claims and Open Questions. A Relation has a source, an author-defined
+predicate and a target. Choose an existing predicate, a starter, or define one
+inline. Starters are editable definitions in your model, not universal
+architectural categories.
+
+The canvas supports selection, drag, pan, zoom, **Fit system** and **Auto arrange**.
+You can also drag from a Part's right connection handle to another Part's left
+handle to begin a Relation. The inspector preserves direction and lets you edit
+Relation descriptions, rationales and references. Claims use REQUIRED,
+PROHIBITED or ASSUMED; Claims and Open Questions can target the system, a Part,
+or a Relation. **System context** edits the system name/scope and its predicates.
+The expandable system index also locates annotations on other subjects.
+
+**Save changes** commits a valid form and saves it locally immediately. New
+records save when added. Form drafts are not saved until submitted. Layout and
+viewport changes save separately from the semantic model. **Systems** returns
+to the library to reopen or create another system.
+
+Each system occupies its own versioned localStorage document containing the
+validated Planned System Model, local save date and presentation state. Storage
+is specific to the browser profile and origin (including port); use the same
+address to return to your systems. Keep exported backups before clearing browser
+data. Storage failures and conflicting saves from another tab are reported;
+failed writes preserve the last successful save. There is no multi-tab merge.
+
+**Export JSON** downloads only the semantic Planned System Model. **Import JSON**
+accepts a file or pasted JSON through the official validator. Invalid documents
+are never repaired silently. An existing model identity offers an explicit
+**Import as new system** action that assigns a new model ID and preserves local
+record identities. Invalid local documents remain untouched in a recovery list,
+with download-original and confirmed-delete actions.
+
+Deleting a Part requires confirmation and removes its connected Relations plus
+Claims/Open Questions whose subjects were removed. Deleting a Relation removes
+its subject annotations. A predicate in use cannot be deleted until its
+Relations are reassigned or removed. These rules are enforced by the independent
+`planned-system` package, not by the renderer.
+
+A practical first system: create **Future Project** with API, Authentication,
+Users and Database; connect API → depends on → Authentication, Authentication →
+accesses → Database and Users → accesses → Database. Add the REQUIRED Claim
+“Protected operations require authentication.” and the Open Question “How should
+notifications work?”. Arrange, reload, reopen and export to verify your workflow.
+
+DESIGN does not require ASTs, analyzer results, ProjectGraph or a valid OBSERVE
+snapshot. It records intention; it does not prove the proposed architecture or
+its runtime behavior. COMPARE and correspondence are not implemented.
+
+## OBSERVE / Explorer
 
 Start the Explorer with:
 
@@ -52,7 +110,9 @@ Or analyze another local project:
 pnpm explorer ../another-local-project
 ```
 
-Without an argument, the Explorer analyzes BunkerCode itself.
+Without an argument, this command analyzes BunkerCode itself. Choose **OBSERVE**
+in the workspace header to open the Explorer. If analysis fails, the workspace
+still opens with DESIGN available and OBSERVE reports the missing snapshot.
 
 The Explorer currently exposes three complementary views.
 
@@ -183,15 +243,21 @@ It currently provides:
 - diagnostics
 - direct and transitive impact analysis
 
+### `packages/planned-system`
+
+Creates, validates and edits authoritative Planned System Models without analyzer
+or UI dependencies. Each authoring operation returns a valid detached model or
+rejects the entire change; removal policies preserve reference integrity.
+
 ### `apps/cli`
 
 Command-line interface for running analysis and impact operations.
 
 ### `apps/explorer-web`
 
-React-based interface for exploring the analyzed system.
-
-It contains the current Overview, Responsibility and Territory experiences.
+React workspace with independent DESIGN and OBSERVE entry points. DESIGN uses
+React Flow for editing/navigation and ELK for optional layout, with its own
+canvas and inspector. OBSERVE retains Overview, Responsibility and Territory.
 
 ## Analysis principles
 
@@ -291,7 +357,12 @@ pnpm test:browser
 pnpm --filter @bunker-code/explorer-web build
 ```
 
-Browser tests use Firefox by default at:
+The application build does not run analysis. It includes the generated OBSERVE
+snapshot when present; run `pnpm --filter @bunker-code/explorer-web generate:snapshot`
+before building if you want a fresh observed system. DESIGN builds without one.
+
+Browser tests cover both the Explorer and substantive DESIGN authoring, layout,
+reload/persistence, and JSON import/export. They use Firefox by default at:
 
 ```text
 /usr/bin/firefox

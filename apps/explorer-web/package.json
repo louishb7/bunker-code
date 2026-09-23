@@ -6,8 +6,9 @@
   "scripts": {
     "generate:snapshot": "node --import tsx scripts/generate-snapshot.ts",
     "dev": "node --import tsx scripts/develop.ts",
-    "build": "pnpm generate:snapshot && vite build",
-    "typecheck": "tsc --noEmit"
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "design": "vite"
   },
   "dependencies": {
     "@bunker-code/analyzer-typescript": "workspace:*",
@@ -15,7 +16,9 @@
     "@xyflow/react": "^12.11.3",
     "elkjs": "^0.12.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "@bunker-code/planned-system": "workspace:*",
+    "@bunker-code/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",

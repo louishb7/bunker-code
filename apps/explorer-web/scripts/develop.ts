@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +19,8 @@ try {
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`${message}\n`);
-  process.exitCode = 1;
+  rmSync(outputPath, { force: true });
+  process.stderr.write('OBSERVE unavailable; opening the workspace with DESIGN available.\n');
 }
 
 if (process.exitCode !== 1) {

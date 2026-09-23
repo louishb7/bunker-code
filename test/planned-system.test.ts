@@ -156,3 +156,63 @@ test('rejects unknown fields at every model level and unsupported versions', () 
   expectInvalid({ ...model, claims: [{ ...model.claims[0], subject: { kind: 'model', partId: 'auth' } }] }, 'unknown_field', ['claims', 0, 'subject', 'partId']);
   expectInvalid({ ...model, claims: [{ ...model.claims[0], subject: { kind: 'predicate', predicateId: 'depends' } }] }, 'invalid_value', ['claims', 0, 'subject', 'kind']);
 });
+
+test('authoring operations preserve identity, author order and validity without mutating their inputs', async () => {
+  const author = await import('../packages/planned-system/src/index.js');
+  const original = exampleSaas();
+  const before = JSON.stringify(original);
+  let model = author.updatePlannedContext(original, { nature: 'planned-intention', representedSystem: 'Future Project', scope: 'Initial release' });
+  model = author.savePlannedPart(model, { id: 'auth', label: 'Identity', description: 'Authentication boundary' });
+  assert.deepEqual(model.parts.map((part) => part.id), original.parts.map((part) => part.id));
+  model = author.savePlannedPart(model, { id: 'notifications', label: 'Notifications' });
+  model = author.savePlannedRelation(model, { id: 'notify', sourcePartId: 'api', targetPartId: 'notifications', predicateId: 'sends' }, { id: 'sends', label: 'sends to', description: 'Source sends an event to target.' });
+  model = author.savePlannedRelation(model, { ...model.relations[0]!, targetPartId: 'users', rationale: 'Shared identity' });
+  model = author.savePlannedPredicate(model, { id: 'depends', label: 'requires', description: 'Source requires target.' });
+  model = author.savePlannedClaim(model, { id: 'claim-auth', subject: { kind: 'relation', relationId: 'notify' }, modality: 'assumed', statement: 'Delivery is asynchronous.' });
+  model = author.savePlannedOpenQuestion(model, { id: 'question-notifications', subject: { kind: 'part', partId: 'notifications' }, question: 'Which transport?' });
+  assert.equal(validatePlannedSystemModel(model).ok, true);
+  assert.deepEqual(author.requireValidPlannedSystem(JSON.parse(JSON.stringify(model))), model);
+  assert.equal(model.relations[0]?.id, 'relation-api-auth');
+  assert.equal(model.relations[0]?.targetPartId, 'users');
+  assert.equal(model.claims[0]?.modality, 'assumed');
+  assert.equal(JSON.stringify(original), before);
+  model = author.removePlannedClaim(model, 'claim-auth');
+  model = author.removePlannedOpenQuestion(model, 'question-notifications');
+  assert.equal(model.claims.length, 0);
+  assert.equal(model.openQuestions.length, 0);
+});
+
+test('failed authoring is atomic, including an inline predicate, broken subjects and duplicate directed relations', async () => {
+  const author = await import('../packages/planned-system/src/index.js');
+  const model = exampleSaas();
+  const before = JSON.stringify(model);
+  assert.throws(() => author.savePlannedRelation(model, { id: 'new', sourcePartId: 'missing', targetPartId: 'auth', predicateId: 'inline' }, { id: 'inline', label: 'uses', description: 'Uses target.' }), /Source Part does not exist/);
+  assert.throws(() => author.savePlannedRelation(model, { ...model.relations[0]!, id: 'duplicate' }), /triple already exists/);
+  assert.throws(() => author.savePlannedClaim(model, { id: 'bad', subject: { kind: 'part', partId: 'missing' }, modality: 'required', statement: 'Must exist.' }), /subject does not exist/);
+  assert.throws(() => author.savePlannedPart(model, { id: 'api', label: '' }), /nonblank/);
+  assert.throws(() => author.removePlannedPart(model, 'missing'), /does not exist/);
+  assert.equal(JSON.stringify(model), before);
+});
+
+test('Part removal cascades only dependent relations and their typed subjects; predicate removal is blocked while in use', async () => {
+  const author = await import('../packages/planned-system/src/index.js');
+  let model = exampleSaas();
+  for (const subject of [{ kind: 'part', partId: 'auth' }, { kind: 'relation', relationId: 'relation-api-auth' }, { kind: 'relation', relationId: 'relation-auth-db' }, { kind: 'part', partId: 'users' }] as const) {
+    const id = JSON.stringify(subject);
+    model = author.savePlannedClaim(model, { id, subject, modality: 'prohibited', statement: 'No direct access.' });
+    model = author.savePlannedOpenQuestion(model, { id, subject, question: 'Which boundary?' });
+  }
+  const original = structuredClone(model);
+  assert.throws(() => author.removePlannedPredicate(model, 'accesses'), /in use/);
+  model = author.removePlannedPart(model, 'auth');
+  assert.deepEqual(model.relations.map((relation) => relation.id), ['relation-users-db']);
+  assert.deepEqual(model.claims.map((claim) => claim.subject), [{ kind: 'model' }, { kind: 'part', partId: 'users' }]);
+  assert.deepEqual(model.openQuestions.map((question) => question.subject), [{ kind: 'model' }, { kind: 'part', partId: 'users' }]);
+  assert.equal(validatePlannedSystemModel(model).ok, true);
+  model = author.removePlannedPredicate(model, 'depends');
+  assert.equal(model.predicates.length, 1);
+  const removedRelation = author.removePlannedRelation(original, 'relation-api-auth');
+  assert.ok(removedRelation.claims.some((claim) => claim.subject.kind === 'part' && claim.subject.partId === 'auth'));
+  assert.ok(!removedRelation.openQuestions.some((question) => question.subject.kind === 'relation' && question.subject.relationId === 'relation-api-auth'));
+  assert.equal(validatePlannedSystemModel(removedRelation).ok, true);
+});
