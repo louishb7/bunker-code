@@ -161,3 +161,44 @@
 @media (prefers-reduced-motion: reduce) {
   .designer *, .design-library * { scroll-behavior: auto; transition: none; }
 }
+
+.designer-lens { position: absolute; top: 16px; right: 16px; z-index: 5; display: flex; padding: 4px; gap: 3px; background: #102029; border: 1px solid #34505b; border-radius: 8px; }
+.designer-lens button { background: transparent; border-color: transparent; min-height: 30px; padding: 5px 10px; font-size: 11px; color: #9eb7c0; }
+.designer-lens button[aria-pressed="true"] { background: #2d4f46; color: #d3f4e6; }
+.designer-part.with-implementation { justify-content: flex-start; position: relative; padding-top: 14px; }
+.designer-part.with-implementation strong { max-height: 42px; }
+.designer-node-implementation { position: absolute; inset: 0; pointer-events: none; }
+.designer-node-implementation::before { content: ''; position: absolute; left: 18px; right: 18px; top: 80px; border-top: 1px solid #3a555d; }
+.designer-tech-chip { display: inline-block; padding: 2px 7px; border: 1px solid #50796c; border-radius: 4px; background: #244740; color: #c2ebda; font-size: 11px; line-height: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.designer-node-implementation .designer-tech-chip { position: absolute; height: 20px; }
+.designer-no-technology { position: absolute; left: 18px; top: 96px; font-size: 11px; color: #9bb1bb; }
+.designer-inspector-tabs { flex-wrap: wrap; }
+.designer-inspector-tabs button { flex: 1 0 auto; padding: 6px 9px; }
+.designer-implementation-panel h2 { margin-top: 8px; }
+.designer-assigned-technologies { display: flex; flex-wrap: wrap; gap: 7px; margin: 20px 0; }
+.designer-assignment { display: flex; align-items: center; border-radius: 5px; background: #244740; max-width: 100%; border: 1px solid #50796c; }
+.designer-assignment .designer-tech-chip { border: 0; background: transparent; white-space: normal; overflow-wrap: anywhere; }
+.designer-assignment button { flex-shrink: 0; border: 0; background: transparent; padding: 2px 8px; min-height: 28px; color: #c2ebda; }
+.designer-technology-choices { display: flex; flex-direction: column; gap: 3px; padding-top: 10px; }
+.designer-technology-choices button { display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: left; background: transparent; border: 1px solid transparent; font-size: 13px; font-weight: 500; }
+.designer-technology-choices button:hover { background: #244039; border-color: #50796c; }
+.designer-technology-choices button > span { overflow-wrap: anywhere; }
+.designer-technology-choices small { font-size: 9px; font-weight: 400; color: #9bb1bb; white-space: nowrap; }
+.designer-technology-choices .designer-custom-technology { color: #b9edda; border-color: #42655b; overflow-wrap: anywhere; }
+.designer-implementation-footnote { margin-top: 22px; border-top: 1px solid var(--color-border-subtle); padding-top: 14px; }
+.designer-stack-entry { padding: 14px 0; border-bottom: 1px solid var(--color-border-subtle); }
+.designer-stack-entry > div:first-child, .designer-unused-technologies > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.designer-stack-entry strong { font-size: 13px; color: #c2ebda; overflow-wrap: anywhere; }
+.designer-stack-entry > div:first-child button, .designer-unused-technologies button { font-size: 10px; min-height: 26px; background: transparent; border-color: transparent; color: #a6b9bf; }
+.designer-stack-parts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.designer-stack-parts button { font-size: 11px; padding: 5px 7px; min-height: 28px; font-weight: 400; overflow-wrap: anywhere; }
+.designer-unused-technologies { font-size: 11px; color: #9bb1bb; margin-top: 20px; }
+.designer-unused-technologies summary { cursor: pointer; padding: 8px 0; }
+.designer-export { position: relative; z-index: 20; }
+.designer-export > summary { cursor: pointer; border: 1px solid #486571; background: #172d37; border-radius: 6px; padding: 10px 14px; font-size: 12px; }
+.designer-export > div { position: absolute; right: 0; top: 45px; width: 295px; border: 1px solid #46606a; border-radius: 8px; padding: 7px; background: #142731; box-shadow: 0 12px 30px #0007; }
+.designer-export button { display: block; width: 100%; text-align: left; font-size: 12px; background: transparent; border: 0; padding: 12px; }
+.designer-export button:hover { background: #244039; }
+.designer-export small { display: block; font-size: 10px; font-weight: 400; color: #9bb1bb; margin-top: 6px; }
+@media (max-width: 1100px) { .designer-map-tools { top: 62px; } .designer-lens { left: 16px; right: auto; } }
+@media (max-width: 650px) { .designer-export > div { width: 280px; } }

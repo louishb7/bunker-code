@@ -1,3 +1,5 @@
+import { ImplementationPanel, type CommitImplementation } from './designer-implementation-panel.js';
+import type { DesignImplementation } from './designer-implementation.js';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import type { PlannedClaim, PlannedOpenQuestion, PlannedPredicateDefinition, PlannedRelation, PlannedSubjectRef, PlannedSystemModel } from '@bunker-code/contracts';
 import { removePlannedClaim, removePlannedOpenQuestion, removePlannedPredicate,
@@ -7,7 +9,7 @@ import { removePlannedClaim, removePlannedOpenQuestion, removePlannedPredicate,
 export type DesignerEditor = { kind: 'inspect' } | { kind: 'new-part' } | { kind: 'new-relation'; source?: string; target?: string };
 export type CommitModel = (operation: (model: PlannedSystemModel) => PlannedSystemModel) => boolean;
 interface InspectorProps {
-  model: PlannedSystemModel; selection: PlannedSubjectRef; editor: DesignerEditor; showNotes: boolean;
+  model: PlannedSystemModel; selection: PlannedSubjectRef; editor: DesignerEditor; showNotes: boolean; implementation: DesignImplementation; commitImplementation: CommitImplementation;
   commit: CommitModel; select(subject: PlannedSubjectRef): void; closeEditor(): void;
   connect(source?: string, target?: string): void; navigate(action: () => void): void; remove(): void;
 }
@@ -38,8 +40,8 @@ export function sameSubject(a: PlannedSubjectRef, b: PlannedSubjectRef): boolean
   return a.kind === b.kind && (a.kind === 'model' || (a.kind === 'part' && b.kind === 'part' ? a.partId === b.partId : a.kind === 'relation' && b.kind === 'relation' && a.relationId === b.relationId));
 }
 
-export function DesignerInspector({ model, selection, editor, commit, select, closeEditor, connect, navigate, remove, showNotes }: InspectorProps) {
-  const [tab, setTab] = useState<'details' | 'notes' | 'predicates'>(showNotes ? 'notes' : 'details');
+export function DesignerInspector({ model, selection, editor, commit, select, closeEditor, connect, navigate, remove, showNotes, implementation, commitImplementation }: InspectorProps) {
+  const [tab, setTab] = useState<'details' | 'notes' | 'predicates' | 'implementation'>(showNotes ? 'notes' : 'details');
   const [expandedPredicate, setExpandedPredicate] = useState<string | null>(null);
   const notes = [...model.claims, ...model.openQuestions].filter((item) => sameSubject(item.subject, selection)).length;
   const part = selection.kind === 'part' ? model.parts.find((item) => item.id === selection.partId) : undefined;
@@ -63,8 +65,9 @@ export function DesignerInspector({ model, selection, editor, commit, select, cl
       <button aria-pressed={tab === 'details'} onClick={() => { if (tab !== 'details') navigate(() => setTab('details')); }}>Details</button>
       <button aria-pressed={tab === 'notes'} onClick={() => { if (tab !== 'notes') navigate(() => setTab('notes')); }}>Notes <span>{notes}</span></button>
       {selection.kind === 'model' && <button aria-pressed={tab === 'predicates'} onClick={() => { if (tab !== 'predicates') navigate(() => setTab('predicates')); }}>Predicates</button>}
+      {(part || selection.kind === 'model') && <button aria-pressed={tab === 'implementation'} onClick={() => { if (tab !== 'implementation') navigate(() => setTab('implementation')); }}>Implementation</button>}
     </div>
-    {tab === 'predicates' ? <><h2>Predicates</h2><p className="designer-muted">Your definitions for connections. Create one while connecting Parts.</p>
+    {tab === 'implementation' ? <ImplementationPanel model={model} implementation={implementation} partId={part?.id} commit={commitImplementation} select={select} /> : tab === 'predicates' ? <><h2>Predicates</h2><p className="designer-muted">Your definitions for connections. Create one while connecting Parts.</p>
       {model.predicates.length === 0 && <p className="designer-muted">No predicates yet.</p>}
       {model.predicates.map((predicate) => <PredicateEditor key={predicate.id} predicate={predicate} model={model} commit={commit} expanded={expandedPredicate === predicate.id} toggle={() => navigate(() => setExpandedPredicate(expandedPredicate === predicate.id ? null : predicate.id))} />)}
     </> : tab === 'notes' ? <><h2>{part?.label ?? (relation ? 'Relation notes' : 'System notes')}</h2><p className="designer-muted">Claims and open questions attached to this {selection.kind === 'model' ? 'system' : selection.kind}.</p><Annotations model={model} subject={selection} commit={commit} navigate={navigate} /></> : <>

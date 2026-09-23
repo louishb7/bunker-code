@@ -64,6 +64,21 @@ The inspector separates **Details**, contextual **Notes**, and system-level
 **Browse system** also opens annotations on other subjects. **Find Part** selects
 and centers its result.
 
+**System Structure ≠ Implementation Technology.** A Part describes an element of
+the planned system; technologies describe how you intend to implement it. Select
+a Part and open **Implementation** to search a small local suggestion list, reuse
+a technology already in the document, or add any custom name. Assignments save
+immediately; removing an assignment keeps the Part and its Relations intact.
+These choices do not assert that an architecture is correct, compatible or fast.
+
+The canvas switches between **Structure** and **Implementation** without changing
+Part identities, connections or manual positions. Implementation uses compact
+text badges (up to three plus an overflow count); the inspector retains full
+names and all assignments. **System context → Implementation** derives a
+technology stack with links to the Parts using each technology. No categories
+or recommendations are inferred. **Find Part** also searches assigned technology
+names. Auto arrange reserves space for either lens.
+
 **Save changes** commits a valid form and saves it locally immediately. New
 records save when added. Form drafts are not saved until submitted; the header
 shows **Unsaved form changes**, and leaving the form asks before discarding them.
@@ -71,8 +86,9 @@ Layout and viewport changes save separately from the semantic model. **Systems**
 to the library to reopen or create another system.
 
 **Undo / Redo** restores authored changes, deletion cascades, manual moves and
-arrangement (up to 100 steps while the system stays open). Restored documents
-are validated and saved before history advances. Pan/zoom is not an undo step;
+arrangement, technology creation, assignments and removals (up to 100 steps while
+the system stays open). Restored documents are validated and saved before history
+advances. Pan/zoom and the lens toggle are not undo steps;
 new edits after undo replace the redo branch. History is not exported or retained
 after reopening. Keyboard shortcuts outside text controls: **N** adds a Part,
 **R** adds a Relation, **/** finds a Part, **Delete / Backspace** confirms deletion,
@@ -80,24 +96,44 @@ and **Ctrl/⌘ Z** / **Ctrl/⌘ Shift Z** undo/redo. Text controls keep native u
 **Ctrl/⌘ Enter** submits the current form; **Escape** returns to system context.
 
 Each system occupies its own versioned localStorage document containing the
-validated Planned System Model, local save date and presentation state. Storage
+validated Planned System Model, implementation metadata, local save date and
+presentation state. Legacy v1 documents load with empty implementation metadata;
+the next successful save writes storage v2 under the existing key namespace. Storage
 is specific to the browser profile and origin (including port); use the same
 address to return to your systems. Keep exported backups before clearing browser
 data. Storage failures and conflicting saves from another tab are reported;
 failed writes preserve the last successful save. There is no multi-tab merge.
 
-**Export JSON** downloads only the semantic Planned System Model. **Import JSON**
-accepts a file or pasted JSON through the official validator. Invalid documents
+The **Export** menu distinguishes three outputs:
+
+- **Export Model JSON**: only the semantic `PlannedSystemModel`; no technologies,
+  layout or viewport. Its contract remains unchanged.
+- **Export Design Document**: portable JSON with `format: "bunkercode-design"`,
+  `documentVersion: 1`, model, implementation, presentation and save metadata.
+  This is the complete editable backup; history and unsubmitted drafts are excluded.
+- **Export SVG**: a standalone vector image of the entire system using the current
+  lens and saved positions, independent of the current camera. It includes Part
+  labels, predicate labels and implementation badge previews. Full labels are
+  retained in SVG titles; the editable document preserves all data. No external
+  images, fonts or rendering service are required.
+
+**Import JSON** accepts either JSON format, from a file or pasted text. Each layer
+is validated, including technology identities, normalized unique labels,
+assignment pairs, references, presentation and format versions. Invalid documents
 are never repaired silently. An existing model identity offers an explicit
-**Import as new system** action that assigns a new model ID and preserves local
-record identities. Invalid local documents remain untouched in a recovery list,
-with download-original and confirmed-delete actions.
+**Import as new system** action that preserves the original and local record IDs.
+Invalid local documents remain untouched in a recovery list, with download-original
+and confirmed-delete actions.
 
 Deleting a Part requires confirmation and removes its connected Relations plus
-Claims/Open Questions whose subjects were removed. Deleting a Relation removes
+Claims/Open Questions whose subjects were removed, plus technology assignments
+for the removed Part. Removing a technology clears its assignments across the
+document; both operations can be undone. Deleting a Relation removes
 its subject annotations. A predicate in use cannot be deleted until its
-Relations are reassigned or removed. These rules are enforced by the independent
-`planned-system` package, not by the renderer.
+Relations are reassigned or removed. Structural rules are enforced by the
+independent `planned-system` package;
+implementation reference rules live in the DESIGN document layer, outside React
+components and outside the semantic Grammar.
 
 A practical first system: create **Future Project** with API, Authentication,
 Users and Database; connect API → depends on → Authentication, Authentication →
