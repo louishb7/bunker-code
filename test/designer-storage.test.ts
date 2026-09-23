@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createPlannedSystemModel, savePlannedPart } from '../packages/planned-system/src/index.js';
+import { createPlannedSystemModel, savePlannedPart, removePlannedPart } from '../packages/planned-system/src/index.js';
 import { designerStoragePrefix, deleteDesignerDocument, exportPlannedSystemJSON, importPlannedSystemJSON,
   parseDesignerDocument, readDesignerLibrary, saveDesignerDocument, type DesignerDocument,
 } from '../apps/explorer-web/src/design/designer-storage.js';
+import { positionsForEdit } from '../apps/explorer-web/src/design/designer-layout.js';
 
 function memoryStorage() {
   const values = new Map<string, string>();
@@ -54,4 +55,20 @@ test('identity conflicts, stale saves and storage failures are explicit and pres
   assert.throws(() => deleteDesignerDocument(storage, designerStoragePrefix + 'system', first.raw), /another tab/);
   assert.throws(() => saveDesignerDocument({ ...storage, setItem: () => { throw new Error('Quota exceeded'); } }, document(), next.raw), /Quota/);
   assert.equal(storage.getItem(designerStoragePrefix + 'system'), next.raw);
+});
+
+// A newly created Part used to reuse array-index coordinates even after manual arrangement.
+test('Part placement preserves manual and legacy positions through additions and removals', () => {
+  const first = document().model;
+  const before = savePlannedPart(first, { id: 'worker', label: 'Worker' });
+  const after = savePlannedPart(before, { id: 'database', label: 'Database' });
+  const manual = { positions: { api: { x: 320, y: 0 }, worker: { x: 0, y: 0 } } };
+  const positions = positionsForEdit(before, after, manual);
+  assert.deepEqual(positions.api, manual.positions.api);
+  assert.deepEqual(positions.worker, manual.positions.worker);
+  assert.ok(positions.database && positions.api);
+  assert.ok(Math.abs(positions.database.x - positions.api.x) >= 260 || Math.abs(positions.database.y - positions.api.y) >= 152, 'new Part does not cover an existing Part');
+  const remaining = removePlannedPart(before, 'api');
+  const legacyPositions = positionsForEdit(before, remaining, { positions: {} });
+  assert.deepEqual(legacyPositions.worker, { x: 320, y: 0 }, 'removing another Part must not shift an older document’s implicit position');
 });

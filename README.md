@@ -59,12 +59,25 @@ handle to begin a Relation. The inspector preserves direction and lets you edit
 Relation descriptions, rationales and references. Claims use REQUIRED,
 PROHIBITED or ASSUMED; Claims and Open Questions can target the system, a Part,
 or a Relation. **System context** edits the system name/scope and its predicates.
-The expandable system index also locates annotations on other subjects.
+The inspector separates **Details**, contextual **Notes**, and system-level
+**Predicates**. Incoming/outgoing connections link directly to their Relations.
+**Browse system** also opens annotations on other subjects. **Find Part** selects
+and centers its result.
 
 **Save changes** commits a valid form and saves it locally immediately. New
-records save when added. Form drafts are not saved until submitted. Layout and
-viewport changes save separately from the semantic model. **Systems** returns
+records save when added. Form drafts are not saved until submitted; the header
+shows **Unsaved form changes**, and leaving the form asks before discarding them.
+Layout and viewport changes save separately from the semantic model. **Systems** returns
 to the library to reopen or create another system.
+
+**Undo / Redo** restores authored changes, deletion cascades, manual moves and
+arrangement (up to 100 steps while the system stays open). Restored documents
+are validated and saved before history advances. Pan/zoom is not an undo step;
+new edits after undo replace the redo branch. History is not exported or retained
+after reopening. Keyboard shortcuts outside text controls: **N** adds a Part,
+**R** adds a Relation, **/** finds a Part, **Delete / Backspace** confirms deletion,
+and **Ctrl/⌘ Z** / **Ctrl/⌘ Shift Z** undo/redo. Text controls keep native undo.
+**Ctrl/⌘ Enter** submits the current form; **Escape** returns to system context.
 
 Each system occupies its own versioned localStorage document containing the
 validated Planned System Model, local save date and presentation state. Storage

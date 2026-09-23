@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { DesignApp } from './design/design-app.js';
 const ObserveApp = lazy(() => import('./observe-app.js'));
 
@@ -10,11 +10,20 @@ class ObserveBoundary extends Component<{ children: ReactNode }, { failed: boole
 
 export function WorkspaceApp({ loadSnapshot }: { loadSnapshot: () => Promise<unknown> }) {
   const [area, setArea] = useState(window.location.hash === '#observe' ? 'observe' : 'design');
+  const designNavigationGuard = useRef<(() => boolean) | null>(null);
+  const registerNavigationGuard = useCallback((guard: (() => boolean) | null) => { designNavigationGuard.current = guard; }, []);
   useEffect(() => {
-    const change = () => setArea(window.location.hash === '#observe' ? 'observe' : 'design');
+    const change = () => {
+      const next = window.location.hash === '#observe' ? 'observe' : 'design';
+      if (area === 'design' && next === 'observe' && designNavigationGuard.current && !designNavigationGuard.current()) {
+        window.history.replaceState(null, '', '#design');
+        return;
+      }
+      setArea(next);
+    };
     window.addEventListener('hashchange', change);
     return () => window.removeEventListener('hashchange', change);
-  }, []);
+  }, [area]);
   return <div className="bunker-workspace">
     <header className="workspace-header">
       <span className="product-wordmark"><span>B</span> BunkerCode</span>
@@ -25,7 +34,7 @@ export function WorkspaceApp({ loadSnapshot }: { loadSnapshot: () => Promise<unk
       <span className="workspace-purpose">{area === 'design' ? 'Human intent · Planned systems' : 'Code facts · Observed system'}</span>
     </header>
     <div className="workspace-content">
-      {area === 'design' ? <DesignApp /> : <ObserveBoundary><Suspense fallback={<p>Opening OBSERVE…</p>}><ObserveApp loadSnapshot={loadSnapshot} /></Suspense></ObserveBoundary>}
+      {area === 'design' ? <DesignApp registerNavigationGuard={registerNavigationGuard} /> : <ObserveBoundary><Suspense fallback={<p>Opening OBSERVE…</p>}><ObserveApp loadSnapshot={loadSnapshot} /></Suspense></ObserveBoundary>}
     </div>
   </div>;
 }

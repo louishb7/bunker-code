@@ -177,6 +177,8 @@ test('Explorer navigates factual territories and focused file relationships in a
     await page.waitForSelector('[data-field-relation-group] li button');
     await page.click('[data-field-relation-group] li button');
     await page.waitForSelector('[data-system-map-field-relation]', { timeout: 5000 });
+    // The inspector and React Flow synchronize in separate renders.
+    await page.waitForSelector('.react-flow__edge', { timeout: 5000 });
     assert.equal(await page.$$eval('.react-flow__edge', (edges) => edges.length), 1);
     await page.click('[data-system-map-field-relation] summary');
     assert.ok(await page.$('[data-system-map-field-relation] code'));
