@@ -8,36 +8,36 @@ export type ConsiderationStatus = "unreviewed" | "considered" | "not-relevant";
 export interface Consideration { id: string; title: string; question: string; whyItMatters: string }
 export const CONSIDERATIONS: Readonly<Record<SemanticKind, readonly Consideration[]>> = {
   "queue-event": [
-    { id: "duplicate-delivery", title: "Duplicate delivery", question: "Can this message be processed more than once?", whyItMatters: "Some delivery strategies may redeliver messages after failures." },
-    { id: "failure-retry", title: "Failure / retry behavior", question: "What happens when processing fails?", whyItMatters: "Retries and failure handling affect recovery and side effects." },
-    { id: "ordering", title: "Ordering", question: "Does processing order matter?", whyItMatters: "Concurrent consumers may observe messages in a different order." },
-    { id: "processing-delay", title: "Processing delay", question: "How long can processing wait?", whyItMatters: "Delayed work may affect the user-facing result." },
+    { id: "duplicate-delivery", title: "Entrega duplicada", question: "Esta mensagem pode ser processada mais de uma vez?", whyItMatters: "Alguns mecanismos podem reenviar uma mensagem depois de uma falha." },
+    { id: "failure-retry", title: "Falhas e novas tentativas", question: "O que acontece quando o processamento falha?", whyItMatters: "Uma nova tentativa pode repetir efeitos de uma operação anterior." },
+    { id: "ordering", title: "Ordem das mensagens", question: "A ordem de processamento importa?", whyItMatters: "Consumidores simultâneos podem receber mensagens em outra ordem." },
+    { id: "processing-delay", title: "Atraso no processamento", question: "Quanto tempo esse trabalho pode esperar?", whyItMatters: "Um atraso pode afetar o resultado esperado por quem usa o sistema." },
   ],
   "data-store": [
-    { id: "data-ownership", title: "Data ownership", question: "Who owns this data?", whyItMatters: "Clear ownership helps prevent conflicting writes and unclear responsibilities." },
-    { id: "consistency", title: "Consistency", question: "What consistency does this data require?", whyItMatters: "Reads and writes may not become visible at the same time." },
-    { id: "availability", title: "Availability", question: "What happens if the store is unavailable?", whyItMatters: "Unavailable state can interrupt dependent operations." },
-    { id: "sensitivity-retention", title: "Sensitivity / retention", question: "Is this data sensitive or subject to retention rules?", whyItMatters: "Storage and deletion choices depend on data obligations." },
+    { id: "data-ownership", title: "Responsável pelos dados", question: "Quem é responsável por estes dados?", whyItMatters: "Definir essa responsabilidade ajuda a evitar gravações conflitantes." },
+    { id: "consistency", title: "Consistência", question: "Quando uma alteração precisa ficar visível para leitura?", whyItMatters: "Uma gravação pode não aparecer imediatamente para todos os leitores." },
+    { id: "availability", title: "Disponibilidade", question: "O que acontece se este armazenamento ficar indisponível?", whyItMatters: "Outras partes do sistema podem depender desses dados para continuar." },
+    { id: "sensitivity-retention", title: "Dados sensíveis e retenção", question: "Há dados sensíveis ou um prazo para mantê-los?", whyItMatters: "O tipo de dado influencia como ele é protegido e quando deve ser removido." },
   ],
   "external-system": [
-    { id: "availability", title: "Availability", question: "What happens when this dependency is unavailable?", whyItMatters: "External outages can cross into this system." },
-    { id: "timeout", title: "Timeout", question: "How long should a call wait?", whyItMatters: "Unbounded waits can tie up local work." },
-    { id: "rate-limiting", title: "Rate limiting", question: "Can requests be limited?", whyItMatters: "A dependency may reject bursts or impose quotas." },
-    { id: "ownership", title: "Ownership", question: "Who owns this dependency?", whyItMatters: "Ownership determines who can change contracts or resolve incidents." },
+    { id: "availability", title: "Disponibilidade", question: "O que acontece quando o serviço externo fica indisponível?", whyItMatters: "Uma falha fora deste projeto também pode afetar seu funcionamento." },
+    { id: "timeout", title: "Tempo de espera", question: "Quanto tempo uma chamada deve esperar pela resposta?", whyItMatters: "Esperas sem limite podem prender recursos e atrasar outras operações." },
+    { id: "rate-limiting", title: "Limite de requisições", question: "Esse serviço limita a quantidade de chamadas?", whyItMatters: "O serviço pode recusar picos de uso ou impor cotas." },
+    { id: "ownership", title: "Responsável pelo serviço", question: "Quem mantém esse serviço externo?", whyItMatters: "Saber quem é responsável ajuda quando contratos mudam ou ocorrem falhas." },
   ],
   "boundary": [
-    { id: "validation", title: "Validation", question: "How is input validated?", whyItMatters: "Invalid input can cross a boundary into trusted work." },
-    { id: "auth", title: "Authentication / authorization", question: "Who can cross this boundary?", whyItMatters: "Identity and permissions affect accessible operations." },
-    { id: "latency-error", title: "Latency / error contract", question: "What latency and errors should callers expect?", whyItMatters: "Callers need a predictable outcome when work is slow or fails." },
+    { id: "validation", title: "Validação de entrada", question: "Como os dados recebidos são validados?", whyItMatters: "Dados inválidos não devem seguir como se fossem confiáveis." },
+    { id: "auth", title: "Identidade e permissão", question: "Quem pode usar esta entrada e fazer o quê?", whyItMatters: "A identidade e as permissões definem quais operações ficam acessíveis." },
+    { id: "latency-error", title: "Tempo de resposta e erros", question: "Que demora e que erros quem chama deve esperar?", whyItMatters: "Quem chama precisa saber o que ocorre quando uma operação falha ou demora." },
   ],
   "component": [
-    { id: "owned-responsibility", title: "Owned responsibility", question: "What responsibility does this component own?", whyItMatters: "A clear responsibility makes boundaries and changes easier to reason about." },
-    { id: "dependencies", title: "Dependencies", question: "What does it depend on?", whyItMatters: "Dependencies affect how the component can change and fail." },
-    { id: "dependents", title: "Dependents", question: "What depends on it?", whyItMatters: "Changes may affect callers and downstream behavior." },
+    { id: "owned-responsibility", title: "Responsabilidade principal", question: "O que esta parte faz dentro do sistema?", whyItMatters: "Uma responsabilidade clara facilita entender seus limites e alterações." },
+    { id: "dependencies", title: "Dependências", question: "De quais outras partes ela precisa?", whyItMatters: "Essas dependências influenciam mudanças e possíveis falhas." },
+    { id: "dependents", title: "Quem depende dela", question: "Quais partes precisam desta?", whyItMatters: "Uma alteração aqui pode afetar quem a utiliza." },
   ],
   "actor": [
-    { id: "accessible-boundaries", title: "Accessible boundaries", question: "Which boundaries can this actor reach?", whyItMatters: "Reachability defines the actor's entry points." },
-    { id: "permissions", title: "Permissions / capabilities", question: "What can this actor do?", whyItMatters: "Different actors may require different capabilities." },
+    { id: "accessible-boundaries", title: "Entradas acessíveis", question: "Por quais entradas esta pessoa ou sistema pode interagir?", whyItMatters: "Essas entradas mostram como a interação começa." },
+    { id: "permissions", title: "Permissões e capacidades", question: "O que esta pessoa ou sistema pode fazer?", whyItMatters: "Quem usa o sistema pode precisar de permissões diferentes." },
   ],
 };
 
@@ -91,7 +91,7 @@ export function createLayoutDocument(): LayoutDocument {
   return { schemaVersion: 1, nodes: [], viewport: { x: 0, y: 0, zoom: 1 } };
 }
 
-export function createEntity(document: DesignDocument, kind: SemanticKind, name = "Untitled"): { document: DesignDocument; entity: DesignEntity } {
+export function createEntity(document: DesignDocument, kind: SemanticKind, name = "Sem nome"): { document: DesignDocument; entity: DesignEntity } {
   const entity: DesignEntity = { id: `entity:${document.nextId}`, kind, name, technology: "", purpose: "", notes: "", considerationStates: {}, decisions: [] };
   return { document: { ...document, nextId: document.nextId + 1, entities: [...document.entities, entity] }, entity };
 }
@@ -110,7 +110,7 @@ export function duplicateEntity(document: DesignDocument, entityId: string): { d
   if (!original) throw new Error("Entity does not exist.");
   let nextId = document.nextId;
   const decisions = original.decisions.map((decision) => ({ ...decision, id: `decision:${nextId++}` }));
-  const entity: DesignEntity = { ...original, id: `entity:${nextId++}`, name: `${original.name} copy`,
+  const entity: DesignEntity = { ...original, id: `entity:${nextId++}`, name: `${original.name} (cópia)`,
     considerationStates: { ...original.considerationStates }, decisions };
   return { document: { ...document, nextId, entities: [...document.entities, entity] }, entity };
 }

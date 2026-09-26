@@ -6,7 +6,7 @@ export function loadStudio(): DesignSnapshot {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw === null) return { design: createDesignDocument(), layout: createLayoutDocument() };
   const value: unknown = JSON.parse(raw);
-  if (!isRecord(value)) throw new Error("Invalid saved Studio V1 document.");
+  if (!isRecord(value)) throw new Error("O documento salvo do Studio V1 é inválido.");
   const design = parseDesignDocument(value.design);
   return { design, layout: parseLayoutDocument(value.layout, design) };
 }

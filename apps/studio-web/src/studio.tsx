@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ReactFlow, ReactFlowProvider, useEdgesState, useNodesState, useReactFlow, type Connection, type Viewport } from "@xyflow/react";
 import { addDecision, commitHistory, createDesignDocument, createEntity, createHistory, createLayoutDocument, createRelationship, deleteEntity, deleteRelationship, discardLastHistory, duplicateEntity, redoHistory, RELATIONSHIP_KINDS, replacePresentHistory, setConsiderationStatus, undoHistory, updateEntity, updateRelationship,
   type DesignDocument, type DesignHistory, type DesignSnapshot, type LayoutDocument, type SemanticKind, type SystemContext } from "@bunker-code/design-model";
-import { EDGE_TYPES, KIND_LABELS, NODE_TYPES, RELATIONSHIP_LABELS, projectEdges, projectNodes, type StudioEdge, type StudioNode } from "./studio-projection";
+import { EDGE_TYPES, NODE_TYPES, projectEdges, projectNodes, type StudioEdge, type StudioNode } from "./studio-projection";
+import { CONCEPT_LANGUAGE, CREATION_ORDER, RELATIONSHIP_LANGUAGE } from "./studio-language";
 import { StudioPanelView, type StudioPanel } from "./studio-panels";
 import { loadStudio, saveStudio } from "./storage";
 
@@ -13,12 +14,12 @@ type Editing = { id: string; isNew: boolean } | null;
 
 function initialState(): { history: DesignHistory; error: string | null } {
   try { return { history: createHistory(loadStudio()), error: null }; }
-  catch (error) { return { history: createHistory({ design: createDesignDocument(), layout: createLayoutDocument() }), error: error instanceof Error ? error.message : "Unable to load Studio." }; }
+  catch (error) { return { history: createHistory({ design: createDesignDocument(), layout: createLayoutDocument() }), error: error instanceof Error ? error.message : "Não foi possível abrir os dados locais do Studio." }; }
 }
 
 export function Studio() {
   const [initial] = useState(initialState);
-  if (initial.error) return <div className="studio-recovery" role="alert"><h1>Saved Studio work could not be opened</h1><p>{initial.error}</p><p>The saved document remains untouched in this browser.</p></div>;
+  if (initial.error) return <div className="studio-recovery" role="alert"><h1>Não foi possível abrir o trabalho salvo</h1><p>Os dados deste navegador não foram alterados.</p><details><summary>Detalhes do erro</summary><p>{initial.error}</p></details></div>;
   return <ReactFlowProvider><StudioCanvas initial={initial.history} /></ReactFlowProvider>;
 }
 
@@ -55,7 +56,7 @@ function StudioCanvas({ initial }: { initial: DesignHistory }) {
   const closeTransient = useCallback(() => { setCreateMenu(null); setConnectionMenu(null); setPanel(null); }, []);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => { try { saveStudio(history.present); setError(""); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save locally."); } }, 220);
+    const timeout = window.setTimeout(() => { try { saveStudio(history.present); setError(""); } catch (cause) { setError(cause instanceof Error ? cause.message : "Erro ao salvar os dados locais."); } }, 220);
     const flush = () => { window.clearTimeout(timeout); try { saveStudio(historyRef.current.present); } catch { /* The visible error is set by the scheduled write. */ } };
     window.addEventListener("pagehide", flush);
     return () => { window.clearTimeout(timeout); window.removeEventListener("pagehide", flush); };
@@ -107,7 +108,7 @@ function StudioCanvas({ initial }: { initial: DesignHistory }) {
 
   function openCreateAt(clientX: number, clientY: number) {
     const position = flow.screenToFlowPosition({ x: clientX, y: clientY });
-    setCreateMenu({ x: Math.min(clientX, window.innerWidth - 280), y: Math.min(clientY, window.innerHeight - 360), flowX: position.x, flowY: position.y });
+    setCreateMenu({ x: Math.min(clientX, window.innerWidth - 330), y: Math.min(clientY, window.innerHeight - 490), flowX: position.x, flowY: position.y });
     setConnectionMenu(null); setPanel(null); setSelection(null);
   }
   function createAt(kind: SemanticKind) {
@@ -123,7 +124,7 @@ function StudioCanvas({ initial }: { initial: DesignHistory }) {
     const result = createRelationship(snapshot.design, connection.source, connection.target);
     commit({ ...snapshot, design: result.document });
     setSelection(null);
-    setConnectionMenu({ x: Math.min(lastPointer.current.x, window.innerWidth - 250), y: Math.min(lastPointer.current.y, window.innerHeight - 320), relationshipId: result.relationship.id });
+    setConnectionMenu({ x: Math.min(lastPointer.current.x, window.innerWidth - 330), y: Math.min(lastPointer.current.y, window.innerHeight - 440), relationshipId: result.relationship.id });
   }
   function classifyConnection(kind: typeof RELATIONSHIP_KINDS[number]) {
     if (!connectionMenu) return;
@@ -199,17 +200,22 @@ function StudioCanvas({ initial }: { initial: DesignHistory }) {
       onNodeDoubleClick={(event, node) => { event.stopPropagation(); startEditing({ id: node.id, isNew: false }); setSelection(null); }}
       onEdgeClick={(_event, edge) => { setSelection({ type: "edge", id: edge.id }); setCreateMenu(null); setConnectionMenu(null); }}
       deleteKeyCode={null} zoomOnDoubleClick={false} snapToGrid={false} panOnScroll={false} selectionOnDrag={false} fitView={false} minZoom={0.25} maxZoom={2.5}
-      proOptions={{ hideAttribution: true }} aria-label="BunkerCode design canvas" />
-    <div className="studio-header"><span className="studio-brand">BunkerCode <strong>DESIGN</strong></span><button onClick={() => { closeTransient(); setSelection(null); setPanel({ type: "context" }); }}>System Context</button></div>
-    <button className="add-button" aria-label="Add to system" title="Add to system" onClick={() => openCreateAt(window.innerWidth / 2, window.innerHeight / 2)}>+</button>
-    <div className="zoom-hint">Scroll to zoom · drag empty space to pan</div>
-    {createMenu && <><div className="menu-dismiss" onMouseDown={() => setCreateMenu(null)} /><div className="create-menu floating-menu" style={{ left: Math.max(8, createMenu.x), top: Math.max(8, createMenu.y) }} role="menu" aria-label="Add to system">
-      <h2>Add to system</h2>{([ ["component", "Business / application responsibility"], ["boundary", "Where interactions enter or cross a boundary"], ["data-store", "Persistent state"], ["queue-event", "Asynchronous communication"], ["external-system", "Dependency outside this system"], ["actor", "User, client or caller"] ] as const).map(([kind, description]) =>
-        <button key={kind} role="menuitem" onClick={() => createAt(kind)}><strong>{KIND_LABELS[kind]}</strong><small>{description}</small></button>)}
+      proOptions={{ hideAttribution: true }} aria-label="Canvas de design do BunkerCode" />
+    <div className="studio-header"><span className="studio-brand">BunkerCode <strong>DESIGN</strong></span><div className="header-actions">
+      <button onClick={() => { closeTransient(); setSelection(null); setPanel({ type: "glossary" }); }}>Conceitos</button>
+      <button onClick={() => { closeTransient(); setSelection(null); setPanel({ type: "context" }); }}>Contexto do sistema</button>
+    </div></div>
+    {history.present.design.entities.length === 0 && <div className="empty-guidance"><h1>Comece pelo que você já sabe.</h1><p>Quem usa esse sistema?<br />Por onde algo entra?<br />O que precisa acontecer?<br />Alguma informação precisa ser guardada?</p>
+      <button onClick={() => openCreateAt(window.innerWidth / 2, window.innerHeight / 2)}>Adicionar primeira parte</button><small>Você não precisa saber arquitetura para começar.</small></div>}
+    <button className="add-button" aria-label="Adicionar ao sistema" title="Adicionar ao sistema" onClick={() => openCreateAt(window.innerWidth / 2, window.innerHeight / 2)}>+</button>
+    <div className="zoom-hint">Roda do mouse para aproximar · arraste o espaço vazio para mover</div>
+    {createMenu && <><div className="menu-dismiss" onMouseDown={() => setCreateMenu(null)} /><div className="create-menu floating-menu" style={{ left: Math.max(8, createMenu.x), top: Math.max(8, createMenu.y) }} role="menu" aria-label="O que você quer adicionar?">
+      <h2>O que você quer adicionar?</h2>{CREATION_ORDER.map((kind) =>
+        <button key={kind} role="menuitem" onClick={() => createAt(kind)}><strong>{CONCEPT_LANGUAGE[kind].action}</strong><small>{CONCEPT_LANGUAGE[kind].examples}</small><span className="menu-technical">{CONCEPT_LANGUAGE[kind].technical}</span></button>)}
     </div></>}
-    {connectionMenu && <><div className="menu-dismiss" onMouseDown={() => setConnectionMenu(null)} /><div className="connection-menu floating-menu" style={{ left: Math.max(8, connectionMenu.x), top: Math.max(8, connectionMenu.y) }} role="menu" aria-label="Connection meaning">
-      <h2>What does this connection mean?</h2>{RELATIONSHIP_KINDS.filter((kind) => kind !== "generic").map((kind) => <button key={kind} role="menuitem" onClick={() => classifyConnection(kind)}>{RELATIONSHIP_LABELS[kind]}</button>)}
-      <button role="menuitem" onClick={() => classifyConnection("generic")}>Generic</button>
+    {connectionMenu && <><div className="menu-dismiss" onMouseDown={() => setConnectionMenu(null)} /><div className="connection-menu floating-menu" style={{ left: Math.max(8, connectionMenu.x), top: Math.max(8, connectionMenu.y) }} role="menu" aria-label="Significado da relação">
+      <h2>O que esta conexão significa?</h2>{RELATIONSHIP_KINDS.filter((kind) => kind !== "generic").map((kind) => <button key={kind} role="menuitem" onClick={() => classifyConnection(kind)}><strong>{RELATIONSHIP_LANGUAGE[kind].label}</strong><small>{RELATIONSHIP_LANGUAGE[kind].explanation}</small></button>)}
+      <button role="menuitem" onClick={() => classifyConnection("generic")}><strong>{RELATIONSHIP_LANGUAGE.generic.label}</strong><small>{RELATIONSHIP_LANGUAGE.generic.explanation}</small></button>
     </div></>}
     {panel && <StudioPanelView key={`${panel.type}-${"entityId" in panel ? panel.entityId : "relationshipId" in panel ? panel.relationshipId : "context"}`} panel={panel} design={history.present.design}
       onClose={() => setPanel(null)} onPanel={setPanel}
@@ -218,6 +224,6 @@ function StudioCanvas({ initial }: { initial: DesignHistory }) {
       onConsideration={(entityId, itemId, status) => { const snapshot = current(); commitDesign(setConsiderationStatus(snapshot.design, entityId, itemId, status)); }}
       onDecision={(entityId, title, reason, status) => { const snapshot = current(); commitDesign(addDecision(snapshot.design, entityId, title, reason, status)); }}
       onRelationship={(relationship) => { const snapshot = current(); commitDesign(updateRelationship(snapshot.design, relationship)); }} />}
-    {error && <div className="save-error" role="alert">Could not save locally: {error}</div>}
+    {error && <div className="save-error" role="alert">Não foi possível salvar neste navegador: {error}</div>}
   </div>;
 }

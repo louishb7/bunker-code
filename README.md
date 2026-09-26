@@ -40,12 +40,13 @@ Analysis is static and deterministic. BunkerCode does not execute the analyzed a
 
 ## DESIGN (Studio V1)
 
-Run `pnpm design` to open a semantic-first technical whiteboard. Double-click
-empty space, choose a software concept, name it and press Enter. Connect two
-concepts to record a relationship; its meaning is optional. Selecting a concept
-shows a compact information card. Details, decisions and deterministic things
-to consider open only when requested. System Context opens as a readable summary
-before its optional fields can be edited.
+Run `pnpm design` to open the semantic-first Studio in Brazilian Portuguese.
+Double-click empty space, choose a human-readable action, name the concept and
+press Enter. Technical terms remain visible as secondary vocabulary. The empty
+canvas offers brief, optional guidance; `Conceitos` is a quick reference.
+Connect two concepts to record a relationship; its meaning is optional.
+Selection shows an information card before any edit form. Details, decisions,
+considerations and System Context open only when requested.
 
 Architectural entities and relationships are the source of truth in
 `design-model`. Node positions and viewport live in a separate layout document;
@@ -56,6 +57,15 @@ continue. DESIGN does not yet connect to OBSERVE.
 
 `pnpm explorer` continues to run the current OBSERVE surface, including its
 legacy DESIGN area. The new Studio does not alter Explorer analysis.
+
+**BunkerCode DESIGN — frozen checkpoint.** Studio V1 is functional and
+beginner-friendly in PT-BR; the analyzer and OBSERVE remain available. Product
+development is deliberately paused while practical experience grows in backend
+architecture, APIs, databases, queues, workers, cache, concurrency, consistency,
+idempotency, observability, scaling and system design. Open questions about the
+amount of guidance, how constraints affect considerations, DESIGN/OBSERVE
+convergence, model export, documentation, AI-agent context and architectural
+drift are recorded without implementation commitments.
 
 ## OBSERVE / Explorer
 
