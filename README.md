@@ -38,15 +38,21 @@ Today, BunkerCode provides:
 
 Analysis is static and deterministic. BunkerCode does not execute the analyzed application.
 
-## DESIGN (experimental Studio v0)
+## DESIGN (Studio V1)
 
-Run `pnpm design` to open the new, separate semantic whiteboard. Draw freely with
-Excalidraw tools. Select one rectangle, ellipse, diamond or frame to add system
-meaning, then edit its kind, purpose, notes, technology and decisions. **System
-Context** is optional. The canvas scene and the BunkerCode semantic model are
-separate documents linked by canvas element IDs and saved together in localStorage.
-Refresh the same browser origin to continue. This v0 does not connect DESIGN to
-OBSERVE or migrate documents from the earlier Designer inside the Explorer.
+Run `pnpm design` to open a semantic-first technical whiteboard. Double-click
+empty space, choose a software concept, name it and press Enter. Connect two
+concepts to record a relationship; its meaning is optional. Selecting a concept
+shows a compact information card. Details, decisions and deterministic things
+to consider open only when requested. System Context opens as a readable summary
+before its optional fields can be edited.
+
+Architectural entities and relationships are the source of truth in
+`design-model`. Node positions and viewport live in a separate layout document;
+React Flow provides canvas interaction, not the product model. Both documents
+are saved locally under a Studio V1 key. The Excalidraw Studio V0 was a
+discardable experiment and is not migrated. Refresh the same browser origin to
+continue. DESIGN does not yet connect to OBSERVE.
 
 `pnpm explorer` continues to run the current OBSERVE surface, including its
 legacy DESIGN area. The new Studio does not alter Explorer analysis.
@@ -206,8 +212,8 @@ rejects the entire change; removal policies preserve reference integrity.
 
 ### `packages/design-model`
 
-Independent semantic document for the experimental Studio: system context,
-canvas-linked entities, decisions and deterministic considerations.
+Independent Studio model for system context, entities, relationships, decisions
+and deterministic consideration state. Layout is separate from semantic identity.
 
 ### `apps/cli`
 
@@ -220,8 +226,8 @@ React Flow DESIGN area remains available as a legacy surface.
 
 ### `apps/studio-web`
 
-Experimental DESIGN whiteboard using the official Excalidraw package and the
-separate `design-model` package. Run with `pnpm design`.
+Semantic-first DESIGN whiteboard using React Flow for interaction and the
+separate `design-model` package for authored knowledge. Run with `pnpm design`.
 
 ## Analysis principles
 
@@ -326,7 +332,7 @@ The application build does not run analysis. It includes the generated OBSERVE
 snapshot when present; run `pnpm --filter @bunker-code/explorer-web generate:snapshot`
 before building if you want a fresh observed system. Studio builds without one.
 
-The gated browser tests cover the Explorer and its legacy DESIGN area. They use Firefox by default at:
+The gated browser tests cover Studio, Explorer and the Explorer's legacy DESIGN area. They use Firefox by default at:
 
 ```text
 /usr/bin/firefox

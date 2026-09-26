@@ -1,121 +1,223 @@
-import { useRef, useState } from "react";
-import { Excalidraw, serializeAsJSON, restore } from "@excalidraw/excalidraw";
-import { addDecision, addEntity, CONSIDERATIONS, reconcileCanvasElements, SEMANTIC_KINDS, updateEntity, type DesignDocument, type DesignEntity, type SemanticKind, type SystemContext } from "@bunker-code/design-model";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ReactFlow, ReactFlowProvider, useEdgesState, useNodesState, useReactFlow, type Connection, type Viewport } from "@xyflow/react";
+import { addDecision, commitHistory, createDesignDocument, createEntity, createHistory, createLayoutDocument, createRelationship, deleteEntity, deleteRelationship, discardLastHistory, duplicateEntity, redoHistory, RELATIONSHIP_KINDS, replacePresentHistory, setConsiderationStatus, undoHistory, updateEntity, updateRelationship,
+  type DesignDocument, type DesignHistory, type DesignSnapshot, type LayoutDocument, type SemanticKind, type SystemContext } from "@bunker-code/design-model";
+import { EDGE_TYPES, KIND_LABELS, NODE_TYPES, RELATIONSHIP_LABELS, projectEdges, projectNodes, type StudioEdge, type StudioNode } from "./studio-projection";
+import { StudioPanelView, type StudioPanel } from "./studio-panels";
 import { loadStudio, saveStudio } from "./storage";
 
-type Scene = Parameters<typeof restore>[0];
-type CanvasChange = NonNullable<React.ComponentProps<typeof Excalidraw>["onChange"]>;
-type CanvasElements = Parameters<CanvasChange>[0];
-type CanvasState = Parameters<CanvasChange>[1];
-type CanvasFiles = Parameters<CanvasChange>[2];
+type Selection = { type: "node" | "edge"; id: string } | null;
+type CreateMenu = { x: number; y: number; flowX: number; flowY: number } | null;
+type ConnectionMenu = { x: number; y: number; relationshipId: string } | null;
+type Editing = { id: string; isNew: boolean } | null;
 
-function initialStudio() {
-  try { return { ...loadStudio(), error: "" }; }
-  catch (error) { return { design: null, scene: null, error: error instanceof Error ? error.message : "Unable to load Studio." }; }
+function initialState(): { history: DesignHistory; error: string | null } {
+  try { return { history: createHistory(loadStudio()), error: null }; }
+  catch (error) { return { history: createHistory({ design: createDesignDocument(), layout: createLayoutDocument() }), error: error instanceof Error ? error.message : "Unable to load Studio." }; }
 }
 
-const contextFields: ReadonlyArray<[keyof SystemContext, string]> = [
-  ["systemName", "System name"], ["purpose", "Purpose"],
-  ["registeredUsers", "Registered users"], ["dailyActiveUsers", "Daily active users"],
-  ["peakConcurrentUsers", "Peak concurrent users"], ["peakRequestsPerSecond", "Peak requests per second"],
-  ["availabilityTarget", "Availability target"], ["latencyTarget", "Latency target"],
-  ["dataSensitivity", "Data sensitivity"], ["budgetConstraint", "Budget constraint"],
-  ["deploymentConstraint", "Deployment constraint"],
-];
-
 export function Studio() {
-  const initial = useRef(initialStudio());
-  const [design, setDesign] = useState<DesignDocument | null>(initial.current.design);
-  const designRef = useRef(design);
-  const sceneRef = useRef<string | null>(initial.current.scene === null ? null : JSON.stringify(initial.current.scene));
-  const [error, setError] = useState(initial.current.error);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [panel, setPanel] = useState<"entity" | "context" | null>(null);
-  const [kindPicker, setKindPicker] = useState(false);
+  const [initial] = useState(initialState);
+  if (initial.error) return <div className="studio-recovery" role="alert"><h1>Saved Studio work could not be opened</h1><p>{initial.error}</p><p>The saved document remains untouched in this browser.</p></div>;
+  return <ReactFlowProvider><StudioCanvas initial={initial.history} /></ReactFlowProvider>;
+}
 
-  if (!design) return <div className="studio-recovery" role="alert"><h1>Studio could not open saved work</h1><p>{error}</p><p>The saved document remains in this browser. Nothing was overwritten.</p></div>;
+function StudioCanvas({ initial }: { initial: DesignHistory }) {
+  const [history, setHistory] = useState(initial);
+  const historyRef = useRef(history);
+  const [error, setError] = useState("");
+  const [selection, setSelection] = useState<Selection>(null);
+  const [editing, setEditing] = useState<Editing>(null);
+  const editingRef = useRef<Editing>(null);
+  const [createMenu, setCreateMenu] = useState<CreateMenu>(null);
+  const [connectionMenu, setConnectionMenu] = useState<ConnectionMenu>(null);
+  const [panel, setPanel] = useState<StudioPanel | null>(null);
+  const lastPointer = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+  const lastPaneClick = useRef<{ time: number; x: number; y: number } | null>(null);
+  const lastNodeClick = useRef<{ time: number; id: string } | null>(null);
+  const flow = useReactFlow<StudioNode, StudioEdge>();
+  const [nodes, setNodes, onNodesChange] = useNodesState<StudioNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<StudioEdge>([]);
 
-  function currentDesign(): DesignDocument {
-    if (!designRef.current) throw new Error("Studio document is unavailable.");
-    return designRef.current;
+  const commit = useCallback((next: DesignSnapshot) => {
+    const updated = commitHistory(historyRef.current, next);
+    historyRef.current = updated;
+    setHistory(updated);
+  }, []);
+  const replacePresent = useCallback((next: DesignSnapshot) => {
+    const updated = replacePresentHistory(historyRef.current, next);
+    historyRef.current = updated;
+    setHistory(updated);
+  }, []);
+  const startEditing = useCallback((next: Editing) => { editingRef.current = next; setEditing(next); }, []);
+  const commitDesign = useCallback((design: DesignDocument) => commit({ design, layout: historyRef.current.present.layout }), [commit]);
+  const current = () => historyRef.current.present;
+  const closeTransient = useCallback(() => { setCreateMenu(null); setConnectionMenu(null); setPanel(null); }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { try { saveStudio(history.present); setError(""); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save locally."); } }, 220);
+    const flush = () => { window.clearTimeout(timeout); try { saveStudio(historyRef.current.present); } catch { /* The visible error is set by the scheduled write. */ } };
+    window.addEventListener("pagehide", flush);
+    return () => { window.clearTimeout(timeout); window.removeEventListener("pagehide", flush); };
+  }, [history.present]);
+
+  const rename = useCallback((id: string, name: string) => {
+    if (editingRef.current?.id !== id) return;
+    const snapshot = historyRef.current.present;
+    const entity = snapshot.design.entities.find((item) => item.id === id);
+    if (!entity) return;
+    if (!name.trim()) return;
+    const next = { ...snapshot, design: updateEntity(snapshot.design, { ...entity, name: name.trim() }) };
+    if (editingRef.current.isNew) replacePresent(next); else commit(next);
+    startEditing(null); setSelection({ type: "node", id });
+  }, [commit, replacePresent, startEditing]);
+  const cancelRename = useCallback((id: string) => {
+    if (editingRef.current?.id !== id) return;
+    if (editingRef.current.isNew) {
+      const updated = discardLastHistory(historyRef.current);
+      historyRef.current = updated; setHistory(updated); setSelection(null);
+    }
+    startEditing(null);
+  }, [startEditing]);
+  const nodeAction = useCallback((id: string, action: "details" | "considerations" | "decision" | "duplicate") => {
+    if (action === "duplicate") {
+      const snapshot = historyRef.current.present;
+      const result = duplicateEntity(snapshot.design, id);
+      const original = snapshot.layout.nodes.find((node) => node.entityId === id);
+      if (!original) return;
+      commit({ design: result.document, layout: { ...snapshot.layout, nodes: [...snapshot.layout.nodes, { entityId: result.entity.id, x: original.x + 44, y: original.y + 44 }] } });
+      setSelection({ type: "node", id: result.entity.id });
+      return;
+    }
+    setPanel({ type: action, entityId: id });
+  }, [commit]);
+  const edgeAction = useCallback((id: string, action: "edit" | "delete") => {
+    if (action === "edit") { setPanel({ type: "relationship", relationshipId: id }); return; }
+    const snapshot = historyRef.current.present;
+    commit({ ...snapshot, design: deleteRelationship(snapshot.design, id) });
+    setSelection(null);
+  }, [commit]);
+
+  const selectedNodeId = selection?.type === "node" ? selection.id : null;
+  const selectedEdgeId = selection?.type === "edge" ? selection.id : null;
+  useEffect(() => {
+    setNodes(projectNodes(history.present.design, history.present.layout, selectedNodeId, editing?.id ?? null, rename, cancelRename, nodeAction));
+    setEdges(projectEdges(history.present.design, selectedEdgeId, edgeAction));
+  }, [history.present, selectedNodeId, selectedEdgeId, editing?.id, rename, cancelRename, nodeAction, edgeAction, setNodes, setEdges]);
+
+  function openCreateAt(clientX: number, clientY: number) {
+    const position = flow.screenToFlowPosition({ x: clientX, y: clientY });
+    setCreateMenu({ x: Math.min(clientX, window.innerWidth - 280), y: Math.min(clientY, window.innerHeight - 360), flowX: position.x, flowY: position.y });
+    setConnectionMenu(null); setPanel(null); setSelection(null);
   }
-
-  function commit(next: DesignDocument) {
-    designRef.current = next;
-    setDesign(next);
-    try { saveStudio(next, sceneRef.current); setError(""); }
-    catch (cause) { setError(cause instanceof Error ? `Could not save locally: ${cause.message}` : "Could not save locally."); }
+  function createAt(kind: SemanticKind) {
+    if (!createMenu) return;
+    const snapshot = current();
+    const result = createEntity(snapshot.design, kind);
+    commit({ design: result.document, layout: { ...snapshot.layout, nodes: [...snapshot.layout.nodes, { entityId: result.entity.id, x: createMenu.flowX - 105, y: createMenu.flowY - 38 }] } });
+    setCreateMenu(null); startEditing({ id: result.entity.id, isNew: true });
   }
-
-  function handleCanvasChange(elements: CanvasElements, appState: CanvasState, files: CanvasFiles) {
-    const selected = elements.filter((element) => !element.isDeleted && appState.selectedElementIds[element.id] &&
-      ["rectangle", "ellipse", "diamond", "frame"].includes(element.type));
-    const totalSelected = Object.values(appState.selectedElementIds).filter(Boolean).length;
-    const nextId = totalSelected === 1 && selected.length === 1 ? selected[0]?.id ?? null : null;
-    setSelectedId((current) => current === nextId ? current : nextId);
-    sceneRef.current = serializeAsJSON(elements, appState, files, "local");
-    const live = new Set(elements.filter((element) => !element.isDeleted).map((element) => element.id));
-    const next = reconcileCanvasElements(currentDesign(), live);
-    if (next !== designRef.current) { designRef.current = next; setDesign(next); }
-    try { saveStudio(next, sceneRef.current); setError(""); }
-    catch (cause) { setError(cause instanceof Error ? `Could not save locally: ${cause.message}` : "Could not save locally."); }
+  function onConnect(connection: Connection) {
+    if (!connection.source || !connection.target || connection.source === connection.target) return;
+    const snapshot = current();
+    const result = createRelationship(snapshot.design, connection.source, connection.target);
+    commit({ ...snapshot, design: result.document });
+    setSelection(null);
+    setConnectionMenu({ x: Math.min(lastPointer.current.x, window.innerWidth - 250), y: Math.min(lastPointer.current.y, window.innerHeight - 320), relationshipId: result.relationship.id });
   }
-
-  const selectedEntity = design.entities.find((entity) => entity.canvasElementId === selectedId);
-  function makeSemantic(kind: SemanticKind) {
-    if (!selectedId) return;
-    commit(addEntity(currentDesign(), selectedId, kind));
-    setKindPicker(false);
-    setPanel("entity");
+  function classifyConnection(kind: typeof RELATIONSHIP_KINDS[number]) {
+    if (!connectionMenu) return;
+    const snapshot = current();
+    const relationship = snapshot.design.relationships.find((item) => item.id === connectionMenu.relationshipId);
+    if (relationship && relationship.kind !== kind) replacePresent({ ...snapshot, design: updateRelationship(snapshot.design, { ...relationship, kind }) });
+    setConnectionMenu(null);
   }
-  function editEntity(entity: DesignEntity) { commit(updateEntity(currentDesign(), entity)); }
-  function editContext(key: keyof SystemContext, value: string) {
-    const current = currentDesign();
-    commit({ ...current, systemContext: { ...current.systemContext, [key]: value } });
+  function deleteSelection() {
+    if (!selection) return;
+    const snapshot = current();
+    if (selection.type === "node") commit({ design: deleteEntity(snapshot.design, selection.id), layout: { ...snapshot.layout, nodes: snapshot.layout.nodes.filter((node) => node.entityId !== selection.id) } });
+    else commit({ ...snapshot, design: deleteRelationship(snapshot.design, selection.id) });
+    lastNodeClick.current = null;
+    setSelection(null);
   }
+  function moveDone() {
+    const snapshot = current();
+    const positions = new Map(flow.getNodes().map((node) => [node.id, node.position]));
+    const moved = snapshot.layout.nodes.some((node) => { const point = positions.get(node.entityId); return point && (point.x !== node.x || point.y !== node.y); });
+    if (!moved) return;
+    commit({ ...snapshot, layout: { ...snapshot.layout, nodes: snapshot.layout.nodes.map((node) => { const point = positions.get(node.entityId); return point ? { entityId: node.entityId, x: point.x, y: point.y } : node; }) } });
+  }
+  function viewportDone(_event: MouseEvent | TouchEvent | null, viewport: Viewport) {
+    const old = historyRef.current;
+    if (old.present.layout.viewport.x === viewport.x && old.present.layout.viewport.y === viewport.y && old.present.layout.viewport.zoom === viewport.zoom) return;
+    const updated = { ...old, present: { ...old.present, layout: { ...old.present.layout, viewport } } };
+    historyRef.current = updated; setHistory(updated);
+  }
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      const target = event.target;
+      const typing = target instanceof HTMLElement && !!target.closest("input, textarea, select, [contenteditable='true']");
+      if (event.key === "Escape") {
+        if (panel || createMenu || connectionMenu) { event.preventDefault(); closeTransient(); }
+        else if (!typing) setSelection(null);
+        return;
+      }
+      if (typing) return;
+      if ((event.metaKey || event.ctrlKey) && (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")) {
+        event.preventDefault();
+        const redo = event.key.toLowerCase() === "y" || event.shiftKey;
+        const updated = redo ? redoHistory(historyRef.current) : undoHistory(historyRef.current);
+        historyRef.current = updated; setHistory(updated); setSelection(null); lastNodeClick.current = null; closeTransient(); startEditing(null);
+      } else if ((event.key === "Delete" || event.key === "Backspace") && !panel && !createMenu && !connectionMenu) { event.preventDefault(); deleteSelection(); }
+      else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d" && selection?.type === "node") { event.preventDefault(); nodeAction(selection.id, "duplicate"); }
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [panel, createMenu, connectionMenu, selection, closeTransient, nodeAction, startEditing]);
 
-  return <div className="studio-shell">
-    <Excalidraw
-      theme="light"
-      initialData={initial.current.scene === null ? undefined : restore(initial.current.scene as Scene, null, null)}
-      onChange={handleCanvasChange}
-      renderTopRightUI={() => <div className="studio-controls">
-        <span className="studio-brand">BunkerCode <strong>DESIGN</strong></span>
-        <button onClick={() => { setPanel("context"); setKindPicker(false); }}>System Context</button>
-      </div>}
-    />
-    {selectedId && !panel && <div className="selection-action">
-      {selectedEntity ? <button onClick={() => setPanel("entity")}>Open system meaning</button> : <button onClick={() => setKindPicker(!kindPicker)}>Add system meaning</button>}
-      {kindPicker && !selectedEntity && <div className="kind-menu" role="menu" aria-label="Choose system meaning">
-        {SEMANTIC_KINDS.map((kind) => <button key={kind} onClick={() => makeSemantic(kind)}>{kind}</button>)}
-      </div>}
-    </div>}
-    {panel && <div className="panel-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPanel(null); }}>
-      <section className="detail-panel" role="dialog" aria-modal="true" aria-label={panel === "context" ? "System Context" : "System meaning"}>
-        <header><div><small>BunkerCode DESIGN</small><h2>{panel === "context" ? "System Context" : "System meaning"}</h2></div><button className="close-button" aria-label="Close details" onClick={() => setPanel(null)}>×</button></header>
-        {panel === "context" ? <div className="field-list">
-          <p className="subtle">Optional context for this design. Keep drawing whenever you like.</p>
-          {contextFields.map(([key, label], index) => <label key={key}>{index === 2 && <h3>Scale assumptions</h3>}{index === 6 && <h3>Requirements / constraints</h3>}{label}
-            {key === "purpose" ? <textarea value={design.systemContext[key]} onChange={(event) => editContext(key, event.target.value)} /> :
-              <input value={design.systemContext[key]} onChange={(event) => editContext(key, event.target.value)} />}
-          </label>)}
-        </div> : selectedEntity ? <div className="field-list">
-          <label>Name<input value={selectedEntity.name} onChange={(event) => editEntity({ ...selectedEntity, name: event.target.value })} /></label>
-          <label>Kind<select value={selectedEntity.kind} onChange={(event) => editEntity({ ...selectedEntity, kind: event.target.value as SemanticKind })}>{SEMANTIC_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}</select></label>
-          <label>Technology <span className="optional">optional</span><input value={selectedEntity.technology ?? ""} onChange={(event) => editEntity({ ...selectedEntity, technology: event.target.value })} /></label>
-          <label>Purpose<textarea value={selectedEntity.purpose} onChange={(event) => editEntity({ ...selectedEntity, purpose: event.target.value })} /></label>
-          <label>Notes<textarea value={selectedEntity.notes} onChange={(event) => editEntity({ ...selectedEntity, notes: event.target.value })} /></label>
-          <div className="section-heading"><h3>Decisions</h3><button onClick={() => commit(addDecision(currentDesign(), selectedEntity.id))}>Add decision</button></div>
-          {selectedEntity.decisions.map((decision) => <div className="decision" key={decision.id}>
-            <label>Title<input value={decision.title} onChange={(event) => editEntity({ ...selectedEntity, decisions: selectedEntity.decisions.map((item) => item.id === decision.id ? { ...item, title: event.target.value } : item) })} /></label>
-            <label>Reason<textarea value={decision.reason} onChange={(event) => editEntity({ ...selectedEntity, decisions: selectedEntity.decisions.map((item) => item.id === decision.id ? { ...item, reason: event.target.value } : item) })} /></label>
-            <label>Status<select value={decision.status} onChange={(event) => editEntity({ ...selectedEntity, decisions: selectedEntity.decisions.map((item) => item.id === decision.id ? { ...item, status: event.target.value as typeof decision.status } : item) })}><option value="open">open</option><option value="accepted">accepted</option><option value="rejected">rejected</option></select></label>
-            <button className="text-button" onClick={() => editEntity({ ...selectedEntity, decisions: selectedEntity.decisions.filter((item) => item.id !== decision.id) })}>Remove decision</button>
-          </div>)}
-          <div className="considerations"><h3>Things to consider</h3><p className="subtle">Prompts for your thinking. No response is required.</p><ul>{CONSIDERATIONS[selectedEntity.kind].map((question) => <li key={question}>{question}</li>)}</ul></div>
-        </div> : <p>This shape no longer exists. Close this panel and select another shape.</p>}
-      </section>
-    </div>}
-    {error && <div className="save-error" role="alert">{error}</div>}
+  return <div className="studio-shell" onMouseMove={(event) => { lastPointer.current = { x: event.clientX, y: event.clientY }; }}>
+    <ReactFlow<StudioNode, StudioEdge> nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+      onConnect={onConnect} onNodeDragStop={moveDone} onMoveEnd={viewportDone} defaultViewport={initial.present.layout.viewport}
+      onPaneClick={(event) => {
+        const previous = lastPaneClick.current;
+        const now = Date.now();
+        if (previous && now - previous.time < 400 && Math.hypot(previous.x - event.clientX, previous.y - event.clientY) < 10) {
+          lastPaneClick.current = null;
+          openCreateAt(event.clientX, event.clientY);
+        } else {
+          lastPaneClick.current = { time: now, x: event.clientX, y: event.clientY };
+          setSelection(null); setCreateMenu(null);
+        }
+      }}
+      onNodeClick={(_event, node) => {
+        const previous = lastNodeClick.current;
+        const now = Date.now();
+        if (previous?.id === node.id && now - previous.time < 400) { lastNodeClick.current = null; startEditing({ id: node.id, isNew: false }); setSelection(null); }
+        else { lastNodeClick.current = { id: node.id, time: now }; setSelection({ type: "node", id: node.id }); }
+        setCreateMenu(null); setConnectionMenu(null);
+      }}
+      onNodeDoubleClick={(event, node) => { event.stopPropagation(); startEditing({ id: node.id, isNew: false }); setSelection(null); }}
+      onEdgeClick={(_event, edge) => { setSelection({ type: "edge", id: edge.id }); setCreateMenu(null); setConnectionMenu(null); }}
+      deleteKeyCode={null} zoomOnDoubleClick={false} snapToGrid={false} panOnScroll={false} selectionOnDrag={false} fitView={false} minZoom={0.25} maxZoom={2.5}
+      proOptions={{ hideAttribution: true }} aria-label="BunkerCode design canvas" />
+    <div className="studio-header"><span className="studio-brand">BunkerCode <strong>DESIGN</strong></span><button onClick={() => { closeTransient(); setSelection(null); setPanel({ type: "context" }); }}>System Context</button></div>
+    <button className="add-button" aria-label="Add to system" title="Add to system" onClick={() => openCreateAt(window.innerWidth / 2, window.innerHeight / 2)}>+</button>
+    <div className="zoom-hint">Scroll to zoom · drag empty space to pan</div>
+    {createMenu && <><div className="menu-dismiss" onMouseDown={() => setCreateMenu(null)} /><div className="create-menu floating-menu" style={{ left: Math.max(8, createMenu.x), top: Math.max(8, createMenu.y) }} role="menu" aria-label="Add to system">
+      <h2>Add to system</h2>{([ ["component", "Business / application responsibility"], ["boundary", "Where interactions enter or cross a boundary"], ["data-store", "Persistent state"], ["queue-event", "Asynchronous communication"], ["external-system", "Dependency outside this system"], ["actor", "User, client or caller"] ] as const).map(([kind, description]) =>
+        <button key={kind} role="menuitem" onClick={() => createAt(kind)}><strong>{KIND_LABELS[kind]}</strong><small>{description}</small></button>)}
+    </div></>}
+    {connectionMenu && <><div className="menu-dismiss" onMouseDown={() => setConnectionMenu(null)} /><div className="connection-menu floating-menu" style={{ left: Math.max(8, connectionMenu.x), top: Math.max(8, connectionMenu.y) }} role="menu" aria-label="Connection meaning">
+      <h2>What does this connection mean?</h2>{RELATIONSHIP_KINDS.filter((kind) => kind !== "generic").map((kind) => <button key={kind} role="menuitem" onClick={() => classifyConnection(kind)}>{RELATIONSHIP_LABELS[kind]}</button>)}
+      <button role="menuitem" onClick={() => classifyConnection("generic")}>Generic</button>
+    </div></>}
+    {panel && <StudioPanelView key={`${panel.type}-${"entityId" in panel ? panel.entityId : "relationshipId" in panel ? panel.relationshipId : "context"}`} panel={panel} design={history.present.design}
+      onClose={() => setPanel(null)} onPanel={setPanel}
+      onContext={(context: SystemContext) => { const snapshot = current(); commitDesign({ ...snapshot.design, systemContext: context }); }}
+      onEntity={(entity) => { const snapshot = current(); commitDesign(updateEntity(snapshot.design, entity)); }}
+      onConsideration={(entityId, itemId, status) => { const snapshot = current(); commitDesign(setConsiderationStatus(snapshot.design, entityId, itemId, status)); }}
+      onDecision={(entityId, title, reason, status) => { const snapshot = current(); commitDesign(addDecision(snapshot.design, entityId, title, reason, status)); }}
+      onRelationship={(relationship) => { const snapshot = current(); commitDesign(updateRelationship(snapshot.design, relationship)); }} />}
+    {error && <div className="save-error" role="alert">Could not save locally: {error}</div>}
   </div>;
 }
